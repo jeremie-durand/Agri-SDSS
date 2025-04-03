@@ -3,9 +3,13 @@ Projet de maîtrise sur le développement d'une architecture côté-serveur d'un
 
 ## Tools
 **MapServer** vs GeoServer -> serveur cartographique
+
 DuckDB vs MongoDB vs PostgreSQL -> base de données
+
 Python (via Flask, APIs, etc.) -> backend / acquisition et traitement des données
+
 Docker -> container
+
 GitHub -> partage / publication / collaboration
 
 ## APIs
