@@ -1,0 +1,14 @@
+mise à jour : yearly
+couverture : Canada
+fichier : WMS et ESRI REST
+crs : ?
+licence : https://ouvert.canada.ca/fr/licence-du-gouvernement-ouvert-canada
+description : 
+L’inventaire annuel des cultures (IAC) sont des données produites par AAC disponible sous forme de services web représentant des cartes numériques. Ces cartes permettent le suivi de l’évolution de la production agricole au Canada via une méthodologie utilisant un arbre de décision appliquée à des images satellitaires optiques et radar (AAC, 2024-b). Cette approche atteint une précision d’au moins 85 % à une résolution spatiale de 30 mètres (AAC, 2024-b). 
+
+BESOIN : 
+- Télécharger les données des 10 dernières années + l'année en cours (donc 11 fichier)
+- Détection de changements dans la BD si oui ->
+- Vérification des données
+- Uniformisation
+- Transfert vers la BD
