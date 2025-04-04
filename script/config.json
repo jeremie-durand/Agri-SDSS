@@ -1,3 +1,4 @@
 {
-    "DIR":"project_path"
+    "DIR":"project_path",
+    "TEMPLATES_DIR":"html_templates_path"
 }
