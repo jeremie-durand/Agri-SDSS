@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Earth Engine Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</head>
+<body>
+    <h1>Visualisez les données satellites</h1>
+
+    <!-- Formulaire pour la sélection des paramètres de la carte -->
+    <form id="params-form">
+        <label for="satellite">Sélectionnez le satellite:</label>
+        <select name="satellite" id="satellite">
+            <option value="Sentinel-2">Sentinel-2</option>
+            <option value="Landsat-8">Landsat-8</option>
+            <option value="MODIS-Terra">MODIS-Terra</option>
+        </select>
+        <br><br>
+        
+        <label for="start_year">Année de début:</label>
+        <input type="number" id="start_year" name="start_year" value="2000" min="2000" max="2024" required>
+        <br><br>
+
+        <label for="end_year">Année de fin:</label>
+        <input type="number" id="end_year" name="end_year" value="2024" min="2000" max="2024" required>
+        <br><br>
+
+        <label for="study_area">Zone d'étude :</label>
+        <select name="study_area" id="study_area">
+            <option value="sud_du_quebec">Sud du Québec</option>
+        </select>
+        <br><br>
+
+
+        <fieldset>
+            <legend>Choisissez les indices à calculer :</legend>
+            <label><input type="checkbox" name="indices" value="NDVI"> NDVI</label><br>
+            <label><input type="checkbox" name="indices" value="SAVI"> SAVI</label><br>
+            <label><input type="checkbox" name="indices" value="EVI"> EVI</label><br>
+            <label><input type="checkbox" name="indices" value="OMI"> OMI</label><br>
+            <label><input type="checkbox" name="indices" value="SI"> SI</label><br>
+        </fieldset>
+        <br><br>
+        
+        <button type="button" id="run-button-map">Lancer map</button>
+        <button type="button" id="run-button-wms">Lancer wms</button>
+    </form>
+
+    <h2>Carte générée:</h2>
+    <div id="map-container" style="width: 100%; height: 600px;"></div>
+
+    <script>
+        document.getElementById('run-button-map').addEventListener('click', async function() {
+            const satellite = document.getElementById('satellite').value;
+            const startYear = document.getElementById('start_year').value;
+            const endYear = document.getElementById('end_year').value;
+            const studyArea = document.getElementById('study_area').value;
+            const indices = Array.from(document.querySelectorAll('input[name="indices"]:checked')).map(checkbox => checkbox.value);
+
+            const requestData = {
+                satellite,
+                start_year: startYear,
+                end_year: endYear,
+                study_area: studyArea,
+                indices
+            };
+
+            try {
+                const response = await fetch('/generate-map', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    satellite: satellite,
+                    start_year: parseInt(startYear),
+                    end_year: parseInt(endYear),
+                    study_area: studyArea, 
+                    indices: indices
+                })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    document.getElementById('map-container').innerHTML = result.map_html;
+                } else {
+                    alert(result.message);
+                }
+
+            } catch (error) {
+                console.error('Erreur lors de la requête de génération de la carte:', error);
+            }
+        });
+    </script>
+
+    <h2>URL du service WMS temporel</h2>
+    <div id="wms-url-container"></div>
+    
+    <script>
+        document.getElementById('run-button-wms').addEventListener('click', async function() {
+            const satellite = document.getElementById('satellite').value;
+            const startYear = document.getElementById('start_year').value;
+            const endYear = document.getElementById('end_year').value;
+            const studyArea = document.getElementById('study_area').value;
+            const indices = Array.from(document.querySelectorAll('input[name="indices"]:checked')).map(checkbox => checkbox.value);
+
+            const requestData = {
+                satellite,
+                start_year: startYear,
+                end_year: endYear,
+                study_area: studyArea,
+                indices
+            };
+
+            try {
+                const response = await fetch('/generate-wms', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData)
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Display the WMS URLs
+                    const wmsUrlContainer = document.getElementById('wms-url-container');
+                    wmsUrlContainer.innerHTML = ''; // Clear previous URLs
+                    result.wms_urls.forEach(wms => {
+                        const urlElement = document.createElement('div');
+                        urlElement.textContent = `Index: ${wms.index}, URL: ${wms.url || 'Error generating WMS'}`;
+                        wmsUrlContainer.appendChild(urlElement);
+                    });
+                } else {
+                    alert(result.message);
+                }
+
+            } catch (error) {
+                console.error('Erreur lors de la requête de génération du WMS:', error);
+            }
+        });
+    </script>
+</body>
+</html>

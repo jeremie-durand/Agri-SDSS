@@ -12,6 +12,8 @@ Docker -> container
 
 GitHub -> partage / publication / collaboration
 
+pygeoapi -> creation d'une api web pour python suivant les standards de l'OGC
+
 ## APIs
 Données Québec
 https://www.donneesquebec.ca/page-api/
@@ -34,5 +36,11 @@ view-source:https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/cartes-pedolo
 Flask -> app's backend
 
 requests -> search the web
+
+geopandas -> vector data
+
+folium -> data visualisation
+
+gee -> API de Google Earth Engine
 
 

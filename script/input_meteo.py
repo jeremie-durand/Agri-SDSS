@@ -14,7 +14,6 @@ with open(config_path, 'r') as f:
 
 DIR = config["DIR"]
 
-
 # input
 sud_du_quebec = gpd.read_file(DIR + "/data/sud_du_quebec/sud_du_quebec.shp")  # Chargement du fichier GeoJSON
 
