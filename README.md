@@ -41,6 +41,8 @@ geopandas -> vector data
 
 folium -> data visualisation
 
+test allo
+
 gee -> API de Google Earth Engine
 
 
