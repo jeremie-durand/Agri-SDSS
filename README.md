@@ -37,11 +37,11 @@ Flask -> app's backend
 
 requests -> search the web
 
-geopandas -> vector data
+geopandas -> geospatial data manipulation
 
 folium -> data visualisation
 
-test allo
+pandas -> data manipulation
 
 gee -> API de Google Earth Engine
 
