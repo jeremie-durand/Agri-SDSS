@@ -7,7 +7,7 @@ __pycache__/
 *.so
 
 # config files
-config.json
+script/config.json
 
 # Distribution / packaging
 .Python
