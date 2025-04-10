@@ -32,17 +32,16 @@ https://eccc-msc.github.io/open-data/msc-geomet/readme_en/
 IRDA - téléchargeable dans le code source
 view-source:https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/cartes-pedologiques-quebec-irda/
 
-## Python library
-Flask -> app's backend
+## Création Python env
+1. python -m venv venv
+2. linux -> source venv/bin/activate
+Or on Windows -> venv\Scripts\activate
+3. pip install -r requirements.txt
+4. venv\Scripts\activate
 
-requests -> search the web
+## GEE authentification (In terminal)
+earthengine authenticate
 
-geopandas -> geospatial data manipulation
-
-folium -> data visualisation
-
-pandas -> data manipulation
-
-gee -> API de Google Earth Engine
-
-
+## Run the app
+python -m flask run ou python script/app.py
+http://127.0.0.1:5000/
