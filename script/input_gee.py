@@ -3,23 +3,24 @@ import ee
 import folium
 import folium.plugins
 from folium import LinearColormap
+import geopandas as gpd
 
-# --------------------------------------------------------------------
-# Google Earth Engine authenticate and initialize
-# --------------------------------------------------------------------
-def gee_authenticate():
-    try:
-        ee.Authenticate()
-        print("Earth Engine authenticate successfully")
-    except ee.EEException as e:
-        print("Failed to authenticate Earth Engine: {}".format(e))
+import sys
+import platform
 
-def gee_initialize():
+# Bypass blessings if on Windows
+if platform.system() == 'Windows':
+    sys.modules['blessings'] = type('Terminal', (), {'Terminal': lambda *args, **kwargs: None})()
+
+
+# --- Authentification et Initialisation Earth Engine ---
+def authenticate_gee():
     try:
+        #ee.Authenticate()
         ee.Initialize(project='ee-jeremie539yt')
-        print("Earth Engine project initialize successfully")
-    except ee.EEException as e:
-        print("Failed to initialize Earth Engine project: {}".format(e))
+        print("Earth Engine authenticated and initialized.")
+    except Exception as e:
+        print(f"Error during authentication: {e}")
 
 # --------------------------------------------------------------------
 # FUNCTIONS
@@ -152,16 +153,57 @@ def create_map(start_year, end_year, study_area, satellite, indices=()):
     Returns:
         - str: HTML representation of the map for display in Jupyter notebooks.
     """
-    # Initialize a folium Map object centered on the study area
-    study_area_geometry = study_area.geometry()  # Assuming study_area is an ee.FeatureCollection
+    # if study area is an ee.FeatureCollection, convert it to a geometry
+    if isinstance(study_area, ee.FeatureCollection):
+        study_area_geometry = study_area.geometry() 
+        
+        # Get the bounds of the geometry (min/max latitudes and longitudes)
+        bounds = study_area_geometry.bounds().getInfo()  # This returns the bounds as a dictionary
 
-    # Get the bounds of the geometry (min/max latitudes and longitudes)
-    bounds = study_area_geometry.bounds().getInfo()  # This returns the bounds as a dictionary
+        # Extract the coordinates for the bounds (Ensure study area is not more complex)
+        coordinates = bounds['coordinates'][0]
+        min_lng, min_lat = coordinates[0]  # Lower left corner
+        max_lng, max_lat = coordinates[2]  # Upper right corner
 
-    # Extract the coordinates for the bounds (Ensure study area is not more complex)
-    coordinates = bounds['coordinates'][0]
-    min_lng, min_lat = coordinates[0]  # Lower left corner
-    max_lng, max_lat = coordinates[2]  # Upper right corner
+    elif isinstance(study_area, gpd.GeoDataFrame):
+        #Si study_area est un GeoDataFrame de geopandas, on le convertit en ee.Geometry
+        coords = study_area.geometry.values[0].exterior.coords[:]
+        study_area_geometry = ee.Geometry.Polygon(coords)
+
+        # Récupérer les limites de la géométrie (latitudes et longitudes minimales et maximales)
+        bounds = study_area_geometry.bounds()
+
+        # Ajouter du débogage pour examiner ce que retourne bounds
+        print("Bounds:", bounds.getInfo())  # Cela vous montre la structure de l'objet bounds
+
+        # Extraire les coordonnées de la bounding box du polygone
+        coordinates = bounds.getInfo()['coordinates'][0]  # Premier élément de la liste 'coordinates'
+
+        # Trouver les coordonnées minimales et maximales
+        min_lng = min([coord[0] for coord in coordinates])
+        min_lat = min([coord[1] for coord in coordinates])
+        max_lng = max([coord[0] for coord in coordinates])
+        max_lat = max([coord[1] for coord in coordinates])
+
+        print(f"Bounding box coordinates: min_lng={min_lng}, min_lat={min_lat}, max_lng={max_lng}, max_lat={max_lat}")
+
+        # Créer un GeoJSON valide pour le polygone de la bounding box
+        geojson = {
+            "type": "Polygon",
+            "coordinates": [[
+                [min_lng, min_lat], 
+                [min_lng, max_lat], 
+                [max_lng, max_lat], 
+                [max_lng, min_lat], 
+                [min_lng, min_lat]
+            ]]
+        }
+
+        # Vérifiez la validité du GeoJSON
+        print("GeoJSON:", geojson)
+
+    else:
+        raise ValueError("Unsupported study area type. Must be ee.FeatureCollection or gpd.GeoDataFrame.")
 
     # Dynamically center the map based on the study area centroid
     map_center = [study_area_geometry.centroid().coordinates().get(1).getInfo(), 

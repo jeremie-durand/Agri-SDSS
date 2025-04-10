@@ -1,4 +1,5 @@
 {
-    "DIR":"project_path",
-    "TEMPLATES_DIR":"html_templates_path"
+    "DIR":"main",
+    "HTML_TEMPLATES_DIR":"public_html/templates",
+    "METEO_VARIABLES": []
 }
