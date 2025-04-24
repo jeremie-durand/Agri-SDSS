@@ -7,6 +7,17 @@ import geopandas as gpd
 
 import sys
 import platform
+import logging
+
+# Configuration du logging
+logging.basicConfig(
+    filename='script/app.log',  # Nom du fichier de log
+    level=logging.DEBUG,  # Niveau de logging
+    format='%(asctime)s - %(levelname)s - %(message)s'  # Format du log
+)
+
+# Logger pour Earth Engine
+logger = logging.getLogger('EarthEngine')
 
 # Bypass blessings if on Windows
 if platform.system() == 'Windows':
@@ -165,42 +176,42 @@ def create_map(start_year, end_year, study_area, satellite, indices=()):
         min_lng, min_lat = coordinates[0]  # Lower left corner
         max_lng, max_lat = coordinates[2]  # Upper right corner
 
+        # log the coordinates
+        logger.info(f"Bounding box coordinates: min_lng={min_lng}, min_lat={min_lat}, max_lng={max_lng}, max_lat={max_lat}")
+
     elif isinstance(study_area, gpd.GeoDataFrame):
-        #Si study_area est un GeoDataFrame de geopandas, on le convertit en ee.Geometry
-        coords = study_area.geometry.values[0].exterior.coords[:]
-        study_area_geometry = ee.Geometry.Polygon(coords)
+        # If the study area is a GeoDataFrame (e.g., parcelle)
+        if study_area.crs.to_epsg() != 4326:
+            # Ensure the CRS is EPSG:4326 (WGS84)
+            study_area = study_area.to_crs(epsg=4326)
 
-        # Récupérer les limites de la géométrie (latitudes et longitudes minimales et maximales)
-        bounds = study_area_geometry.bounds()
+        # Extract the geometry of the first parcel
+        parcelle_geometry = study_area.geometry.iloc[0]
 
-        # Ajouter du débogage pour examiner ce que retourne bounds
-        print("Bounds:", bounds.getInfo())  # Cela vous montre la structure de l'objet bounds
+        # Convert the geometry to GeoJSON format
+        geojson_bbox = parcelle_geometry.__geo_interface__
 
-        # Extraire les coordonnées de la bounding box du polygone
-        coordinates = bounds.getInfo()['coordinates'][0]  # Premier élément de la liste 'coordinates'
+        # Extract the bounding box (minX, minY, maxX, maxY)
+        bbox = parcelle_geometry.bounds  # [minX, minY, maxX, maxY]
+        min_lng, min_lat, max_lng, max_lat = bbox
 
-        # Trouver les coordonnées minimales et maximales
-        min_lng = min([coord[0] for coord in coordinates])
-        min_lat = min([coord[1] for coord in coordinates])
-        max_lng = max([coord[0] for coord in coordinates])
-        max_lat = max([coord[1] for coord in coordinates])
+        # Log the bounding box coordinates
+        logger.info(f"Bounding box coordinates: min_lng={min_lng}, min_lat={min_lat}, max_lng={max_lng}, max_lat={max_lat}")
 
-        print(f"Bounding box coordinates: min_lng={min_lng}, min_lat={min_lat}, max_lng={max_lng}, max_lat={max_lat}")
-
-        # Créer un GeoJSON valide pour le polygone de la bounding box
-        geojson = {
+        # Create a GeoJSON object for the bounding box
+        geojson_bbox = {
             "type": "Polygon",
             "coordinates": [[
-                [min_lng, min_lat], 
-                [min_lng, max_lat], 
-                [max_lng, max_lat], 
-                [max_lng, min_lat], 
-                [min_lng, min_lat]
+                [min_lng, min_lat],  # Bottom-left
+                [min_lng, max_lat],  # Top-left
+                [max_lng, max_lat],  # Top-right
+                [max_lng, min_lat],  # Bottom-right
+                [min_lng, min_lat]   # Close the polygon
             ]]
         }
 
-        # Vérifiez la validité du GeoJSON
-        print("GeoJSON:", geojson)
+        # Log the generated GeoJSON
+        logger.info(f"GeoJSON generated: {geojson_bbox}")
 
     else:
         raise ValueError("Unsupported study area type. Must be ee.FeatureCollection or gpd.GeoDataFrame.")

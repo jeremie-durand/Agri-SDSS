@@ -65,15 +65,22 @@ def generate_map():
         # 3. Charger la zone d'étude
         if study_area == 'sud_du_quebec':
             study_area = ee.FeatureCollection('projects/ee-jeremie539yt/assets/sud_du_quebec')
+            app.logger.info("Aperçu de la geometry :")
+            app.logger.info(study_area.getInfo())
 
         elif study_area == 'parcelle':
             bdppad = gpd.read_file(DIR + "/data/BDPPAD/BDPPAD_v03_AN_2024_s_20241125.shp")
             # changer crs
-            #bdppad = bdppad.to_crs(epsg=4979)  # OGC CRS84 -> EPSG:4979
+
+            #bdppad = bdppad.to_crs(epsg=4326)
             # on prend une parcelle spécifique
             study_area = bdppad.iloc[0]  # Exemple
+            app.logger.info("Aperçu de la parcelle :")
+            app.logger.info(study_area)
             # convert to geodataframe
             study_area = gpd.GeoDataFrame(geometry=[study_area.geometry])
+            app.logger.info("Aperçu de la geometry :")
+            app.logger.info(study_area.geometry)
             # Extraction du bounding box (bbox)
             #bbox = data.geometry.bounds  # [minX, minY, maxX, maxY]
 
