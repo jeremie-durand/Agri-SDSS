@@ -2,7 +2,7 @@
 print("main.py started...")
 # scripts
 #from input_gee import gee_authenticate, gee_initialize, create_map # input_gee.py
-from input_meteo import meteo_data_pipeline # input_meteo.py
+from input_meteo import meteo_data_GeoMet_pipeline # input_meteo.py
 
 # Python standard library
 import json
@@ -33,7 +33,7 @@ bdppad = gpd.read_file(DIR + "/data/BDPPAD/BDPPAD_v03_AN_2024_s_20241125.shp")
 # --------------------------------------------------------------------
 # LAUNCHING SCRIPTS
 # --------------------------------------------------------------------
-data_response = meteo_data_pipeline(data=sud_du_quebec, variables=METEO_VARIABLES, use_study_site=True)  # Exemple d'utilisation de la fonction
+data_response = meteo_data_GeoMet_pipeline(data=sud_du_quebec, variables=METEO_VARIABLES, use_study_site=True)  # Exemple d'utilisation de la fonction
 
 # Vérification des colonnes et des données
 print("Colonnes du DataFrame :", data_response.columns)
