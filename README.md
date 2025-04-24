@@ -4,22 +4,23 @@ Projet de maîtrise sur le développement d'une architecture côté-serveur d'un
 ## Tools à tester
 MapServer vs GeoServer -> serveur cartographique
 
-|Database | Vector Format (Best) | Raster Format (Best) | Native Raster Support? | Typical Use Cases / Roles
-|PostGIS | GeoPackage (.gpkg) | GeoTIFF (.tif) | ✅ Full native support | Heavy spatial querying, geometry analysis, joins with attribute tables, spatial joins
- | (also: Shapefile, CSV+WKT) | (also: JPEG2000, PNG) |  | Suitable for geospatial infrastructure or web GIS backends (e.g. QGIS server)
-|MongoDB | GeoJSON | ❌ None | ❌ (only GridFS workaround) | Lightweight geometry store, web delivery, user-generated locations, logs, events, sensors
- | (also: TopoJSON, WKT) |  |  | Good for real-time geo dashboards, IoT, mobile apps, geofencing
-|DuckDB | GeoParquet | ❌ No native raster yet | ❌ Experimental only | Fast analytics on massive tables, batch jobs, data pipelines, summary stats
- | (also: CSV + WKB/WKT) | (use preprocessed tabular) |  | Best for ETL, preprocessing, machine learning input, and offline reporting
+| Database | Vector Format (Best) | Raster Format (Best) | Native Raster Support? | Typical Use Cases / Roles |
+|----------|----------------------|-----------------------|-------------------------|----------------------------|
+| PostGIS | GeoPackage (.gpkg), Shapefile, CSV+WKT | GeoTIFF (.tif), JPEG2000, PNG | ✅ Full native support | Heavy querying, spatial joins, GIS infrastructure (e.g. QGIS Server) |
+| MongoDB | GeoJSON, TopoJSON, WKT | ❌ None | ❌ (only GridFS workaround) | Real-time data, mobile apps, IoT, geofencing |
+| DuckDB | GeoParquet, CSV + WKB/WKT | ❌ (use preprocessed tabular) | ❌ (experimental only) | Analytics, batch processing, ML input, pipelines |
 
-Use Case | Recommended Format | Recommended DB
-|Spatial joins, routing, topological operations | GeoPackage / PostGIS | PostGIS
-|Live location updates from mobile users | GeoJSON / MongoDB | MongoDB
-|Vectorized NDVI summaries from raster | GeoParquet / DuckDB | DuckDB
-|Daily raster NDVI download from Sentinel-2 | GeoTIFF (outside DB) | Store path + summary in PostGIS or MongoDB
-|Point observations from sensors (e.g., weather) | GeoJSON or CSV+WKT | MongoDB or DuckDB
-|Statistical analysis of 1M+ lakes / tiles | GeoParquet | DuckDB
-|Export for GIS clients (ArcGIS, QGIS, etc.) | GeoPackage / Shapefile | PostGIS export
+
+| Use Case | Recommended Format | Recommended DB |
+|----------|--------------------|----------------|
+| Spatial joins, routing, topological operations | GeoPackage / PostGIS | PostGIS |
+| Live location updates from mobile users | GeoJSON / MongoDB | MongoDB |
+| Vectorized NDVI summaries from raster | GeoParquet / DuckDB | DuckDB |
+| Daily raster NDVI download from Sentinel-2 | GeoTIFF (outside DB) | PostGIS or MongoDB (for metadata only) |
+| Point observations from sensors (e.g., weather) | GeoJSON or CSV+WKT | MongoDB or DuckDB |
+| Statistical analysis of 1M+ lakes / tiles | GeoParquet | DuckDB |
+| Export for GIS clients (ArcGIS, QGIS, etc.) | GeoPackage / Shapefile | PostGIS export |
+
 
 Workflow Example for Integrated System
 Let’s say your system ingests satellite + IoT + user data:
