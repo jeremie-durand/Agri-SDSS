@@ -45,16 +45,16 @@ print(data_response.head())
 #df["longitude"] = [feature["geometry"]["coordinates"][0] for feature in data["features"]]
 
 # Calcul des statistiques pour chaque variable
-for column in data_response.columns:
-    if pd.api.types.is_numeric_dtype(data_response[column]):  # Vérification si la colonne est numérique
-        mean_value = data_response[column].mean()
-        min_value = data_response[column].min()
-        max_value = data_response[column].max()
-        count_value = data_response[column].count()
+#for column in data_response.columns:
+    #if pd.api.types.is_numeric_dtype(data_response[column]):  # Vérification si la colonne est numérique
+        #mean_value = data_response[column].mean() 
+        #min_value = data_response[column].min()
+        #max_value = data_response[column].max()
+        #count_value = data_response[column].count()
 
         # Affichage des résultats avec 2 chiffres après la virgule
-        print(f"\nStatistiques pour {column} :")
-        print(f"Moyenne : {mean_value:.2f}")
-        print(f"Minimum : {min_value:.2f}")
-        print(f"Maximum : {max_value:.2f}")
-        print(f"Nombre de valeurs : {count_value}")
+        #print(f"\nStatistiques pour {column} :")
+        #print(f"Moyenne : {mean_value:.2f}")
+        #print(f"Minimum : {min_value:.2f}")
+        #print(f"Maximum : {max_value:.2f}")
+        #print(f"Nombre de valeurs : {count_value}")
