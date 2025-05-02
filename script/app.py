@@ -5,7 +5,7 @@ from input_gee import authenticate_gee, create_map # input_gee.py
 # Librairies
 from flask import Flask, request, jsonify, render_template # Pour créer une application web
 import geopandas as gpd # Pour manipuler des données géographiques
-import ee
+import ee # Pour interagir avec Google Earth Engine
 
 # Python standard library
 import logging
@@ -25,8 +25,6 @@ with open(config_path, 'r') as f:
 
 DIR = config["DIR"]
 HTML_TEMPLATES_DIR = config["HTML_TEMPLATES_DIR"]
-
-bdppad = gpd.read_file(DIR + "/data/BDPPAD/BDPPAD_v03_AN_2024_s_20241125.shp")
 
 #Initialiser Earth Engine
 authenticate_gee()
@@ -69,20 +67,22 @@ def generate_map():
             app.logger.info(study_area.getInfo())
 
         elif study_area == 'parcelle':
-            bdppad = gpd.read_file(DIR + "/data/BDPPAD/BDPPAD_v03_AN_2024_s_20241125.shp")
+            #TODO Fix this part
+            #bdppad = gpd.read_file(DIR + "/data/BDPPAD/BDPPAD_v03_AN_2024_s_20241125.shp")
             # changer crs
 
             #bdppad = bdppad.to_crs(epsg=4326)
             # on prend une parcelle spécifique
-            study_area = bdppad.iloc[0]  # Exemple
-            app.logger.info("Aperçu de la parcelle :")
-            app.logger.info(study_area)
+            #study_area = bdppad.iloc[0]  # Exemple
+            #app.logger.info("Aperçu de la parcelle :")
+            #app.logger.info(study_area)
             # convert to geodataframe
-            study_area = gpd.GeoDataFrame(geometry=[study_area.geometry])
-            app.logger.info("Aperçu de la geometry :")
-            app.logger.info(study_area.geometry)
+            #study_area = gpd.GeoDataFrame(geometry=[study_area.geometry])
+            #app.logger.info("Aperçu de la geometry :")
+            #app.logger.info(study_area.geometry)
             # Extraction du bounding box (bbox)
             #bbox = data.geometry.bounds  # [minX, minY, maxX, maxY]
+            pass
 
         # 4. Générer la carte HTML
         try:
