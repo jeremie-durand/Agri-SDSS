@@ -1,0 +1,56 @@
+# PIPELINE DE GÉOTRAITEMENTS SERVICES WEB (WMS, OGC API, etc.)
+
+Input : 
+   	- URL d'un service OGC : WMS, WFS, OGC API - Features/Coverages/Records, etc.
+    	- crs_cible : code EPSG du système de référence du projet
+
+Output :
+  	- Données extraites et disponible
+   	- Métadonnées inséres dans PostGIS
+	- Données publiées et disponible dans l'API
+	- Métadonnées publiées dans le catalogue STAC 
+
+Outils Python :
+	- requests (Send HTTP requets)
+   	- pandas (Data manipulation)
+    	- GeoPandas (Based on pandas and shapely)
+    	- RasterIO (Based on NumPy and GDAL)
+    	- OWSLib (Working with OGC web services)
+	
+Étapes :
+S1 - Détection et enregistrement des services (OWSLib / Requets)
+    Essayer de détecter le service à partir de l'UTL
+        Si standards legacy 
+            getCapabilities
+        Si OGC API
+            Introspection via /collections
+        Si erreur
+            Logger l'erreur
+            FATAL ERREUR - arrêt du traitement
+    Enregistrer les information associées au service
+
+S2 - Exploration automatique des couches accessibles (OWSLib / Requets)
+    Extraire la liste des couches ou collections disponibles
+    Pour chaque couche
+        Obtenir nom, description, bounding box, dates, format
+        Identifier la compatibilité d'extraction automatique
+    Extraire métadonnées
+
+S3 - Extraction des données (fetch) (pandas / RasterIO / GeoPandas)
+    Si raster (WMS / API Coverages)
+        Télécharger GeoTIFF via requête GetMap / Coverage
+    Si vectoriel (WFS / API Features)
+        Téléchager GeoJSON
+    Extraire uniquement l'étendue géographique pertinante
+    
+
+S4 - Implémentation dans le pipeline de géotraitement raster ou vector 
+    Si GeoJSON
+        Pipeline vectoriel (geoprocessing_vector)
+    Si GeoTIFF
+        Pipeline matriciel (geoprocessing_raster)
+
+Afficher le résumé du traitement
+    - Nombre de couches traités avec succès
+    - Nombre de couches échoués
+    - Liste des erreurs avec contexte (nom, étapes du pipeline, description de l'erreur)
