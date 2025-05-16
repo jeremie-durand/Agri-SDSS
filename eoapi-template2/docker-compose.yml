@@ -1,0 +1,107 @@
+version: '3'
+
+services:
+
+  # change to official image when available https://github.com/radiantearth/stac-browser/pull/386
+  stac-browser:
+    build:
+      context: dockerfiles
+      dockerfile: Dockerfile.browser
+    ports:
+      - "${MY_DOCKER_IP:-127.0.0.1}:8085:8085"
+    depends_on:
+      - stac
+      - raster
+      - database
+
+  stac:
+    # Note:
+    # the official ghcr.io/stac-utils/stac-fastapi-pgstac image uses python 3.8 and uvicorn
+    # which is why here we use a custom Dockerfile using python 3.11 and gunicorn
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.stac
+    ports:
+      - "8081:8081"
+    environment:
+      # Application
+      - HOST=0.0.0.0
+      - PORT=8081
+      - MODULE_NAME=stac_fastapi.pgstac.app
+      - VARIABLE_NAME=app
+      # gunicorn
+      # https://github.com/tiangolo/uvicorn-gunicorn-docker#web_concurrency
+      - WEB_CONCURRENCY=10
+      # https://github.com/tiangolo/uvicorn-gunicorn-docker#workers_per_core
+      # - WORKERS_PER_CORE=1
+      # https://github.com/tiangolo/uvicorn-gunicorn-docker#max_workers
+      # - MAX_WORKERS=10
+      # Postgres connection
+      - POSTGRES_USER=admin
+      - POSTGRES_PASS=your_password
+      - POSTGRES_DBNAME=test
+      - POSTGRES_HOST_READER=database-1
+      - POSTGRES_HOST_WRITER=database-1
+      - POSTGRES_PORT=5432
+    depends_on:
+      - database
+    command:
+      bash -c "bash /tmp/scripts/wait-for-it.sh -t 120 -h database -p 5432 && /start.sh"
+    volumes:
+      - ./dockerfiles/scripts:/tmp/scripts
+
+  raster:
+    # At the time of writing, rasterio and psycopg wheels are not available for arm64 arch
+    # so we force the image to be built with linux/amd64
+    image: ghcr.io/stac-utils/titiler-pgstac:1.2.2
+    ports:
+      - "${MY_DOCKER_IP:-127.0.0.1}:8082:8082"
+    environment:
+      # Application
+      # Postgres connection
+      - POSTGRES_USER=admin
+      - POSTGRES_PASS=your_password
+      - POSTGRES_DBNAME=test
+      - POSTGRES_HOST=database-1
+      - POSTGRES_PORT=5432
+    depends_on:
+      - database
+    command:
+      bash -c "bash /tmp/scripts/wait-for-it.sh -t 120 -h database -p 5432 && /start.sh"
+    volumes:
+      - ./dockerfiles/scripts:/tmp/scripts
+
+  vector:
+    image: ghcr.io/developmentseed/tipg:0.6.3
+    ports:
+      - "${MY_DOCKER_IP:-127.0.0.1}:8083:8083"
+    environment:
+      # Application
+      # Postgres connection
+      - POSTGRES_USER=admin
+      - POSTGRES_PASS=your_password
+      - POSTGRES_DBNAME=test
+      - POSTGRES_HOST=database-1
+      - POSTGRES_PORT=5432
+    command:
+      bash -c "bash /tmp/scripts/wait-for-it.sh -t 120 -h database -p 5432 && /start.sh"
+    depends_on:
+      - database
+    volumes:
+      - ./dockerfiles/scripts:/tmp/scripts
+
+  database:
+    image: ghcr.io/stac-utils/pgstac:v0.8.5
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=your_password
+      - POSTGRES_DB=test
+    ports:
+      - "${MY_DOCKER_IP:-127.0.0.1}:5439:5432"
+    command: postgres -N 500
+    volumes:
+      - ./.pgdata:/var/lib/postgresql/data
+
+networks:
+  default:
+    name: eoapi-network
