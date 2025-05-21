@@ -1,0 +1,17 @@
+# Initialisation of PostGIS db
+
+Outils Python :
+    psycopg2
+    SQLAlchemy
+
+FONCTION connect_to_postgis()
+    Établir une connection avec la bd PostGIS
+
+FONCTION read_data_postgis()
+    Exécuter une requête SQL pour lire les colonnes
+        ID 
+        géométrie
+        date ou de date de fin/début
+        URL de fichier
+        autres métadonnées
+    Retourner la liste des lignes

@@ -1,0 +1,53 @@
+# Transform PostGIS data into STAC items and collections and saved
+
+Outils Python :
+    pystac
+    GeoPandas
+    SQLAlchemy
+    stac-pydantic
+    
+FONCTION create_stac_item()
+    Extraire les informations
+    Convertir la géométrie en GeoJSON
+    Créer le STAC item
+        ID
+        géométrie et emprise
+        datetime
+        propriétés
+    Ajouter un asset
+    Retourner le STAC item
+
+FONCTION create_stac_collection(liste d'items)
+    Déterminer l'emprise spatiale totale
+    Déterminer l'intervalle temporel total
+    Créer une collection STAC
+        ID, titre, description
+        extend spatial et temporel
+        licence
+    Retourner la collection STAC
+
+FONCTION validate_stac()
+
+FONCTION save_stac_item_to_postgis()
+    Extraire le champ "geometry"
+    Extraire le champ "datetime"
+    Convertir l'item STAC en JSON 
+    Insérer dans la table 'stac_items' de PostGIS
+        ID
+        geometry
+        datetime
+        jsonb (objet complet)
+
+FONCTION save_stac_collection_to_postgis()
+    Convertir la collection STAC en JSON
+    Extraire l'emprise
+    Insérer dans la table 'stac_collections' de PostGIS
+
+
+FONCTION main()
+    Se connecter à la bd PostGIS
+    Lire les données
+    Pour chaque ligne
+        Créer un STAC item
+    Créer une collection avec tous les items
+    Sauvegarder les items et la collection dans PostGIS
