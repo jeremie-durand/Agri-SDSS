@@ -1,0 +1,133 @@
+# PIPELINE DE GÉOTRAITEMENTS DONNÉE MATRICIELLES (RASTER)
+
+Input : 
+	- Données matricielles (GeoTIFF, TIFF, IMG) : données sources
+    	- crs_cible : code EPSG du système de référence du projet
+
+Output :
+	- COGs nettoyées et harmonisées, prêts à l'utilisation
+	- Métadonnées inséres dans PostGIS
+	- Données publiées et disponible dans l'API
+	- Métadonnées publiées dans le catalogue STAC
+
+Outils Python :
+	- requests (Send HTTP requets)
+    	- NumPy (Matrix processing)
+	- GDAL (Processing geospatial data)
+    	- RasterIO (Based on NumPy and GDAL)
+	- psycopg2 (PostgeSQL adapter)
+	- PyStac (Python module for PostgreSQL to build STAC catalogs)
+	- SQLAlchemy (SQL toolkit for Python)
+	- rio-stac (Based on PyStac and RasterIO for raster)
+	- TiTiler (Dynamic tile server build on FastAPI and GDAL/RasterIO)
+	- stac-pydantic
+	
+Étapes :
+R1 - Harmonisation de la structure et des métadonnées (RasterIO)
+	Essayer de charger le fichier
+		Si erreur de lecture
+			Logger l'erreur
+			Passer au fichier suivant
+		Si format invalide
+			Si non matriciel
+				Logger l'erreur
+				Passer au fichier suivant
+		Si fichier est non géoréférencé
+			Logger l'erreur
+			Passer au fichier suivant
+	Standardiser le nom des fichiers raster
+	Extraire les métadonnées de base (CRS, taille, etc.)
+	Retourner les raster harmonisées
+
+R2 - Gérer les valeurs des pixels (RasterIO)
+	Identifier et gérer les valeurs nodata
+	Vérifier les valeurs abérantes 
+	Appliquer une normalisation ou un re-encodage si nécessaire
+	Retourner les raster nettoyés
+
+R3 - Uniformisation de la composante spatiale (CRS) (RasterIO)
+	Si le CRS actuel n'est pas celui de référence
+		Essayer de reprojeter vers crs_cible
+			Si erreur
+				Logger l'erreur
+				Passer au fichier suivant
+	Validation du raster post-reprojection (alignement, géométrie, résolution)	
+		Si erreur
+			Logger l'erreur
+			Passer au fichier suivant
+	Retourner le raster avec le CRS uniformisé
+
+R4 - Conversion des raster en COG (GDAL)
+	Générer une version COG des raster avec une compression adaptée
+		Ajouter des pyramides (overviews) pour visualisation web
+	Essayer de sauvegarder le fichier COG
+		Si erreur 
+			Logger l'erreur
+			FATAL ERREUR - arrêt du traitement
+
+R5 - Stockage des COGs dans un système de fichiers cloud ou serveur HTTP
+	Définir l'emplacement de stockage cible
+	Essayer d'uploader les COGs
+		Si erreur
+			Logger l'erreur
+			FATAL ERREUR - arrêt du traitement
+	Générer l'UTL d'accès pour chaque COG
+	Vérifier que le fichier est
+		Lisible (accès sans erreur)
+		Acessible publiquement
+			Si erreur
+				FATAL ERREUR - arrêt du traitement
+	Retouner l'URL du COG
+
+R6 - Tuilage dynamiquement les raster et calculs internes (Tititler)
+	Générer des tuiles à la volée à partir des COGs, basé sur la zone géographique de la requête
+	Si calculs dynamiques sont nécessaires
+		Ex : NDVI via sentinel-2 sur service cloud (appel du code de ahmed ici)
+	Si Titiler échoue
+		Logger l'erreur
+		Passer au fichier suivant, si pas critique
+
+R7 - Conversion des résultats en COG - post-calculs (GDAL)
+	Si tuilages produit des données secondaires qu'on veut stocker pour utilisation future
+		Essayer de 
+			Re-convertir les résultats en COG
+			Générer overviews
+			Stocker comme à l'étape R5
+			Si erreur
+				Logger l'erreur
+				Passer au fichier suivant, si pas critique
+
+R8 - Intégration des métadonnées dans PostGIS - PostgeSQL (psycopg2 / SQLAlchemy)
+	Essayer de se connecter à la BD PostGIS
+		Si la connexion échoue
+			Logger l'erreur
+			FATAL ERREUR - arrêt du traitement
+		Essayer d'enregistrer les métadonnées
+			Si erreur
+				Logger l'erreur
+	Confirmer l'intégration des métadonnées
+
+R9 (option eoAPI) - Intégration à l'API + publication des métadonnées dans un catalogue STAC (PyStac / rio-stac / requests)
+	Essayer de 
+		Générer les métadonnées STAC à partir du COG
+		Essayer d'intégrer les données dans l'API via une requête POST
+			Si erreur HTTP
+				Logger l'erreur
+				FATAL ERREUR - arrêt du traitement
+			Si erreur de format
+				Logger l'erreur
+				Passer au fichier suivant
+		Publier les métadonnées dans le catalogue STAC (PyStac / stac-pydantic)
+		Essayer de créer une entrée de métadonnées
+			Si erreur
+				Logger l'erreur
+		Essayer de publier via une requête POST
+			Si erreur
+				Logger l'erreur
+				Passer au fichier suivant
+Confirmer l'intégration et la publication des COGs et métadonnées dans le endpoint de l'API
+	
+Afficher le résumé du traitement
+	- Nombre de fichiers traités avec succès
+	- Nombre de fichiers échoués
+	- Liste des erreurs avec contexte (nom, étapes du pipeline, description de l'erreur)
