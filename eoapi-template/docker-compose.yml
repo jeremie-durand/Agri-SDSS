@@ -56,7 +56,7 @@ services:
   raster:
     # At the time of writing, rasterio and psycopg wheels are not available for arm64 arch
     # so we force the image to be built with linux/amd64
-    image: ghcr.io/stac-utils/titiler-pgstac:1.2.2
+    image: ghcr.io/developmentseed/titiler:0.18.10
     ports:
       - "8082:80"
     environment:
@@ -69,10 +69,10 @@ services:
       - POSTGRES_PORT=5432
     depends_on:
       - database
-    command:
-      bash -c "bash /tmp/scripts/wait-for-it.sh -t 120 -h database -p 5432 && /start.sh"
-    volumes:
-      - ./dockerfiles/scripts:/tmp/scripts
+    #command:
+      #bash -c "bash /tmp/scripts/wait-for-it.sh -t 120 -h database -p 5432 && /start.sh"
+    #volumes:
+      #- ./dockerfiles/scripts:/tmp/scripts
 
   vector:
     image: ghcr.io/developmentseed/tipg:0.6.3
@@ -105,8 +105,31 @@ services:
     volumes:
       - ./.pgdata:/var/lib/postgresql/data
       - ./pg-init/001_create_postgres_role.sql:/docker-entrypoint-initdb.d/001_create_postgres_role.sql
+      - ./pg-init/init_bdppad_2024_4326_sample_STAC.sql:/docker-entrypoint-initdb.d/init_bdppad_2024_4326_sample_STAC.sql
+      - ./pg-init/init_bdppad_2024_4326.sql:/docker-entrypoint-initdb.d/init_sud_du_quebec_4326.sql
 
+  gdal-python:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.gdal-python
+    volumes:
+      - ./test:/app
+      - "${WINDOWS_DATA_DIR}:/data"
+    working_dir: /app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - GLOBAL_SRID=${GLOBAL_SRID}
+      - VECTOR_TABLES=${VECTOR_TABLES}
+      - RASTER_PATH=${RASTER_PATH}
+      - STAC_API_URL=${STAC_API_URL}
+    command: tail -f /dev/null
 
+  
 networks:
   default:
     name: eoapi-network
