@@ -106,7 +106,7 @@ services:
       - ./.pgdata:/var/lib/postgresql/data
       - ./pg-init/001_create_postgres_role.sql:/docker-entrypoint-initdb.d/001_create_postgres_role.sql
       - ./pg-init/init_bdppad_2024_4326_sample_STAC.sql:/docker-entrypoint-initdb.d/init_bdppad_2024_4326_sample_STAC.sql
-      - ./pg-init/init_bdppad_2024_4326.sql:/docker-entrypoint-initdb.d/init_sud_du_quebec_4326.sql
+      - ./pg-init/init_sud_du_quebec_4326.sql:/docker-entrypoint-initdb.d/init_sud_du_quebec_4326.sql
 
   gdal-python:
     build:
