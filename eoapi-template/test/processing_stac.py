@@ -1,6 +1,7 @@
 import logging
 logger = logging.getLogger(__name__)
 
+# Import libraries
 import geopandas as gpd
 from shapely.geometry import mapping, box, mapping
 from pystac import Item, Asset, Collection, Extent, SpatialExtent, TemporalExtent
@@ -17,6 +18,9 @@ import xml.etree.ElementTree as ET
 import subprocess
 import shutil
 
+# Import env variables
+from config import RASTER_URL_PREFIX
+
 def create_stac_item_from_vector(row):
     """
     Create a STAC Item from a row of data.
@@ -27,7 +31,6 @@ def create_stac_item_from_vector(row):
     Returns:
         pystac.Item or None: The generated STAC Item, or None if not enough data.
     """
-    #print("DEBUG start_date:", row.get("start_date"), type(row.get("start_date")))
     geometry = mapping(row["geometry"])
     properties = row.get("metadata") or {}
     start = ensure_datetime_with_tz(row.get("start_date")) if row.get("start_date") else None
@@ -73,14 +76,10 @@ def create_stac_item_from_raster(raster_path, item_id=None, asset_key="data"):
     Returns:
         pystac.Item or None: The generated STAC Item, or None if not enough data.
     """
+    #raster_url = "http://host.docker.internal:8001/ph_fr_siigsol_cog.tif" #TODO: hardcoded URL
 
-    #output_cog = "C:/Users/18195/OneDrive - USherbrooke/Bureau/MOS_data/SIIGSOL-100m/corg_fr_siigsol/corg_fr_siigsol_cog.tif"
-    #convert_to_cog(raster_path, output_cog)
-
-    # Chekc if raster is in server COG format
-    #raster_url = "http://host.docker.internal:8001/corg_fr_siigsol_cog.tif"
-    #raster_url = "http://host.docker.internal:8001/corg_fr_siigsol_cog4326.tif"
-    raster_url = "http://host.docker.internal:8001/ph_fr_siigsol_cog.tif" #TODO: hardcoded URL
+    raster_filename = os.path.basename(raster_path)
+    raster_url = os.path.join(RASTER_URL_PREFIX, raster_filename).replace("\\", "/")
 
     with rasterio.open(raster_path) as src:
         bounds = src.bounds
@@ -95,20 +94,25 @@ def create_stac_item_from_raster(raster_path, item_id=None, asset_key="data"):
         else:
             dt = datetime.utcnow().replace(tzinfo=timezone.utc)
 
-        epsg = src.crs.to_epsg() if src.crs and src.crs.to_epsg() else 4326 #TODO: hardcoded EPSG
+        # extract metadata from raster 
+        # if not available, raise an error
+        if not src.crs:
+            logger.warning(f"Le fichier raster {raster_path} n'a pas de système de référence spatiale (CRS) défini. ESPG 4326 sera utilisé par défaut.")
+        epsg = src.crs.to_epsg() if src.crs and src.crs.to_epsg() else 4326 
         properties = {
             "raster:bands": src.count,
             "proj:epsg": epsg,
         }
 
+        # Add raster metadata if available
         aux_path = raster_path.replace(".tif", ".tif.aux.xml")
         if os.path.exists(aux_path):
             properties.update(parse_aux_xml(aux_path))
 
-    print("EPSG trouvé :", src.crs.to_epsg())
-    print("Chemin aux.xml :", aux_path, "Existe ?", os.path.exists(aux_path))
-    print("Méta aux.xml :", parse_aux_xml(aux_path) if os.path.exists(aux_path) else "Pas de aux.xml")
-    print("Propriétés finales :", properties)
+    logger.info(f"EPSG trouvé : {src.crs.to_epsg()}")
+    logger.info(f"Chemin aux.xml : {aux_path}, Existe ?, {os.path.exists(aux_path)}")
+    logger.info(f"Méta aux.xml : {parse_aux_xml(aux_path)}" if os.path.exists(aux_path) else "Pas de aux.xml")
+    logger.info(f"Propriétés finales : {properties}")
     item = Item(
         id=item_id or os.path.splitext(os.path.basename(raster_path))[0],
         geometry=geometry,
@@ -134,7 +138,7 @@ def create_stac_item_from_raster(raster_path, item_id=None, asset_key="data"):
     )
     return item
 
-def create_stac_collection(items, collection_id, title="My Collection"): # default license="proprietary"
+def create_stac_collection(items, collection_id, title): # default license="proprietary"
     """
     Create a STAC Collection from a list of pystac.Item objects.
 
@@ -239,33 +243,54 @@ def parse_aux_xml(aux_path):
             if band_num and desc_elem is not None and desc_elem.text:
                 properties[f"band_{band_num}_description"] = desc_elem.text
     except Exception as e:
-        print("Erreur lecture aux.xml:", e)
+        logger.error(f"Erreur lecture aux.xml: {e}")
     return properties
 
 def convert_to_cog(input_path, output_path, epsg=4326):
-    # Vérifie si gdalwarp est disponible dans le PATH
+    # Vérifie si les commandes est disponible dans le PATH
     if shutil.which("gdalwarp") is None:
-        print("Erreur : gdalwarp n'est pas trouvé dans le PATH système. Veuillez installer GDAL et/ou ajouter gdalwarp au PATH.")
+        logger.error("gdalwarp n'est pas trouvé dans le PATH système. Veuillez installer GDAL et/ou ajouter gdalwarp au PATH.")
         return False
-
-    cmd = [
+    if shutil.which("gdaladdo") is None:
+        logger.error("gdaladdo n'est pas trouvé dans le PATH système. Veuillez installer GDAL et/ou ajouter gdaladdo au PATH.")
+        return False
+    if shutil.which("gdal_calc.py") is None:
+        logger.error("gdal_calc.py n'est pas trouvé dans le PATH système. Veuillez installer GDAL et/ou ajouter gdal_calc.py au PATH.")
+        return False
+    
+    # Create command to convert to COG
+    cog_cmd = [
         "gdalwarp",
         "-t_srs", f"EPSG:{epsg}",       # Reprojection
-        "-of", "COG",                   # Format output: COG
+        "-of", "COG",    
+        "-dstalpha",                    # Add alpha band (.msk)
         "-co", "COMPRESS=DEFLATE",     # Compression
         input_path,
         output_path
+    ]
+
+    # Create overviews and .aux.xml
+    overview_cmd = [
+        "gdaladdo",
+        "--config", "COMPRESS_OVERVIEW", "DEFLATE",
+        "-r", "average",
+        output_path,
+        "2", "4", "8", "16"
     ]
 
     env = os.environ.copy()
     env['PROJ_LIB'] = '/usr/share/proj'  # Path to PROJ proj files
 
     try:
-        print("Création du COG avec la commande :", " ".join(cmd))
-        subprocess.run(cmd, check=True, env=env)
+        logger.info(f"Création du COG avec la commande : {' '.join(cog_cmd)}")
+        subprocess.run(cog_cmd, check=True, env=env)
+
+        logger.info(f"Création des overviews avec la commande : {' '.join(cog_cmd)}")
+        subprocess.run(overview_cmd, check=True, env=env)
+
         return True
     except subprocess.CalledProcessError as e:
-        print(f"Erreur lors de l'exécution de gdalwarp : {e}")
+        logger.error(f"Erreur lors de l'exécution de gdalwarp : {e}")
         return False
 
 def post_collection_to_stac_api(collection, api_url):
@@ -279,8 +304,7 @@ def post_collection_to_stac_api(collection, api_url):
         headers={"Content-Type": "application/json"},
         json=collection_json
     )
-    print("POST /collections status:", response.status_code)
-    print("Response:", response.text)
+    logger.info(f"POST /collections status: {response.status_code}")
     return response
 
 def post_item_to_stac_api(item, api_url, collection_id):
@@ -294,8 +318,7 @@ def post_item_to_stac_api(item, api_url, collection_id):
         headers={"Content-Type": "application/json"},
         json=item_json
     )
-    print(f"POST /collections/{collection_id}/items status:", response.status_code)
-    print("Response:", response.text)
+    logger.info(f"POST /collections/{collection_id}/items status: {response.status_code}")
     return response
 
 def delete_item_from_stac_api(item_id, api_url, collection_id):
@@ -305,34 +328,34 @@ def delete_item_from_stac_api(item_id, api_url, collection_id):
     """
     try:
         if not item_id or not isinstance(item_id, str):
-            print("Aucun item_id valide fourni pour la suppression.")
+            logger.error("Aucun item_id valide fourni pour la suppression.")
             return False
 
         url = f"{api_url}/collections/{collection_id}/items/{item_id}"
         response = requests.delete(url)
         
-        if response.status_code == 204:
-            print(f"Item {item_id} supprimé avec succès.")
+        if response.status_code in [200, 204]: # 200 OK or 204 No Content
+            logger.info(f"Item {item_id} supprimé avec succès.")
             return True
         elif response.status_code == 404:
-            print(f"Item {item_id} n'existe pas, rien à supprimer (OK).")
+            logger.info(f"Item {item_id} n'existe pas, rien à supprimer (OK).")
             return True  # Considéré comme réussi : pas besoin de supprimer ce qui n'existe pas
         else:
-            print(f"Échec de la suppression de l'item {item_id}. Code HTTP: {response.status_code}")
+            logger.error(f"Échec de la suppression de l'item {item_id}. Code HTTP: {response.status_code}")
             return False
 
     except requests.RequestException as e:
-        print(f"Erreur réseau lors de la suppression de l'item {item_id} : {e}")
+        logger.error(f"Erreur réseau lors de la suppression de l'item {item_id} : {e}")
         return False
 
 def print_stac_api_summary(api_url, collection_id):
     """
     Print a summary of collections and items from the STAC API.
     """
-    print("\n--- Collections via API ---")
+    logger.info("\n--- Collections via API ---")
     r = requests.get(f"{api_url}/collections")
-    print(r.json())
+    logger.info(r.json())
 
-    print(f"\n--- Items {collection_id} via API ---")
+    logger.info(f"\n--- Items {collection_id} via API ---")
     r = requests.get(f"{api_url}/collections/{collection_id}/items")
-    print(r.json())
+    logger.info(r.json())

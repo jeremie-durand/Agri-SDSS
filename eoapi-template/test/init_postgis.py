@@ -1,10 +1,10 @@
 import logging
 logger = logging.getLogger(__name__)
 
+# Import libraries
 import sqlalchemy
-import psycopg2
+import re
 import geopandas as gpd
-
 
 def connect_to_postgis(user, password, host, port, db):
     """
@@ -35,7 +35,12 @@ def read_data_postgis(engine, table_name):
     Returns:
         geopandas.GeoDataFrame: DataFrame containing the spatial data.
     """
-    # SQL query to select and alias columns for STAC processing
+    # Validate table name: must contain only letters, numbers or underscores
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+        logger.error(f"Invalid table name: {table_name}")
+        raise ValueError("Invalid table name.")
+    
+    # SQL query to select and alias columns for STAC processing, plain text for readability
     sql = f"""
         SELECT 
             gid AS id,
@@ -46,8 +51,8 @@ def read_data_postgis(engine, table_name):
             metadata
         FROM {table_name}
     """
-    gdf = gpd.read_postgis(sql, engine, geom_col='geometry')
-    return gdf
+    data = gpd.read_postgis(sql, engine, geom_col='geometry') 
+    return data
 
 def get_table_columns(engine, table_name):
     """

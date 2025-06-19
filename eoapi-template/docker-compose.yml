@@ -69,10 +69,9 @@ services:
       - POSTGRES_PORT=5432
     depends_on:
       - database
-    #command:
-      #bash -c "bash /tmp/scripts/wait-for-it.sh -t 120 -h database -p 5432 && /start.sh"
-    #volumes:
-      #- ./dockerfiles/scripts:/tmp/scripts
+    command: bash -c "bash /tmp/scripts/wait-for-it.sh -t 120 -h database -p 5432 -- echo 'Database is ready, starting Titiler' && /start.sh"
+    volumes:
+      - ./dockerfiles/scripts:/tmp/scripts
 
   vector:
     image: ghcr.io/developmentseed/tipg:0.6.3
@@ -105,8 +104,8 @@ services:
     volumes:
       - ./.pgdata:/var/lib/postgresql/data
       - ./pg-init/001_create_postgres_role.sql:/docker-entrypoint-initdb.d/001_create_postgres_role.sql
-      - ./pg-init/init_bdppad_2024_4326_sample_STAC.sql:/docker-entrypoint-initdb.d/init_bdppad_2024_4326_sample_STAC.sql
-      - ./pg-init/init_sud_du_quebec_4326.sql:/docker-entrypoint-initdb.d/init_sud_du_quebec_4326.sql
+      - ./pg-init/init_example_bdppad_2024_4326_sample_STAC.sql:/docker-entrypoint-initdb.d/init_example_bdppad_2024_4326_sample_STAC.sql
+      - ./pg-init/init_example_sud_du_quebec_4326.sql:/docker-entrypoint-initdb.d/init_example_sud_du_quebec_4326.sql
 
   gdal-python:
     build:
@@ -114,7 +113,7 @@ services:
       dockerfile: dockerfiles/Dockerfile.gdal-python
     volumes:
       - ./test:/app
-      - "${WINDOWS_DATA_DIR}:/data"
+      #- ${RASTER_VOLUME_PATH}:/data
     working_dir: /app
     environment:
       - PYTHONUNBUFFERED=1
@@ -124,9 +123,10 @@ services:
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_DB=${POSTGRES_DB}
       - GLOBAL_SRID=${GLOBAL_SRID}
-      - VECTOR_TABLES=${VECTOR_TABLES}
-      - RASTER_PATH=${RASTER_PATH}
       - STAC_API_URL=${STAC_API_URL}
+      #- VECTOR_TABLES=${VECTOR_TABLES}
+      #- RASTER_PATH=${RASTER_PATH}
+      #- RASTER_URL_PREFIX=${RASTER_URL_PREFIX}
     command: tail -f /dev/null
 
   

@@ -12,7 +12,7 @@ from aws_cdk import (
 )
 from aws_cdk.aws_apigateway import DomainNameOptions
 from aws_cdk.aws_apigatewayv2_alpha import DomainName
-from config import AppConfig
+from settings import AppConfig
 from constructs import Construct
 from eoapi_cdk import (
     BastionHost,
@@ -27,9 +27,9 @@ from eoapi_cdk import (
 
 class VpcStack(Stack):
     def __init__(
-        self, scope: Construct, app_config: AppConfig, id: str, **kwargs
+        self, scope: Construct, config: AppConfig, id: str, **kwargs
     ) -> None:
-        super().__init__(scope, id=id, tags=app_config.tags, **kwargs)
+        super().__init__(scope, id=id, tags=config.tags, **kwargs)
 
         self.vpc = aws_ec2.Vpc(
             self,
@@ -49,7 +49,7 @@ class VpcStack(Stack):
                     cidr_mask=24,
                 ),
             ],
-            nat_gateways=app_config.nat_gateway_count,
+            nat_gateways=config.nat_gateway_count,
         )
 
         self.vpc.add_interface_endpoint(
@@ -84,13 +84,13 @@ class eoAPIStack(Stack):
         scope: Construct,
         vpc: aws_ec2.Vpc,
         id: str,
-        app_config: AppConfig,
+        config: AppConfig,
         **kwargs,
     ) -> None:
         super().__init__(
             scope,
             id=id,
-            tags=app_config.tags,
+            tags=config.tags,
             **kwargs,
         )
 
@@ -107,12 +107,12 @@ class eoAPIStack(Stack):
             vpc_subnets=aws_ec2.SubnetSelection(
                 subnet_type=(
                     aws_ec2.SubnetType.PUBLIC
-                    if app_config.public_db_subnet
+                    if config.public_db_subnet
                     else aws_ec2.SubnetType.PRIVATE_ISOLATED
                 )
             ),
-            allocated_storage=app_config.db_allocated_storage,
-            instance_type=aws_ec2.InstanceType(app_config.db_instance_type),
+            allocated_storage=config.db_allocated_storage,
+            instance_type=aws_ec2.InstanceType(config.db_instance_type),
             removal_policy=RemovalPolicy.DESTROY,
         )
 
@@ -127,31 +127,31 @@ class eoAPIStack(Stack):
             self,
             "stac-api",
             api_env={
-                "NAME": app_config.build_service_name("stac"),
-                "description": f"{app_config.stage} STAC API",
+                "NAME": config.build_service_name("stac"),
+                "description": f"{config.stage} STAC API",
             },
             db=pgstac_db.connection_target,
             db_secret=pgstac_db.pgstac_secret,
             # If the db is not in the public subnet then we need to put
             # the lambda within the VPC
-            vpc=vpc if not app_config.public_db_subnet else None,
+            vpc=vpc if not config.public_db_subnet else None,
             subnet_selection=aws_ec2.SubnetSelection(
                 subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS
             )
-            if not app_config.public_db_subnet
+            if not config.public_db_subnet
             else None,
             stac_api_domain_name=(
                 DomainName(
                     self,
                     "stac-api-domain-name",
-                    domain_name=app_config.stac_api_custom_domain,
+                    domain_name=config.stac_api_custom_domain,
                     certificate=aws_certificatemanager.Certificate.from_certificate_arn(
                         self,
                         "stac-api-cdn-certificate",
-                        certificate_arn=app_config.acm_certificate_arn,
+                        certificate_arn=config.acm_certificate_arn,
                     ),
                 )
-                if app_config.stac_api_custom_domain
+                if config.stac_api_custom_domain
                 else None
             ),
         )
@@ -162,32 +162,32 @@ class eoAPIStack(Stack):
             self,
             "raster-api",
             api_env={
-                "NAME": app_config.build_service_name("raster"),
-                "description": f"{app_config.stage} Raster API",
+                "NAME": config.build_service_name("raster"),
+                "description": f"{config.stage} Raster API",
             },
             db=pgstac_db.connection_target,
             db_secret=pgstac_db.pgstac_secret,
             # If the db is not in the public subnet then we need to put
             # the lambda within the VPC
-            vpc=vpc if not app_config.public_db_subnet else None,
+            vpc=vpc if not config.public_db_subnet else None,
             subnet_selection=aws_ec2.SubnetSelection(
                 subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS
             )
-            if not app_config.public_db_subnet
+            if not config.public_db_subnet
             else None,
-            buckets=app_config.raster_buckets,
+            buckets=config.raster_buckets,
             titiler_pgstac_api_domain_name=(
                 DomainName(
                     self,
                     "raster-api-domain-name",
-                    domain_name=app_config.raster_api_custom_domain,
+                    domain_name=config.raster_api_custom_domain,
                     certificate=aws_certificatemanager.Certificate.from_certificate_arn(
                         self,
                         "raster-api-cdn-certificate",
-                        certificate_arn=app_config.acm_certificate_arn,
+                        certificate_arn=config.acm_certificate_arn,
                     ),
                 )
-                if app_config.raster_api_custom_domain
+                if config.raster_api_custom_domain
                 else None
             ),
         )
@@ -200,36 +200,36 @@ class eoAPIStack(Stack):
             db=pgstac_db.connection_target,
             db_secret=pgstac_db.pgstac_secret,
             api_env={
-                "NAME": app_config.build_service_name("vector"),
-                "description": f"{app_config.stage} tipg API",
+                "NAME": config.build_service_name("vector"),
+                "description": f"{config.stage} tipg API",
             },
             # If the db is not in the public subnet then we need to put
             # the lambda within the VPC
-            vpc=vpc if not app_config.public_db_subnet else None,
+            vpc=vpc if not config.public_db_subnet else None,
             subnet_selection=aws_ec2.SubnetSelection(
                 subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS
             )
-            if not app_config.public_db_subnet
+            if not config.public_db_subnet
             else None,
             tipg_api_domain_name=(
                 DomainName(
                     self,
                     "vector-api-domain-name",
-                    domain_name=app_config.vector_api_custom_domain,
+                    domain_name=config.vector_api_custom_domain,
                     certificate=aws_certificatemanager.Certificate.from_certificate_arn(
                         self,
                         "vector-api-cdn-certificate",
-                        certificate_arn=app_config.acm_certificate_arn,
+                        certificate_arn=config.acm_certificate_arn,
                     ),
                 )
-                if app_config.vector_api_custom_domain
+                if config.vector_api_custom_domain
                 else None
             ),
         )
 
         #######################################################################
         # STAC Ingestor Service
-        if app_config.data_access_role_arn:
+        if config.data_access_role_arn:
             # importing provided role from arn.
             # the stac ingestor will try to assume it when called,
             # so it must be listed in the data access role trust policy.
@@ -242,64 +242,64 @@ class eoAPIStack(Stack):
             data_access_role = self._create_data_access_role()
 
         stac_ingestor_env = {"REQUESTER_PAYS": "True"}
-        if app_config.auth_provider_jwks_url:
-            stac_ingestor_env["JWKS_URL"] = app_config.auth_provider_jwks_url
+        if config.auth_provider_jwks_url:
+            stac_ingestor_env["JWKS_URL"] = config.auth_provider_jwks_url
 
         stac_ingestor = StacIngestor(
             self,
             "stac-ingestor",
             stac_url=stac_api_lambda.url,
-            stage=app_config.stage,
+            stage=config.stage,
             data_access_role=data_access_role,
             stac_db_secret=pgstac_db.pgstac_secret,
             stac_db_security_group=pgstac_db.security_group,
             # If the db is not in the public subnet then we need to put
             # the lambda within the VPC
-            vpc=vpc if not app_config.public_db_subnet else None,
+            vpc=vpc if not config.public_db_subnet else None,
             subnet_selection=aws_ec2.SubnetSelection(
                 subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS
             )
-            if not app_config.public_db_subnet
+            if not config.public_db_subnet
             else None,
             api_env=stac_ingestor_env,
             ingestor_domain_name_options=(
                 DomainNameOptions(
-                    domain_name=app_config.stac_ingestor_api_custom_domain,
+                    domain_name=config.stac_ingestor_api_custom_domain,
                     certificate=aws_certificatemanager.Certificate.from_certificate_arn(
                         self,
                         "stac-ingestor-api-cdn-certificate",
-                        certificate_arn=app_config.acm_certificate_arn,
+                        certificate_arn=config.acm_certificate_arn,
                     ),
                 )
-                if app_config.stac_ingestor_api_custom_domain
+                if config.stac_ingestor_api_custom_domain
                 else None
             ),
         )
 
         #######################################################################
         # Bastion Host
-        if app_config.bastion_host:
+        if config.bastion_host:
             BastionHost(
                 self,
                 "bastion-host",
                 vpc=vpc,
                 db=pgstac_db.db,
-                ipv4_allowlist=app_config.bastion_host_allow_ip_list,
+                ipv4_allowlist=config.bastion_host_allow_ip_list,
                 user_data=(
                     aws_ec2.UserData.custom(
-                        yaml.dump(app_config.bastion_host_user_data)
+                        yaml.dump(config.bastion_host_user_data)
                     )
-                    if app_config.bastion_host_user_data is not None
+                    if config.bastion_host_user_data is not None
                     else aws_ec2.UserData.for_linux()
                 ),
-                create_elastic_ip=app_config.bastion_host_create_elastic_ip,
+                create_elastic_ip=config.bastion_host_create_elastic_ip,
             )
 
-        if app_config.stac_browser_version:
+        if config.stac_browser_version:
             stac_browser_bucket = aws_s3.Bucket(
                 self,
                 "stac-browser-bucket",
-                bucket_name=app_config.build_service_name("stac-browser"),
+                bucket_name=config.build_service_name("stac-browser"),
                 removal_policy=RemovalPolicy.DESTROY,
                 auto_delete_objects=True,
                 website_index_document="index.html",
@@ -315,8 +315,8 @@ class eoAPIStack(Stack):
             StacBrowser(
                 self,
                 "stac-browser",
-                github_repo_tag=app_config.stac_browser_version,
-                stac_catalog_url=f"https://{app_config.stac_api_custom_domain}",
+                github_repo_tag=config.stac_browser_version,
+                stac_catalog_url=f"https://{config.stac_api_custom_domain}",
                 website_index_document="index.html",
                 bucket_arn=stac_browser_bucket.bucket_arn,
             )
@@ -324,7 +324,7 @@ class eoAPIStack(Stack):
         # we can only do that if the role is created here.
         # If injecting a role, that role's trust relationship
         # must be already set up, or set up after this deployment.
-        if not app_config.data_access_role_arn:
+        if not config.data_access_role_arn:
             data_access_role = self._grant_assume_role_with_principal_pattern(
                 data_access_role, stac_ingestor.handler_role.role_name
             )
@@ -387,12 +387,12 @@ app_config = AppConfig()
 
 vpc_stack = VpcStack(
     scope=app,
-    app_config=app_config,
+    config=app_config,
     id=f"vpc{app_config.project_id}",
 )
 
 pgstac_infra_stack = eoAPIStack(
-    scope=app, vpc=vpc_stack.vpc, app_config=app_config, id=app_config.project_id
+    scope=app, vpc=vpc_stack.vpc, config=app_config, id=app_config.project_id
 )
 
 app.synth()

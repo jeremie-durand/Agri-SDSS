@@ -1,6 +1,6 @@
 # Copyright Radiant Earth Foundation
 
-FROM node:lts-alpine3.18 AS build-step
+FROM node:lts-alpine3.20 AS build-step
 ARG DYNAMIC_CONFIG=true
 
 WORKDIR /app
