@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONPATH=/app
+
+# Set working directory
+WORKDIR /app
+
+# Copy configuration files
+COPY ../config/pygeoapi-config.yaml /app/config/pygeoapi-config.yaml
+COPY ../processes /app/processes
+
+# Install system dependencies, Python packages, and create directories
+RUN apt-get update && \
+    apt-get install -y \
+        build-essential \
+        libgdal-dev \
+        curl && \
+    pip install --no-cache-dir pygeoapi[processes] pandas && \
+    mkdir -p /app/openapi && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Expose port for pygeoapi
+EXPOSE 5000
+
+# Generate OpenAPI specification and start the pygeoapi endpoint
+CMD pygeoapi openapi generate /app/config/pygeoapi-config.yaml --output-file /app/openapi/openapi.yaml && pygeoapi serve
