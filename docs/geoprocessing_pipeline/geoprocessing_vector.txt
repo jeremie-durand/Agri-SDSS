@@ -1,0 +1,122 @@
+# PIPELINE DE GÉOTRAITEMENTS DONNÉE VECTORIELLES
+
+Input : 
+	- Données vectorielles (Shapefile, GeoPackage, GeoJSON, CSV avec lat/long) : données sources
+	- crs_cible : code EPSG du système de référence du projet
+	
+Output :
+	- Données nettoyées et harmonisées, prêtes à l'utilisation
+	- Données et métadonnées inséres dans PostGIS
+	- Données publiées et disponible dans l'API
+	- Métadonnées publiées dans le catalogue STAC
+
+Outils Python :
+	- requests (Send HTTP requets)
+   	 - GeoPandas (Based on pandas and shapely)
+	- psycopg2 (PostgeSQL adapter)
+	- pgSTAC (Python module for PostgreSQL to build STAC catalogs)
+	- SQLAlchemy (SQL toolkit for Python)
+	- stac-pydantic
+	
+Étapes :
+V1 - Harmonisation de la structure, du format et nettoyage des attributs (GeoPandas)
+	Essayer de charger le fichier
+		Si erreur de lecture
+			Logger l'erreur
+			Passer au fichier suivant
+	Si format invalide
+		Si non vectoriel
+			Logger l'erreur
+			Passer au fichier suivant
+	Charger le fichier en GeoDataFrame
+	Harmoniser les noms des colonnes
+		- Remplacer les espaces par des underscores
+		- Mettre tous les noms de colonnes en minuscules
+	Supprimer les doublons
+		- Identifier et supprimer les enregistrements dupliqués
+	Gérer les valeurs nulles
+		- Identifier quelles valeurs nulles est utilisées, y compris les géométries (null, Na, N/A, vide, etc.) 
+		- Remplacer les valeurs nulles par des valeurs NULL (format dans PostGIS)
+	Vérifier et ajuster les types de données
+		- Vérifier que les colonnes ont le bon type (str, int, float, date, etc.)
+	Retourner les données harmonisées
+	
+V2 - Nettoyage des géométries (geopandas)
+	Identifier les géométries invalides
+		essayer de corriger les géométries
+			si correction échoue
+				logger l'erreur
+				marquer les entitées invalides pour révision
+	#todo comment les géométries vont être corrigées
+	Vérifier les erreurs logiques
+		- identifier les erreurs géométries (ex. superposition indésirable de polygones)
+	Retourner les données nettoyées
+	
+V3 - Uniformisation de la composante spatiale (CRS) (GeoPandas)
+	Si le CRS actuel n'est pas celui de référence
+		Essayer de reprojeter vers crs_cible
+			Si erreur
+				Logger l'erreur
+				Passer au fichier suivant
+	Validation dse géométries post-reprojection	
+		Si erreur
+			Logger l'erreur
+			Passer au fichier suivant
+	Retourner les données avec le CRS uniformisé
+
+V4 - Si Post-traitements et calculs nécessaires avant l'ingestion dans la BD 
+	Si provient d'un outils externes
+		Essayer de se connecter à l'outil
+			Si connexion échoue	
+				Logger l'erreur
+				Passer au traitement suivant
+		Essayer d'utilisation la fonction
+			Si erreur
+				Logger l'erreur
+				Passer au traitement suivant
+	Si calculé à l'interne
+		Essayer de faire les calculs (GeoPandas)
+			Si erreur
+				Logger l'erreur
+				Passer au fichier suivant
+	Retourner les résultats
+		
+V5 - Intégration des données et métadonnées dans PostGIS - PostgeSQL (psycopg2 / SQLAlchemy)
+	Essayer de se connecter à la BD PostGIS
+		Si la connexion échoue
+			Logger l'erreur
+			FATAL ERREUR - arrêt du traitement
+	Essayer d'intégrer dans PostGIS
+		Si nouvelle donnée
+			Créer une nouvelle table
+		Essayer d'insérer les données
+		Si erreur
+			Logger l'erreur
+			Passer au fichier suivant
+		Essayer d'enregistrer les métadonnées
+			Si erreur
+				Logger l'erreur
+		Confirmer l'intégration des données
+
+V6 - Intégration à l'API + publication des métadonnées dans un catalogue STAC (pystac / requests)
+	Essayer d'intégrer les données dans l'API via une requête POST
+		Si erreur HTTP
+			Logger l'erreur
+			FATAL ERREUR - arrêt du traitement
+		Si erreur de format
+			Logger l'erreur
+			Passer au fichier suivant
+		Publier les métadonnées dans le catalogue STAC (pgSTAC / stac-pydantic)
+		Essayer de créer une entrée de métadonnées
+			Si erreur
+				Logger l'erreur
+				Essayer de publier via une requête POST
+			Si erreur
+				Logger l'erreur
+				Passer au fichier suivant
+			Confirmer l'intégration et la publication des données et métadonnées dans le endpoint de l'API
+	
+Afficher le résumé du traitement
+	- Nombre de fichiers traités avec succès
+	- Nombre de fichiers échoués
+	- Liste des erreurs avec contexte (nom, étapes du pipeline, description de l'erreur)

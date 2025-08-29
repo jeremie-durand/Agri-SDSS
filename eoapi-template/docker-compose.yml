@@ -1,0 +1,161 @@
+services:
+
+  # change to official image when available https://github.com/radiantearth/stac-browser/pull/386
+  stac-browser:
+    build:
+      context: dockerfiles
+      dockerfile: Dockerfile.browser
+    ports:
+      - "8085:8085"
+    depends_on:
+      - stac
+      - raster
+      - database
+
+  stac:
+    # Note:
+    # the official ghcr.io/stac-utils/stac-fastapi-pgstac image uses python 3.8 and uvicorn
+    # which is why here we use a custom Dockerfile using python 3.11 and gunicorn
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.stac
+    ports:
+      - "8081:8081"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8081
+      - MODULE_NAME=stac_fastapi.pgstac.app
+      - VARIABLE_NAME=app
+      - CORS_ORIGINS=*
+      - WEB_CONCURRENCY=10 # https://github.com/tiangolo/uvicorn-gunicorn-docker#web_concurrency
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASS=${POSTGRES_PASSWORD}
+      - POSTGRES_DBNAME=${POSTGRES_DB}
+      - POSTGRES_HOST_READER=database
+      - POSTGRES_HOST_WRITER=database
+      - POSTGRES_PORT=${POSTGRES_PORT}
+    depends_on:
+      - database
+    command:
+      bash -c "bash /tmp/scripts/wait-for-it.sh -t 120 -h database -p 5432 && /start.sh"
+    volumes:
+      - ./dockerfiles/scripts:/tmp/scripts
+
+  raster:
+    # At the time of writing, rasterio and psycopg wheels are not available for arm64 arch
+    # so we force the image to be built with linux/amd64
+    image: ghcr.io/developmentseed/titiler:0.18.10
+    ports:
+      - "8082:80"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASS=${POSTGRES_PASSWORD}
+      - POSTGRES_DBNAME=${POSTGRES_DB}
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5432
+    depends_on:
+      - database
+    command: bash -c "bash /tmp/scripts/wait-for-it.sh -t 120 -h database -p 5432 -- echo 'Database is ready, starting Titiler' && /start.sh"
+    volumes:
+      - ./dockerfiles/scripts:/tmp/scripts
+
+  vector:
+    image: ghcr.io/developmentseed/tipg:0.6.3
+    ports:
+      - "8083:80"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASS=${POSTGRES_PASSWORD}
+      - POSTGRES_DBNAME=${POSTGRES_DB}
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5432
+    command:
+      bash -c "bash /tmp/scripts/wait-for-it.sh -t 120 -h database -p 5432 && /start.sh"
+    depends_on:
+      - database
+    volumes:
+      - ./dockerfiles/scripts:/tmp/scripts
+
+  database:
+    image: ghcr.io/stac-utils/pgstac:v0.8.5
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DBNAME=${POSTGRES_DB}
+    ports:
+      - "${MY_DOCKER_IP}:5439:5432"
+    command: postgres -N 500
+    volumes:
+      - ./.pgdata:/var/lib/postgresql/data
+      - ./pg-init/001_create_postgres_role.sql:/docker-entrypoint-initdb.d/001_create_postgres_role.sql
+      - ./pg-init/init_example_bdppad_2024_4326_sample_STAC.sql:/docker-entrypoint-initdb.d/init_example_bdppad_2024_4326_sample_STAC.sql
+      - ./pg-init/init_example_sud_du_quebec_4326.sql:/docker-entrypoint-initdb.d/init_example_sud_du_quebec_4326.sql
+
+  gdal-python:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.gdal-python
+    volumes:
+      - ./demo:/app/demo
+      - ./tests:/app/tests
+      - ${RASTER_VOLUME_PATH}:/data
+    working_dir: /app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - GLOBAL_CRS=${GLOBAL_CRS}
+      - STAC_API_URL=${STAC_API_URL}
+      - PYGEOAPI_API_URL=${PYGEOAPI_API_URL}
+      - DUCKDB_API_URL=${DUCKDB_API_URL}
+      - DUCKDB_DATABASE=${DUCKDB_DATABASE}
+      - VECTOR_TABLES=${VECTOR_TABLES}
+      - RASTER_SOURCE_PATH=${RASTER_SOURCE_PATH}
+      - RASTER_HARMONIZED_PATH=${RASTER_HARMONIZED_PATH}
+      - RASTER_COG_PATH=${RASTER_COG_PATH}
+      - RASTER_URL_PREFIX=${RASTER_URL_PREFIX}
+      - PROJ_LIB=${PROJ_LIB}
+    command: tail -f /dev/null
+
+  pygeoapi:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.pygeoapi
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config/pygeoapi-config.yaml:/app/pygeoapi-config.yaml
+      - ./openapi:/app/openapi
+      - ./processes:/app/processes
+    environment:
+      - PYGEOAPI_CONFIG=/app/config/pygeoapi-config.yaml
+      - PYGEOAPI_OPENAPI=/app/openapi/openapi.yaml
+      - PYTHONPATH=/app
+
+  duckdb:
+    build: 
+      context: .
+      dockerfile: dockerfiles/Dockerfile.duckdb
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - VECTOR_TABLES=${VECTOR_TABLES}
+      - DUCKDB_DATABASE=${DUCKDB_DATABASE}
+      - DUCKDB_API_URL=${DUCKDB_API_URL}
+      - DUCKDB_DATA_DIR=${DUCKDB_DATA_DIR}
+    ports:
+      - "8084:8084"
+    volumes:
+      - ./data:/app/data
+      - ./duckdb_extensions:/root/.duckdb
+      - ./demo:/app/demo
+  
+networks:
+  default:
+    name: eoapi-network

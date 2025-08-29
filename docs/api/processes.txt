@@ -1,0 +1,36 @@
+Création du endpoint “/processes” dans l’API et créer des process Python comme démo.
+
+Pour l'ensemble du containeur : docker compose up --build
+Pour uniquement le endpoint process (sous pygeoapi) :  docker compose up pygeoapi --build
+Les process sont alors disponible sous : http://localhost:5000/processes?f=html
+
+Le fichier de configuration pygeoapi "/config/pygeoapi-config.yaml" permet de générer dynamiquement le fichier "/openapi/openapi.yaml" créant ainsi la section openapi : http://localhost:5000/openapi#/
+
+Les tests du endpoint de l'API sont disponible sous tests/test_processes.py
+
+---------------------------------------------------
+process #1 - hello-world-pygeoapi
+---------------------------------------------------
+Il s'agit du process de base hello-world de pygeoapi disponible sur github : https://github.com/geopython/pygeoapi/blob/master/pygeoapi/process/hello_world.py
+
+curl -X POST http://localhost:5000/processes/hello-world-pygeoapi/execution \
+  -H "Content-Type: application/json" \
+  -d '{
+    "inputs": {
+      "name": {
+        "value": "Jérémie"
+      }
+    }
+  }'
+
+{"id":"echo","value":"Hello J\u00e9r\u00e9mie!"}
+
+---------------------------------------------------
+process #2 - mycool-process
+---------------------------------------------------
+Un process qui prend un fichier csv et calcul la racine carré du champ “value”.
+Le fichier csv test est disponible sour "/processes/test/obs.csv" et le process sous "/processes/test/mycool_process.py"
+
+curl -X POST http://localhost:5000/processes/mycool-process/execution  -H "Content-Type: application/json"  -d '{}'
+
+{"id":"sqrt_values","value":[{"id":1,"value":25,"sqrt":5.0},{"id":2,"value":100,"sqrt":10.0}]}
