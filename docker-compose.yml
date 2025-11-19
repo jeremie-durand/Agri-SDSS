@@ -1,0 +1,120 @@
+services:
+
+  stac-browser:
+    build:
+      context: ./frontend/stac-browser
+      dockerfile: Dockerfile.stac-browser
+    ports:
+      - "${FRONTEND_PORT}:8080"
+    environment:
+      - FRONTEND_PORT=${FRONTEND_PORT}
+    depends_on:
+      - stac-fastapi
+      - raster-api
+      - database
+
+  stac-fastapi:
+    build:
+      context: .
+      dockerfile: stac-fastapi/Dockerfile.stac-fastapi
+    ports:
+      - "${STAC_API_PORT}:8080"
+    environment:
+      # PostgreSQL
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASS=${POSTGRES_PASS}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_HOST_READER=${POSTGRES_HOST}
+      - POSTGRES_HOST_WRITER=${POSTGRES_HOST}
+      - POSTGRES_USER_READER=${POSTGRES_USER}
+      - POSTGRES_USER_WRITER=${POSTGRES_USER}
+      - POSTGRES_PASS_READER=${POSTGRES_PASS}
+      - POSTGRES_PASS_WRITER=${POSTGRES_PASS}
+      - POSTGRES_DBNAME_READER=${POSTGRES_DBNAME}
+      - POSTGRES_DBNAME_WRITER=${POSTGRES_DBNAME}
+      - POSTGRES_PORT_READER=${POSTGRES_PORT}
+      - POSTGRES_PORT_WRITER=${POSTGRES_PORT}
+      # API
+      - STAC_API_URL=${STAC_API_URL}
+      - PYGEOAPI_API_URL=${PYGEOAPI_API_URL}
+      - STAC_API_PORT=${STAC_API_PORT}
+    working_dir: /app
+    volumes:
+      - ./data:/data
+      - ./data/input:/data/input
+      - ./data/duckdb:/data/duckdb
+      - ./data/duckdb/duckdb_extensions:/app/duckdb_extensions
+      - ./test:/app/test
+      - ./stac-fastapi/pipeline:/app/pipeline
+      - ./stac-fastapi/config.yaml:/app/config.yaml
+    depends_on:
+      - database
+
+  raster-api:
+    build:
+      context: .
+      dockerfile: raster-api/Dockerfile.raster-api
+    ports:
+      - "${RASTER_API_PORT}:8080"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASS=${POSTGRES_PASS}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - RASTER_API_PORT=${RASTER_API_PORT}
+    volumes:
+      - ./data/output/raster_cog:/data
+    depends_on:
+      - database
+
+  vector-api:
+    build:
+      context: .
+      dockerfile: vector-api/Dockerfile.vector-api
+    ports:
+      - "${VECTOR_API_PORT}:8080"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASS=${POSTGRES_PASS}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - VECTOR_API_PORT=${VECTOR_API_PORT}
+    depends_on:
+      - database
+
+  pygeoapi:
+    build:
+      context: ./pygeoapi
+      dockerfile: Dockerfile.pygeoapi
+    ports:
+      - "${PYGEOAPI_API_PORT}:5000"
+    environment:
+      - PYGEOAPI_CONFIG=/app/config/pygeoapi-config.yaml
+      - PYGEOAPI_OPENAPI=/app/openapi/openapi.yaml
+      - PYGEOAPI_API_PORT=${PYGEOAPI_API_PORT}
+
+  database:
+    image: ghcr.io/stac-utils/pgstac:v0.8.5
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASS}
+      - POSTGRES_DB=${POSTGRES_DBNAME}
+      - PGUSER=${POSTGRES_USER}
+      - PGPASSWORD=${POSTGRES_PASS}
+      - PGDATABASE=${POSTGRES_DBNAME}
+    ports:
+      - "${POSTGRES_LOCAL_PORT}:${POSTGRES_PORT}"
+    command: postgres -N 500
+    volumes:
+      - ./data/pg/.pgdata:/var/lib/postgresql/data
+      - ./scripts/001_create_postgres_role.sql:/docker-entrypoint-initdb.d/001_create_postgres_role.sql
+      - ./data/demo/init_demo_bdppad_2024_4326_sample_STAC.sql:/docker-entrypoint-initdb.d/init_demo_bdppad_2024_4326_sample_STAC.sql
+      - ./data/demo/init_demo_sud_du_quebec_4326.sql:/docker-entrypoint-initdb.d/init_demo_sud_du_quebec_4326.sql
+
+networks:
+  default:
+    name: eoapi-network

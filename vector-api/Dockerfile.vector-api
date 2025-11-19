@@ -1,0 +1,17 @@
+# Official TiPg image
+FROM ghcr.io/developmentseed/tipg:1.1.2
+
+# Set environment variables
+ENV VECTOR_API_PORT=8083
+ENV HOST=0.0.0.0
+
+# Copy canonical wait-for-it script and entrypoint
+COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
+COPY vector-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/wait-for-it.sh /usr/local/bin/entrypoint.sh
+
+# Expose port for vector API
+EXPOSE ${VECTOR_API_PORT}
+
+# Command to wait for the database to be ready before starting TiPg
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

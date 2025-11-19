@@ -1,1 +1,0 @@
-# empty init for pygeoapi processes

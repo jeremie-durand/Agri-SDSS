@@ -175,9 +175,11 @@ cython_debug/
 
 # Local configuration files
 *.bak
-/eoapi-template/.pgdata
-eoapi-template/config.yaml
 
 # Local data files
-eoapi-template/data/
-eoapi-template/duckdb_extensions/
+data/duckdb/
+data/rasters/
+data/tmp/
+data/pg/
+data/input/
+data/output/
