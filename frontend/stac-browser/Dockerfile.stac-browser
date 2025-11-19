@@ -1,0 +1,14 @@
+# Official STAC Browser image
+FROM ghcr.io/radiantearth/stac-browser:3.3.5
+
+# Copy config and entrypoint script
+COPY config/browser_config.js /usr/share/nginx/html/config.js
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Set environment variables
+ENV FRONTEND_PORT=8080
+
+EXPOSE ${FRONTEND_PORT}
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -1,0 +1,89 @@
+FROM python:3.11-slim
+
+# Set non-interactive mode for apt-get
+ENV DEBIAN_FRONTEND=noninteractive
+
+# STAC FastAPI specific environment variables
+ENV PROJ_NETWORK=OFF
+ENV PYTHONPATH=/app
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV HOST=0.0.0.0
+ENV STAC_API_PORT=8081
+ENV CORS_ORIGINS=*
+ENV WEB_CONCURRENCY=10
+ENV PYTHONUNBUFFERED=1
+
+# Set the working directory
+WORKDIR /app
+RUN mkdir -p /app/scripts
+
+# Copy scripts and make them executable
+COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
+COPY stac-fastapi/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/wait-for-it.sh /usr/local/bin/entrypoint.sh
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    ninja-build \
+    git \
+    g++ \
+    make \
+    python3-dev \
+    wget \
+    curl \
+    libspatialindex-dev \
+    libsqlite3-dev \
+    libgeos-dev \
+    libproj-dev \
+    libtiff-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libpq-dev \
+    libcurl4-gnutls-dev \
+    libxml2-dev \
+    libexpat1-dev \
+    libnetcdf-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# GDAL installation
+ENV GDAL_VERSION=3.11.3
+ENV CPLUS_INCLUDE_PATH=/usr/local/include
+ENV C_INCLUDE_PATH=/usr/local/include
+ENV PROJ_DIR=/usr
+
+# Clone GDAL and build using CMake
+RUN git clone https://github.com/OSGeo/gdal.git \
+    && cd gdal \
+    && git checkout v${GDAL_VERSION} \
+    && mkdir build \
+    && cd build \
+    && cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+    && ninja \
+    && ninja install \
+    && ldconfig \
+    && cd /app \
+    && rm -rf gdal
+
+
+# Copy requirements files
+COPY stac-fastapi/requirements-stac-fastapi.txt ./requirements-stac-fastapi.txt
+
+# Install GDAL Python bindings and other Python dependencies
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir numpy>=2.0 cython \
+    && pip install --no-cache-dir psycopg[binary] \
+    && pip install --no-cache-dir -r requirements-stac-fastapi.txt \
+    && pip install --no-cache-dir uvicorn fastapi \
+    && mkdir -p /app/data
+
+# Copy pipeline code
+COPY stac-fastapi/pipeline /app/pipeline
+
+# Expose the port FastAPI will run on
+EXPOSE ${STAC_API_PORT}
+
+# Default command
+CMD ["/usr/local/bin/entrypoint.sh"]
