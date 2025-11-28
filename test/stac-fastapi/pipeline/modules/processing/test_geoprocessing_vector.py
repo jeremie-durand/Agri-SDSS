@@ -1,6 +1,8 @@
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime as dt
+from datetime import timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import fiona
@@ -190,51 +192,6 @@ def test_add_metadata_fields_basic(tmp_path):
     for m in out["metadata"]:
         assert isinstance(m, dict)
         assert m == defaults
-
-
-def test_add_metadata_fields_datetime_missing_sets_default_datetime():
-    """When 'datetime' column is absent, start_date and end_date are set to DEFAULT_DATETIME."""
-    gdf = gpd.GeoDataFrame(
-        {"val": [1, 2]}, geometry=[Point(0, 0), Point(1, 1)], crs="EPSG:4326"
-    )
-    gp = GeoprocessingVector(
-        gdf=gdf.copy(),
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    out = gp._add_metadata_fields_in_gdf(
-        gdf=gdf.copy(),
-        missing_fields=["start_date", "end_date"],
-        database_table_name="t",
-    )
-    assert "start_date" in out.columns and "end_date" in out.columns
-
-    assert all(out["start_date"] == Config.DEFAULT_DATETIME)
-    assert all(out["end_date"] == Config.DEFAULT_DATETIME)
-
-
-def test_add_metadata_fields_datetime_present_sets_start_end_defaults():
-    """When 'datetime' column exists, start_date/end_date use DEFAULT_START_DATE/DEFAULT_END_DATE."""
-    dt = Config.DEFAULT_DATETIME
-    gdf = gpd.GeoDataFrame(
-        {"datetime": [dt, dt], "val": [1, 2]},
-        geometry=[Point(0, 0), Point(1, 1)],
-        crs="EPSG:4326",
-    )
-    gp = GeoprocessingVector(
-        gdf=gdf.copy(),
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    out = gp._add_metadata_fields_in_gdf(
-        gdf=gdf.copy(),
-        missing_fields=["start_date", "end_date"],
-        database_table_name="t2",
-    )
-    assert all(out["start_date"] == Config.DEFAULT_START_DATE)
-    assert all(out["end_date"] == Config.DEFAULT_END_DATE)
 
 
 def test_metadata_copies_are_independent():
@@ -981,7 +938,80 @@ def test_harmonize_name_gdf_hash_format():
 
 
 # ------------------------------------------
-# Test cases for GeoprocessingVector._validate_vector_data
+# Test cases for GeoprocessingVector._read_csv_as_gdf()
+# ------------------------------------------
+def test_read_csv_as_gdf_success_lon_lat(tmp_path):
+    """Should read CSV with lon/lat columns and produce a GeoDataFrame with EPSG:4326 by default."""
+    csv_path = tmp_path / "coords.csv"
+    df = pd.DataFrame({"Lon": [0.0, 1.0], "Lat": [0.5, 1.5], "attr": [10, 20]})
+    df.to_csv(csv_path, index=False)
+
+    gdf = GeoprocessingVector._read_csv_as_gdf(vector_file=csv_path)
+    assert isinstance(gdf, gpd.GeoDataFrame)
+    assert "geometry" in gdf.columns
+    assert len(gdf) == 2
+    assert gdf.crs is not None
+    assert gdf.crs.to_epsg() == 4326
+
+
+def test_read_csv_as_gdf_fallback_to_latin1(monkeypatch, tmp_path):
+    """Simulate UnicodeDecodeError on first pd.read_csv call and ensure latin1 fallback is used."""
+    csv_path = tmp_path / "latin1.csv"
+    # create a simple file (content doesn't matter because we patch pd.read_csv)
+    csv_path.write_text("lon,lat\n0,0\n", encoding="latin1")
+
+    # prepare DataFrame that should be returned by the second call (latin1)
+    returned_df = pd.DataFrame({"lon": [0.0], "lat": [0.0]})
+
+    # make pd.read_csv first raise UnicodeDecodeError then return our DataFrame
+    err = UnicodeDecodeError("utf-8", b"", 0, 1, "invalid start byte")
+    with patch(
+        "pipeline.modules.processing.geoprocessing.pd.read_csv",
+        side_effect=[err, returned_df],
+    ):
+        gdf = GeoprocessingVector._read_csv_as_gdf(vector_file=csv_path)
+        assert isinstance(gdf, gpd.GeoDataFrame)
+        assert len(gdf) == 1
+        assert gdf.crs.to_epsg() == 4326
+
+
+def test_read_csv_as_gdf_missing_coordinate_columns_raises(tmp_path):
+    """CSV without coordinate columns must raise ValueError."""
+    csv_path = tmp_path / "no_coords.csv"
+    pd.DataFrame({"a": [1], "b": [2]}).to_csv(csv_path, index=False)
+
+    with pytest.raises(
+        ValueError, match="CSV file does not contain valid geometry columns"
+    ):
+        GeoprocessingVector._read_csv_as_gdf(vector_file=csv_path)
+
+
+def test_read_csv_as_gdf_uses_registry_crs(tmp_path):
+    """If CSVDataRegistryForSourceCRS contains an entry for the file stem, its CRS should be used."""
+    csv_path = tmp_path / "testcsv.csv"
+    pd.DataFrame({"lon": [2.0], "lat": [3.0]}).to_csv(csv_path, index=False)
+
+    # Fake registry object compatible with lookup in the function
+    class FakeRegistry:
+        __members__ = {"testcsv": True}
+
+        def __getitem__(self, key):
+            # emulate Enum member with .value, where value is a tuple and CRS is at index 1
+            return SimpleNamespace(value=(None, "EPSG:3857"))
+
+    with patch(
+        "pipeline.modules.processing.geoprocessing.CSVDataRegistryForSourceCRS",
+        new=FakeRegistry(),
+    ):
+        gdf = GeoprocessingVector._read_csv_as_gdf(vector_file=csv_path)
+        assert isinstance(gdf, gpd.GeoDataFrame)
+        # CRS provided by registry should be used
+        assert gdf.crs is not None
+        assert gdf.crs.to_epsg() == 3857
+
+
+# ------------------------------------------
+# Test cases for GeoprocessingVector.validate_vector_data()
 # ------------------------------------------
 def test_validate_vector_data_success(gdf_polygon_fixture):
     """Test successful validation of a valid GeoDataFrame."""
@@ -1377,32 +1407,36 @@ def test_harmonize_gdf_renames_columns(gdf_points_harmonization_fixture):
         target_crs=Config.GLOBAL_CRS,
         stac_collection_id=Config.STAC_COLLECTION_ID,
     )
-    columns_mapping = {"Nom": "name", "Valeur": "value"}
-    geoprocessing_vector.harmonize_gdf(columns_mapping=columns_mapping)
-    assert all(
-        [s in geoprocessing_vector.gdf.columns for s in columns_mapping.values()]
-    )
+    geoprocessing_vector.harmonize_gdf(rename_columns=True)
 
+    # Original columns should not remain
+    assert "Nom" not in geoprocessing_vector.gdf.columns
+    assert "Valeur" not in geoprocessing_vector.gdf.columns
 
-def test_harmonize_gdf_casts_types(gdf_points_harmonization_fixture):
-    """
-    Test if the harmonize_gdf method casts column types correctly.
-    """
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf_points_harmonization_fixture,
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-    geoprocessing_vector.harmonize_gdf(
-        columns_mapping={"Nom": "name", "Valeur": "value"},
-        expected_types={"name": str, "value": int},
-    )
-    assert (
-        geoprocessing_vector.gdf["name"].dropna().map(type).eq(str).all()
-    ), "Column 'name' does not contain only str values"
-    assert pd.api.types.is_integer_dtype(
-        geoprocessing_vector.gdf["value"]
-    ), "Column 'value' is not of integer dtype"
+    # Expect renamed/normalized columns present (lowercase, no spaces)
+    cols = list(geoprocessing_vector.gdf.columns)
+    name_candidates = [
+        c
+        for c in cols
+        if c.lower().startswith("nom")
+        or c.lower().startswith("name")
+        or "nom" in c.lower()
+    ]
+    value_candidates = [
+        c
+        for c in cols
+        if c.lower().startswith("val")
+        or c.lower().startswith("value")
+        or "valeur" in c.lower()
+    ]
+
+    assert name_candidates, f"No candidate column found for 'Nom' in {cols}"
+    assert value_candidates, f"No candidate column found for 'Valeur' in {cols}"
+
+    # Ensure normalized form: lowercase and no spaces
+    for c in name_candidates + value_candidates:
+        assert c == c.lower()
+        assert " " not in c
 
 
 def test_harmonize_gdf_drops_null_geometries(gdf_points_harmonization_fixture):
@@ -1524,13 +1558,13 @@ def test_harmonize_crs_gdf_missing_crs(gdf_no_crs):
 # ------------------------------------------
 def test_prepare_gdf_for_stac_some_fields_exist():
     """Test prepare_gdf_for_stac when some required fields already exist."""
-    existing_start_date = datetime(2023, 6, 15, tzinfo=timezone.utc)
+    existing_datetime = dt(2023, 6, 15, tzinfo=timezone.utc)
     existing_metadata = [{"existing": "data"}, {"more": "info"}]
 
     gdf = gpd.GeoDataFrame(
         {
             "existing_col": [1, 2],
-            "start_date": [existing_start_date, existing_start_date],
+            "datetime": [existing_datetime, existing_datetime],
             "metadata": existing_metadata,
             "geometry": [Point(0, 0), Point(1, 1)],
         },
@@ -1549,12 +1583,12 @@ def test_prepare_gdf_for_stac_some_fields_exist():
     result_gdf = geoprocessing_vector.gdf
 
     # Check that existing fields are preserved
-    assert all(result_gdf["start_date"] == existing_start_date)
+    assert all(result_gdf["datetime"] == existing_datetime)
     assert list(result_gdf["metadata"]) == existing_metadata
 
     # Check that missing fields are added
     assert "gid" in result_gdf.columns
-    assert "end_date" in result_gdf.columns
+    assert "datetime" in result_gdf.columns
     assert "file_url" in result_gdf.columns
 
     # Check new field values
@@ -1565,8 +1599,7 @@ def test_prepare_gdf_for_stac_some_fields_exist():
 
 def test_prepare_gdf_for_stac_all_fields_exist():
     """Test prepare_gdf_for_stac when all required fields already exist."""
-    existing_start_date = datetime(2023, 6, 15, tzinfo=timezone.utc)
-    existing_end_date = datetime(2023, 12, 31, tzinfo=timezone.utc)
+    existing_datetime = dt(2023, 6, 15, tzinfo=timezone.utc)
     existing_metadata = [{"custom": "data"}, {"more": "info"}]
     existing_file_url = ["/custom/path/1", "/custom/path/2"]
     existing_gid = [100, 200]
@@ -1574,8 +1607,7 @@ def test_prepare_gdf_for_stac_all_fields_exist():
     gdf = gpd.GeoDataFrame(
         {
             "gid": existing_gid,
-            "start_date": [existing_start_date, existing_start_date],
-            "end_date": [existing_end_date, existing_end_date],
+            "datetime": [existing_datetime, existing_datetime],
             "file_url": existing_file_url,
             "metadata": existing_metadata,
             "geometry": [Point(0, 0), Point(1, 1)],
@@ -1596,8 +1628,7 @@ def test_prepare_gdf_for_stac_all_fields_exist():
 
     # All existing values should be preserved
     assert list(result_gdf["gid"]) == existing_gid
-    assert all(result_gdf["start_date"] == existing_start_date)
-    assert all(result_gdf["end_date"] == existing_end_date)
+    assert all(result_gdf["datetime"] == existing_datetime)
     assert list(result_gdf["file_url"]) == existing_file_url
     assert list(result_gdf["metadata"]) == existing_metadata
 
@@ -1700,10 +1731,10 @@ def test_prepare_gdf_for_stac_no_end_date():
     gdf = gpd.GeoDataFrame(
         {
             "gid": [1, 2],  # Existing gid
-            "start_date": [
-                datetime(2023, 1, 1, tzinfo=timezone.utc),
-                datetime(2023, 6, 1, tzinfo=timezone.utc),
-            ],  # Existing start_date
+            "datetime": [
+                dt(2023, 1, 1, tzinfo=timezone.utc),
+                dt(2023, 6, 1, tzinfo=timezone.utc),
+            ],  # Existing datetime
             "geometry": [Point(0, 0), Point(1, 1)],
         },
         crs="EPSG:4326",
@@ -1721,9 +1752,9 @@ def test_prepare_gdf_for_stac_no_end_date():
 
     # Existing fields should be preserved
     assert list(result_gdf["gid"]) == [1, 2]
-    assert list(result_gdf["start_date"]) == [
-        datetime(2023, 1, 1, tzinfo=timezone.utc),
-        datetime(2023, 6, 1, tzinfo=timezone.utc),
+    assert list(result_gdf["datetime"]) == [
+        dt(2023, 1, 1, tzinfo=timezone.utc),
+        dt(2023, 6, 1, tzinfo=timezone.utc),
     ]
 
 
@@ -1735,6 +1766,10 @@ def test_prepare_gdf_for_stac_partial_existing_fields():
             "file_url": ["/data/1", "/data/2"],  # Existing file_url
             "other_col": ["a", "b"],
             "geometry": [Point(0, 0), Point(1, 1)],
+            "datetime": [
+                dt(2023, 1, 1, tzinfo=timezone.utc),
+                dt(2023, 6, 1, tzinfo=timezone.utc),
+            ],
         },
         crs="EPSG:4326",
     )
@@ -1750,8 +1785,7 @@ def test_prepare_gdf_for_stac_partial_existing_fields():
     result_gdf = geoprocessing_vector.gdf
 
     # Missing fields should be added
-    assert "start_date" in result_gdf.columns
-    assert "end_date" in result_gdf.columns
+    assert "datetime" in result_gdf.columns
     assert "metadata" in result_gdf.columns
 
 
@@ -1789,7 +1823,15 @@ def test_prepare_gdf_for_stac_various_table_names(table_name):
 def test_prepare_gdf_for_stac_modifies_instance_gdf():
     """Test that prepare_gdf_for_stac modifies the instance's gdf attribute."""
     original_gdf = gpd.GeoDataFrame(
-        {"col": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}, crs="EPSG:4326"
+        {
+            "col": [1, 2],
+            "geometry": [Point(0, 0), Point(1, 1)],
+            "datetime": [
+                dt(2023, 1, 1, tzinfo=timezone.utc),
+                dt(2023, 6, 1, tzinfo=timezone.utc),
+            ],
+        },
+        crs="EPSG:4326",
     )
 
     geoprocessing_vector = GeoprocessingVector(
@@ -1809,7 +1851,7 @@ def test_prepare_gdf_for_stac_modifies_instance_gdf():
     assert len(new_columns) > len(original_columns)
 
     # Required fields should be present
-    required_fields = ["gid", "start_date", "end_date", "file_url", "metadata"]
+    required_fields = ["gid", "datetime", "file_url", "metadata"]
     for field in required_fields:
         assert field in new_columns
 
@@ -1821,6 +1863,10 @@ def test_prepare_gdf_for_stac_integration_with_other_methods():
             "Name": ["Feature 1", "Feature 2"],
             "Value": [10, 20],
             "geometry": [Point(0, 0), Point(1, 1)],
+            "datetime": [
+                dt(2023, 1, 1, tzinfo=timezone.utc),
+                dt(2023, 6, 1, tzinfo=timezone.utc),
+            ],
         },
         crs="EPSG:4326",
     )
@@ -1841,14 +1887,15 @@ def test_prepare_gdf_for_stac_integration_with_other_methods():
 
     result_gdf = geoprocessing_vector.gdf
 
-    # Should have both original processed columns and STAC fields
-    assert "Name" in result_gdf.columns  # From original
-    assert "Value" in result_gdf.columns  # From original
-    assert "gid" in result_gdf.columns  # From STAC preparation
-    assert "start_date" in result_gdf.columns  # From STAC preparation
-    assert "end_date" in result_gdf.columns  # From STAC preparation
-    assert "file_url" in result_gdf.columns  # From STAC preparation
-    assert "metadata" in result_gdf.columns  # From STAC preparation
+    # Columns are normalized by harmonize_gdf (lowercase, underscores)
+    assert "name" in result_gdf.columns  # normalized from "Name"
+    assert "value" in result_gdf.columns  # normalized from "Value"
+    assert "geometry" in result_gdf.columns
+    # STAC fields present
+    assert "gid" in result_gdf.columns
+    assert "datetime" in result_gdf.columns
+    assert "file_url" in result_gdf.columns
+    assert "metadata" in result_gdf.columns
 
     # Check STAC field values
     assert list(result_gdf["gid"]) == [1, 2]

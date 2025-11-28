@@ -1,6 +1,6 @@
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime as dt
 from pathlib import Path
 from typing import Any, Mapping
 from unittest.mock import MagicMock, patch
@@ -71,17 +71,6 @@ def test_open_rasters_no_files():
     """
     with pytest.raises(ValueError, match="No raster files provided."):
         GeoprocessingRaster(config=Config(), raster_paths=[])  # Empty list
-
-
-def test_open_rasters_invalid_format(tmp_path: Path):
-    """
-    Test if the raster data validation fails for an invalid file format.
-    """
-    fake_raster_path = tmp_path / "fake.txt"  # .txt not a valid raster format
-    fake_raster_path.touch()
-
-    with pytest.raises(ValueError, match="Invalid raster format:"):
-        GeoprocessingRaster(config=Config(), raster_paths=[fake_raster_path])
 
 
 def test_open_rasters_no_crs(tmp_path: Path):
@@ -248,7 +237,7 @@ def test_analyze_and_store_metadata_with_tags(tmp_path: Path):
         dtype=data.dtype,
         crs="EPSG:4326",
         transform=valid_transform,
-        TIFFTAG_DATETIME=datetime(2024, 1, 1, 0, 0, 0),
+        TIFFTAG_DATETIME=dt(2024, 1, 1, 0, 0, 0),
         TIFFTAG_ARTIST="Test Creator",
     ) as dst:
         dst.write(data)

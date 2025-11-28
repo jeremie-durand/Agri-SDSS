@@ -12,13 +12,14 @@ from pipeline.config import Config
 from pipeline.logging_setup import handle_error, setup_logging
 from pipeline.mapping import (
     AttributeNullValues,
-    ColumnAliases,
+    ColumnMappings,
+    CSVDataRegistryForSourceCRS,
     DefaultMetadata,
     NamingPatterns,
-    SupportedRasterFormats,
 )
 from pipeline.modules.db.duckdb_utils import DuckDBManager
 from pipeline.modules.db.pg_utils import PostGISManager
+from pipeline.modules.io_tools.input_data import read_csv_file
 from pipeline.modules.processing.processing_stac import (
     StacApiClient,
     build_stac_collection_from_items,
@@ -41,7 +42,7 @@ class GeoprocessingVector:
         self.gdf = gdf
         self.target_crs = target_crs
         self.stac_collection_id = stac_collection_id
-        self.required_fields = ["gid", "start_date", "end_date", "file_url", "metadata"]
+        self.required_fields = ["gid", "file_url", "metadata"]
 
     def _add_metadata_fields_in_gdf(
         self, gdf: gpd.GeoDataFrame, missing_fields: list, database_table_name: str
@@ -55,33 +56,15 @@ class GeoprocessingVector:
 
         Returns:
             The modified GeoDataFrame.
+
+        Notes:
+            This function modifies the GeoDataFrame in place by adding the specified missing fields with default values.
         """
         n_rows = gdf.shape[0]
 
         for field in missing_fields:
             if field == "gid":
                 gdf[field] = range(1, n_rows + 1)
-            if "datetime" not in gdf.columns and field in [
-                "start_date",
-                "end_date",
-            ]:
-                gdf[field] = pd.Series(
-                    [Config.DEFAULT_DATETIME] * n_rows,
-                    index=gdf.index,
-                    dtype="datetime64[ns, UTC]",
-                )
-            elif field == "start_date":
-                gdf[field] = pd.Series(
-                    [Config.DEFAULT_START_DATE] * n_rows,
-                    index=gdf.index,
-                    dtype="datetime64[ns, UTC]",
-                )
-            elif field == "end_date":
-                gdf[field] = pd.Series(
-                    [Config.DEFAULT_END_DATE] * n_rows,
-                    index=gdf.index,
-                    dtype="datetime64[ns, UTC]",
-                )
             elif field == "file_url":
                 gdf[field] = pd.Series(
                     [f"/data/input/{database_table_name}"] * n_rows,
@@ -184,6 +167,102 @@ class GeoprocessingVector:
 
         return clean_name
 
+    def _rename_gdf_columns(self):
+        """Rename GeoDataFrame columns based on ColumnMappings."""
+        logger.info("Renaming GeoDataFrame columns based on ColumnMappings...")
+
+        if not isinstance(self.gdf, gpd.GeoDataFrame):
+            error_msg = "Input must be a valid GeoDataFrame with a geometry column."
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
+        self.gdf.columns = self.gdf.columns.str.lower()
+        self.gdf.columns = self.gdf.columns.str.replace(" ", "_", regex=False)
+        self.gdf.columns = self.gdf.columns.str.replace("-", "_", regex=False)
+
+        rename_map: dict = {}
+
+        for col in list(self.gdf.columns):
+            norm = col.strip().lower()
+
+            mapping = ColumnMappings.find(norm)
+            if mapping:
+                new_name = mapping.value.canonical
+            else:
+                new_name = norm
+
+            if new_name != col:
+                rename_map[col] = new_name
+
+        if rename_map:
+            self.gdf = self.gdf.rename(columns=rename_map)
+
+    def _handle_null_values_in_attributes(self):
+        """Handle null values in GeoDataFrame attributes based on AttributeNullValues."""
+        mapping: dict = {}
+        for member in AttributeNullValues:
+            value = member.value
+            if isinstance(value, str) or value is None:
+                mapping[value] = None
+        self.gdf = self.gdf.replace(mapping)
+
+    @staticmethod
+    def _read_csv_as_gdf(vector_file: Path) -> gpd.GeoDataFrame:
+        """
+        Read a spatial CSV file and return a GeoDataFrame.
+
+        This function:
+        - Tries to read the CSV with UTF-8, falls back to Latin-1 if decoding fails.
+        - Normalizes column names to lowercase.
+        - Detects coordinate columns (x/y or lon/lat) using ColumnMappings.
+        - Looks up CRS from CSVDataRegistryForSourceCRS if available.
+
+        Args:
+            vector_file: Path to the CSV file.
+
+        Returns:
+            A GeoDataFrame constructed from the CSV.
+        """
+        try:
+            df = read_csv_file(vector_file=vector_file)
+
+            # Normalize column names
+            df.columns = df.columns.str.lower()
+
+            # Identify coordinate columns
+            x_col = set(
+                ColumnMappings.LONGITUDE.value.alias
+                + [ColumnMappings.LONGITUDE.value.canonical]
+            ).intersection(df.columns)
+            y_col = set(
+                ColumnMappings.LATITUDE.value.alias
+                + [ColumnMappings.LATITUDE.value.canonical]
+            ).intersection(df.columns)
+
+            # Determine CRS from registry (if defined)
+            source_crs = (
+                CSVDataRegistryForSourceCRS[vector_file.stem.lower()].value[1]
+                if vector_file.stem.lower() in CSVDataRegistryForSourceCRS.__members__
+                else None
+            )
+
+            # Validate geometry columns
+            if not x_col or not y_col:
+                raise ValueError(
+                    f"CSV file does not contain valid geometry columns: {vector_file}"
+                )
+
+            # Create GeoDataFrame
+            gdf = gpd.GeoDataFrame(
+                df,
+                geometry=gpd.points_from_xy(df[list(x_col)[0]], df[list(y_col)[0]]),
+                crs=source_crs if source_crs else "EPSG:4326",
+            )
+            return gdf
+
+        except Exception as e:
+            logger.error(f"Failed to read CSV {vector_file}: {e}")
+            raise
+
     def validate_vector_data(self):
         """Validate the input GeoDataFrame for vector data processing."""
         logger.info("Validating input GeoDataFrame for vector data processing...")
@@ -221,7 +300,6 @@ class GeoprocessingVector:
 
     def harmonize_gdf(
         self,
-        columns_mapping: dict = None,
         expected_types: dict = None,
         drop_duplicates: bool = True,
         drop_null_geoms: bool = True,
@@ -230,7 +308,6 @@ class GeoprocessingVector:
         """Harmonise a GeoDataFrame using different methods.
 
         Args:
-            columns_mapping: Optional mapping of column names to rename.
             expected_types: Optional mapping of column names to expected types.
             drop_duplicates: Whether to drop duplicate rows. Default is True.
             drop_null_geoms: Whether to drop rows with null geometries. Default is True.
@@ -263,28 +340,18 @@ class GeoprocessingVector:
         if drop_null_geoms and self.gdf.geometry.isnull().any():
             self.gdf = self.gdf[~self.gdf.geometry.isnull()].copy()
 
-        # Replace spaces in column names with underscores
+        # Rename columns based on mapping
         if rename_columns:
-            self.gdf.columns = self.gdf.columns.str.replace(" ", "_", regex=False)
-            self.gdf.columns = self.gdf.columns.str.replace("-", "_", regex=False)
-            # gdf.columns = gdf.columns.str.lower()
+            self._rename_gdf_columns()
 
         # Handle null values in attributes
-        null_like = list(AttributeNullValues.get_null_mapping().keys())
-        for col in self.gdf.columns:
-            if self.gdf[col].dtype == "object":
-                self.gdf[col] = self.gdf[col].replace(null_like, None)
-                self.gdf[col] = self.gdf[col].where(pd.notnull(self.gdf[col]), None)
+        self._handle_null_values_in_attributes()
 
         # Cast columns to expected types if provided
         if expected_types:
             for col, typ in expected_types.items():
                 if col in self.gdf.columns:
                     self.gdf[col] = self.gdf[col].astype(typ)
-
-        # Rename columns based on the mapping if provided
-        if columns_mapping:
-            self.gdf = self.gdf.rename(columns=columns_mapping)
 
         logger.info("GeoDataFrame harmonization completed.")
 
@@ -404,16 +471,29 @@ class GeoprocessingVector:
                 handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
             try:
-                layers = fiona.listlayers(vector_file)
-                for layer in layers:
-                    gdf = gpd.read_file(vector_file, layer=layer)
-                    if len(layers) == 1:
-                        gdf_name = vector_file.stem
-                    else:
-                        gdf_name = f"{vector_file.stem}_{layer.strip()}"
-
+                if vector_file.suffix.lower() == ".csv":
+                    # Special CSV file reading
+                    gdf = GeoprocessingVector._read_csv_as_gdf(vector_file)
+                    gdf_name = vector_file.stem
                     clean_name = GeoprocessingVector._harmonize_name_gdf(name=gdf_name)
+
                     vector_data_gdf_list.append((clean_name, gdf))
+
+                else:
+                    # Standard vector file reading
+                    layers = fiona.listlayers(vector_file)
+                    for layer in layers:
+                        gdf = gpd.read_file(vector_file, layer=layer)
+                        if len(layers) == 1:
+                            gdf_name = vector_file.stem
+                        else:
+                            gdf_name = f"{vector_file.stem}_{layer.strip()}"
+
+                        clean_name = GeoprocessingVector._harmonize_name_gdf(
+                            name=gdf_name
+                        )
+
+                        vector_data_gdf_list.append((clean_name, gdf))
             except Exception as e:
                 logger.warning(
                     f"Error reading vector file {vector_file}, skipping: {e}"
@@ -458,7 +538,7 @@ def geoprocessing_vector_data(
             stac_collection_id=stac_collection_id,
         )
         processor.validate_vector_data()
-        processor.harmonize_gdf(columns_mapping=ColumnAliases.get_aliases_dict())
+        processor.harmonize_gdf()
         processor.clean_geometries_gdf()
         processor.harmonize_crs_gdf()
         processor.prepare_gdf_for_stac(database_table_name=table)
@@ -537,14 +617,6 @@ class GeoprocessingRaster:
         rasters = {}
         for raster_path in self.raster_paths:
             logger.debug(f"Opening and validating raster: {raster_path}")
-
-            if (
-                raster_path.suffix.lower()
-                not in SupportedRasterFormats.get_extensions()
-            ):
-                error_msg = f"Invalid raster format: {raster_path}"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
             try:
                 with rasterio.open(raster_path) as src:
                     if src.crs is None:
@@ -605,8 +677,6 @@ class GeoprocessingRaster:
 
                 self.raster_metadata[raster_path] = {
                     "id": raster_path.stem,
-                    "start_date": datetime_value,
-                    "end_date": datetime_value,
                     "datetime": datetime_value,
                     "bbox": [bounds.left, bounds.bottom, bounds.right, bounds.top],
                     "geometry": geometry,

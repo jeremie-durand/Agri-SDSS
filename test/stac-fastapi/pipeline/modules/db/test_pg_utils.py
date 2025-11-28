@@ -1,9 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime as dt
+from datetime import timezone
 from unittest.mock import Mock, patch
 
 import geopandas as gpd
+import pandas as pd
 import pytest
-from pipeline.mapping import RasterStacColumns, VectorStacColumns
+from pipeline.mapping import PostgresDataTypes, RasterStacColumns
 from pipeline.modules.db.pg_utils import PostGISManager
 from shapely.geometry import Point
 
@@ -119,8 +121,7 @@ def cog_metadata_simple():
     """Simple COG metadata with all required fields."""
     return {
         "id": "test_cog",
-        "start_date": "2024-01-01T00:00:00Z",
-        "end_date": "2024-12-31T23:59:59Z",
+        "datetime": "2024-06-01T00:00:00Z",
         "bbox": [-81.5, 44.4, -56.0, 55.2],
         "geometry": {
             "type": "Polygon",
@@ -222,8 +223,7 @@ def cog_metadata_with_objects():
     """COG metadata with datetime objects instead of strings."""
     return {
         "id": "test_cog_objects",
-        "start_date": datetime(2024, 1, 1, tzinfo=timezone.utc),
-        "end_date": datetime(2024, 12, 31, tzinfo=timezone.utc),
+        "datetime": dt(2024, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
         "bbox": [-3, -3, 3, 3],
         "file_url": "test_objects.tif",
         "metadata": {"bands": 1, "width": 256, "height": 256},
@@ -373,12 +373,13 @@ def test_postgis_extension_check_sql_query(mock_engine):
 # ------------------------------------------
 def test_create_table_from_mapping_success(postgis_manager):
     """Test successful table creation from mapping."""
-    test_mapping = {
-        "gid": "INTEGER PRIMARY KEY",
-        "name": "TEXT",
-        "geometry": "geometry(POLYGON, 4326)",
-    }
     table_name = "test_table"
+
+    sqlalchemy_mapping = {
+        "gid": {"type": "Integer", "primary_key": True, "autoincrement": True},
+        "name": {"type": "Text"},
+        "geometry": {"type": "Geometry", "geometry_type": "POLYGON", "srid": 4326},
+    }
 
     with patch("sqlalchemy.MetaData") as mock_metadata:
         with patch("sqlalchemy.Table") as mock_table:
@@ -388,7 +389,7 @@ def test_create_table_from_mapping_success(postgis_manager):
             mock_metadata.return_value = mock_metadata_instance
 
             postgis_manager._create_table_from_mapping(
-                table_name=table_name, column_mapping=test_mapping
+                table_name=table_name, column_mapping=sqlalchemy_mapping
             )
 
             mock_table.assert_called_once()
@@ -457,6 +458,50 @@ def test_create_table_from_mapping_database_error(postgis_manager):
 
 
 # ------------------------------------------
+# Test cases for _build_column_mapping_from_gdf()
+# ------------------------------------------
+def test_build_column_mapping_infers_common_types(postgis_manager):
+    """Test inference of common types from GeoDataFrame columns."""
+    df = pd.DataFrame(
+        {
+            "geometry": [Point(0, 0), Point(1, 1)],
+            "dt": pd.to_datetime(
+                ["2024-01-01T00:00:00Z", "2024-06-01T00:00:00Z"], utc=True
+            ),
+            "cnt": [1, 2],
+            "val": [0.1, 2.5],
+            "meta": [{"a": 1}, {"b": 2}],
+            "name": ["a", "b"],
+        }
+    )
+    gdf = gpd.GeoDataFrame(df, geometry="geometry")
+
+    mapping = postgis_manager._build_column_mapping_from_gdf(gdf)
+
+    assert mapping["geometry"] == PostgresDataTypes.GEOMETRY_4326.value
+    assert mapping["dt"] == PostgresDataTypes.TIMESTAMP_WITH_TIMEZONE.value
+    assert mapping["cnt"] == PostgresDataTypes.TEXT.value
+    assert mapping["val"] == PostgresDataTypes.TEXT.value
+    assert mapping["meta"] == PostgresDataTypes.JSONB.value
+    assert mapping["name"] == PostgresDataTypes.TEXT.value
+
+
+def test_build_column_mapping_object_mixed_fallback(postgis_manager):
+    """Test that mixed object types fallback to TEXT."""
+    df = pd.DataFrame(
+        {
+            "geometry": [Point(0, 0), Point(1, 1)],
+            "mixed": [{"a": 1}, "string_value"],
+        }
+    )
+    gdf = gpd.GeoDataFrame(df, geometry="geometry")
+
+    mapping = postgis_manager._build_column_mapping_from_gdf(gdf)
+
+    assert mapping["mixed"] == PostgresDataTypes.TEXT.value
+
+
+# ------------------------------------------
 # Test cases for insert_gdf()
 # ------------------------------------------
 def test_insert_gdf_new_table_success(postgis_manager, gdf_points_fixture):
@@ -477,9 +522,11 @@ def test_insert_gdf_new_table_success(postgis_manager, gdf_points_fixture):
                     gdf=gdf_points_fixture, table_name=table_name
                 )
 
+                expected_mapping = postgis_manager._build_column_mapping_from_gdf(
+                    gdf_points_fixture
+                )
                 mock_create.assert_called_once_with(
-                    table_name=table_name,
-                    column_mapping=VectorStacColumns.get_columns_dict(),
+                    table_name=table_name, column_mapping=expected_mapping
                 )
                 mock_to_postgis.assert_called_once()
 
@@ -668,7 +715,7 @@ def test_insert_cog_metadata_new_table(postgis_manager, cog_metadata_simple):
 
             mock_create.assert_called_once_with(
                 table_name=table_name,
-                column_mapping=RasterStacColumns.get_columns_dict(),
+                column_mapping=RasterStacColumns,
             )
 
 

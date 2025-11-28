@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import datetime as dt
+from datetime import timezone
 from os import getenv
 
 import geopandas as gpd
@@ -145,13 +146,9 @@ def gdf_points_fixture():
         {
             "gid": [1, 2],
             "name": ["Feature1", "Feature2"],
-            "start_date": [
-                datetime(2024, 1, 1, tzinfo=timezone.utc),
-                datetime(2024, 1, 2, tzinfo=timezone.utc),
-            ],
-            "end_date": [
-                datetime(2024, 12, 31, tzinfo=timezone.utc),
-                datetime(2024, 12, 30, tzinfo=timezone.utc),
+            "datetime": [
+                dt(2024, 6, 1, tzinfo=timezone.utc),
+                dt(2024, 6, 2, tzinfo=timezone.utc),
             ],
             "bbox": [[-10, -10, 10, 10], [-20, -20, 20, 20]],
             "file_url": ["file1.tif", "file2.tif"],

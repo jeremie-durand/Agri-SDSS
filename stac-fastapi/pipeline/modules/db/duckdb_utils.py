@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple, Union
 
 import duckdb
 import geopandas as gpd
+import pandas as pd
 from pipeline.config import Config
 from pipeline.logging_setup import handle_error, setup_logging
 from pipeline.mapping import AttributeNullValues, NamingPatterns
@@ -67,7 +68,7 @@ class DuckDBManager:
         if isinstance(x, dict):
             return {"NA": None} if len(x) == 0 else x
 
-        mapping = AttributeNullValues.get_null_mapping()
+        mapping: dict = {m.value: None for m in AttributeNullValues}
 
         try:
             # Try direct lookup
@@ -179,6 +180,79 @@ class DuckDBManager:
         escaped = name.replace('"', '""')
 
         return f'"{escaped}"'
+
+    @staticmethod
+    def save_df_to_parquet(
+        df: pd.DataFrame,
+        output_file_name: str,
+        engine: str = "pyarrow",
+        overwrite: bool = True,
+    ):
+        """Save a DataFrame to a Parquet file.
+
+        Args:
+            df: The DataFrame to save.
+            output_file_name: The name of the output Parquet file (without extension).
+            engine: The Parquet engine to use.
+            overwrite: Whether to overwrite existing files.
+        """
+        if not output_file_name or not output_file_name.strip():
+            error_msg = "Output file name must not be empty"
+            handle_error(
+                logger=logger,
+                error_msg=error_msg,
+                exc_class=ValueError,
+            )
+
+        if df.empty:
+            error_msg = "Cannot save empty DataFrame"
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
+        parquet_path = Path(Config.DUCKDB_DATA_DIR) / f"{output_file_name}.parquet"
+        tmp_path = parquet_path.with_suffix(".tmp")
+
+        try:
+            if parquet_path.exists() and not overwrite:
+                logger.warning(
+                    f"File '{parquet_path}' already exists and overwrite=False. Skipping save."
+                )
+                return
+
+            df.to_parquet(tmp_path, engine=engine, index=False)
+
+            tmp_path.replace(parquet_path)
+
+            if not parquet_path.exists():
+                error_msg = (
+                    f"Parquet file '{parquet_path}' was not created after rename."
+                )
+                handle_error(
+                    logger=logger,
+                    error_msg=error_msg,
+                    exc_class=RuntimeError,
+                )
+
+            file_size = parquet_path.stat().st_size
+            logger.info(
+                f"DataFrame saved to Parquet '{parquet_path}' successfully. "
+                f"Size: {file_size:,} bytes, Rows: {len(df):,}"
+            )
+        except (OSError, IOError) as e:
+            DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
+            error_msg = f"File system error saving DataFrame to Parquet: {e}"
+            handle_error(
+                logger=logger,
+                error_msg=error_msg,
+                exc_class=RuntimeError,
+            )
+        except Exception as e:
+            DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
+            error_msg = f"Unexpected error saving DataFrame to Parquet: {e}"
+            handle_error(
+                logger=logger,
+                error_msg=error_msg,
+                exc_class=RuntimeError,
+            )
 
     @staticmethod
     def save_gdf_to_geoparquet(

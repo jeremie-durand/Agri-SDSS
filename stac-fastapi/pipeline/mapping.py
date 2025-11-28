@@ -1,9 +1,10 @@
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Set, Tuple
+from typing import Dict, Iterable
 
 
 # ---------------------------------------------------------------
-# Pipeline ingestion
+# Pipeline ingestion and processing mappings
 # ---------------------------------------------------------------
 class SupportedVectorFormats(Enum):
     """Supported vector file formats."""
@@ -11,11 +12,7 @@ class SupportedVectorFormats(Enum):
     SHP = ".shp"
     GEOJSON = ".geojson"
     GPKG = ".gpkg"
-
-    @classmethod
-    def get_extensions(cls) -> Set[str]:
-        """Get all supported extensions as a set."""
-        return {format.value for format in cls}
+    CSV = ".csv"
 
 
 class SupportedRasterFormats(Enum):
@@ -24,43 +21,90 @@ class SupportedRasterFormats(Enum):
     TIF = ".tif"
     TIFF = ".tiff"
 
-    @classmethod
-    def get_extensions(cls) -> Set[str]:
-        """Get all supported extensions as a set."""
-        return {format.value for format in cls}
+
+@dataclass
+class ColumnName:
+    canonical: str
+    alias: Iterable[str] | str | None = None
+
+    def __post_init__(self):
+        if isinstance(self.alias, str):
+            self.alias = [self.alias]
+        if self.alias is None:
+            self.alias = []
+        self.alias = [a.lower() for a in self.alias]
+        self.canonical = self.canonical.lower()
 
 
-class StacColumns(Enum):
-    """STAC column names."""
+class ColumnMappings(Enum):
+    """Column mappings for various data formats."""
 
-    GID = "gid"
-    START_DATE = "start_date"
-    END_DATE = "end_date"
-    FILE_URL = "file_url"
-    METADATA = "metadata"
-    GEOMETRY = "geometry"
-    BBOX = "bbox"
+    GID = ColumnName(canonical="gid", alias=["id", "id_station", "station_id", "no"])
+    GEOMETRY = ColumnName(canonical="geometry", alias="geom")
+    DATETIME = ColumnName(
+        canonical="datetime",
+        alias=[
+            "acq_date",
+            "date",
+            "timestamp",
+            "TIFFTAG_DATETIME",
+            "ACQUISITION_DATE",
+            "ACQ_DATE",
+        ],
+    )
+    FILE_URL = ColumnName(canonical="file_url")
+    METADATA = ColumnName(canonical="metadata", alias="properties")
+    BBOX = ColumnName(canonical="bbox")
+    LATITUDE = ColumnName(canonical="latitude", alias=["lat", "y"])
+    LONGITUDE = ColumnName(canonical="longitude", alias=["lon", "long", "longi", "x"])
+    DESCRIPTION = ColumnName(canonical="description", alias="desc")
+
+    @staticmethod
+    def find(norm_col: str) -> "ColumnMappings | None":
+        """Find the ColumnMappings member for a given normalized column name.
+
+        Args:
+            norm_col (str): The normalized column name to look up.
+
+        Returns:
+            ColumnMappings | None: The corresponding ColumnMappings member, or None if not found.
+        """
+        norm_col = norm_col.lower().strip()
+
+        for mapping in ColumnMappings:
+            info = mapping.value
+
+            # Check aliases
+            if norm_col in info.alias:
+                return mapping
+
+            # Check canonical
+            if norm_col == info.canonical:
+                return mapping
+
+        return None
 
 
-class ColumnAliases(Enum):
-    """Column aliases for STAC columns."""
+class AttributeNullValues(Enum):
+    """Null/NA values for normalization."""
 
-    GID = ("ID", "id")
-    START_DATE = ("Date_Acquisition", "date")
-    END_DATE = ("Date_Acquisition", "date")
-    FILE_URL = ()
-    METADATA = ("Metadata", "properties", "Properties")
+    EMPTY_STRING = ""
+    NA_LOWER = "na"
+    NA_TITLE = "Na"
+    NA_UPPER = "NA"
+    NA_SLASH_LOWER = "n/a"
+    NA_SLASH_UPPER = "N/A"
+    NONE = None
 
-    @classmethod
-    def get_aliases_dict(cls) -> Dict[str, Tuple[str, ...]]:
-        """Get aliases as a dictionary for backward compatibility."""
-        return {
-            StacColumns.GID.value: cls.GID.value,
-            StacColumns.START_DATE.value: cls.START_DATE.value,
-            StacColumns.END_DATE.value: cls.END_DATE.value,
-            StacColumns.FILE_URL.value: cls.FILE_URL.value,
-            StacColumns.METADATA.value: cls.METADATA.value,
-        }
+
+class CSVDataRegistryForSourceCRS(Enum):
+    """CSV data registry for source CRS."""
+
+    STATION_HYDROMETRIQUES = ("station_hydrometriques", "EPSG:4326")
+    RESEAU_AGROMETEO = ("reseau_agrometeo", "EPSG:4326")
+    QUEBEC_4326 = ("quebec_4326", "EPSG:4326")  # Test
+    QUEBEC_4617 = ("quebec_4617", "EPSG:4617")  # Test
+    QUEBEC_32198 = ("quebec_32198", "EPSG:32198")  # Test
 
 
 # ---------------------------------------------------------------
@@ -84,85 +128,24 @@ class PostgresDataTypes(Enum):
     POLYGON_4326_UPPER = "geometry(POLYGON, 4326)"
 
 
-class VectorStacColumns(Enum):
-    """Columns required in PostGIS for vector STAC."""
+class VectorPostGISColumns(Enum):
+    """Columns required in PostGIS for vector data."""
 
     GID = PostgresDataTypes.INTEGER_PRIMARY_KEY.value
     GEOMETRY = PostgresDataTypes.GEOMETRY_4326.value
-    START_DATE = PostgresDataTypes.TIMESTAMP_WITH_TIMEZONE.value
-    END_DATE = PostgresDataTypes.TIMESTAMP_WITH_TIMEZONE.value
-    FILE_URL = PostgresDataTypes.TEXT.value
+    DATETIME = PostgresDataTypes.TIMESTAMP_WITH_TIMEZONE.value
     METADATA = PostgresDataTypes.JSONB.value
-
-    @classmethod
-    def get_columns_dict(cls) -> Dict[str, str]:
-        """Get columns as a dictionary for backward compatibility."""
-        return {
-            StacColumns.GID.value: cls.GID.value,
-            StacColumns.GEOMETRY.value: cls.GEOMETRY.value,
-            StacColumns.START_DATE.value: cls.START_DATE.value,
-            StacColumns.END_DATE.value: cls.END_DATE.value,
-            StacColumns.FILE_URL.value: cls.FILE_URL.value,
-            StacColumns.METADATA.value: cls.METADATA.value,
-        }
 
 
 class RasterStacColumns(Enum):
     """Columns required in PostGIS for raster STAC."""
 
     GID = PostgresDataTypes.TEXT_PRIMARY_KEY.value
-    START_DATE = PostgresDataTypes.TIMESTAMP_WITH_TIMEZONE.value
-    END_DATE = PostgresDataTypes.TIMESTAMP_WITH_TIMEZONE.value
+    DATETIME = PostgresDataTypes.TIMESTAMP_WITH_TIMEZONE.value
     BBOX = PostgresDataTypes.FLOAT_ARRAY.value
     GEOMETRY = PostgresDataTypes.POLYGON_4326.value
     FILE_URL = PostgresDataTypes.TEXT.value
     METADATA = PostgresDataTypes.JSONB.value
-
-    @classmethod
-    def get_columns_dict(cls) -> Dict[str, str]:
-        """Get columns as a dictionary for backward compatibility."""
-        return {
-            StacColumns.GID.value: cls.GID.value,
-            StacColumns.START_DATE.value: cls.START_DATE.value,
-            StacColumns.END_DATE.value: cls.END_DATE.value,
-            StacColumns.BBOX.value: cls.BBOX.value,
-            StacColumns.GEOMETRY.value: cls.GEOMETRY.value,
-            StacColumns.FILE_URL.value: cls.FILE_URL.value,
-            StacColumns.METADATA.value: cls.METADATA.value,
-        }
-
-
-class VectorColumnsMapping(Enum):
-    """Default mapping of GeoDataFrame columns to STAC columns."""
-
-    GID = StacColumns.GID.value
-    GEOMETRY = StacColumns.GEOMETRY.value
-    START_DATE = StacColumns.START_DATE.value
-    END_DATE = StacColumns.END_DATE.value
-    FILE_URL = StacColumns.FILE_URL.value
-    METADATA = StacColumns.METADATA.value
-
-    @classmethod
-    def get_mapping_dict(cls) -> Dict[str, str]:
-        """Get mapping as a dictionary for backward compatibility."""
-        return {member.name.lower(): member.value for member in cls}
-
-
-class AttributeNullValues(Enum):
-    """Null/NA values for normalization."""
-
-    EMPTY_STRING = ""
-    NA_LOWER = "na"
-    NA_TITLE = "Na"
-    NA_UPPER = "NA"
-    NA_SLASH_LOWER = "n/a"
-    NA_SLASH_UPPER = "N/A"
-    NONE = None
-
-    @classmethod
-    def get_null_mapping(cls) -> Dict[Any, None]:
-        """Get null mapping as a dictionary for backward compatibility."""
-        return {member.value: None for member in cls}
 
 
 class SqlAlchemyTypes(Enum):
@@ -196,33 +179,17 @@ class SqlAlchemyTypes(Enum):
         "srid": 4326,
     }
 
-    @classmethod
-    def get_type_mapping(cls) -> Dict[str, Dict[str, Any]]:
-        """Get type mapping as a dictionary for backward compatibility."""
-        return {
-            PostgresDataTypes.INTEGER_PRIMARY_KEY.value: cls.INTEGER_PRIMARY_KEY.value,
-            PostgresDataTypes.TEXT_PRIMARY_KEY.value: cls.TEXT_PRIMARY_KEY.value,
-            PostgresDataTypes.TEXT.value: cls.TEXT.value,
-            PostgresDataTypes.TIMESTAMP.value: cls.TIMESTAMP.value,
-            PostgresDataTypes.TIMESTAMP_WITH_TIMEZONE.value: cls.TIMESTAMP_WITH_TIMEZONE.value,
-            PostgresDataTypes.JSONB.value: cls.JSONB.value,
-            PostgresDataTypes.FLOAT_ARRAY.value: cls.FLOAT_ARRAY.value,
-            PostgresDataTypes.FLOAT8_ARRAY.value: cls.FLOAT8_ARRAY.value,
-            PostgresDataTypes.GEOMETRY_4326.value: cls.GEOMETRY_4326.value,
-            PostgresDataTypes.POLYGON_4326_UPPER.value: cls.POLYGON_4326_UPPER.value,
-            PostgresDataTypes.POLYGON_4326.value: cls.POLYGON_4326.value,
-        }
-
 
 # ---------------------------------------------------------------
-# STAC templates and defaults
+# STAC templates
 # ---------------------------------------------------------------
 STAC_ITEM_TEMPLATE = {
-    "stac_version": "1.0.0",
     "type": "Feature",
+    "stac_version": "1.0.0",
+    "stac_extensions": [],
+    "id": None,
     "geometry": None,
     "bbox": None,
-    "datetime": None,
     "properties": {
         "datetime": None,
         "created": None,
@@ -231,12 +198,15 @@ STAC_ITEM_TEMPLATE = {
         "data_type": None,
         "source": None,
     },
+    "links": [],
+    "assets": {},
+    "collection": None,
 }
 
 
 STAC_COLLECTION_TEMPLATE = {
     "id": None,
-    "description": "No description provided",
+    "description": "No description provided for this collection.",
     "extent": {
         "spatial": {
             "bbox": [[-180.0, -90.0, 180.0, 90.0]],
@@ -251,7 +221,7 @@ STAC_COLLECTION_TEMPLATE = {
 
 
 # ---------------------------------------------------------------
-# Constants
+# Constants and defaults
 # ---------------------------------------------------------------
 
 
@@ -269,6 +239,7 @@ class DefaultMetadata(Enum):
 
     SOURCE = "unknown"
     DESCRIPTION = "No description provided"
+    DATETIME = "1970-01-01T00:00:00Z"
 
     @classmethod
     def get_defaults(cls) -> Dict[str, str]:
