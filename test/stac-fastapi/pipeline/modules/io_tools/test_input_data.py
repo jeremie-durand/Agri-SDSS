@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -267,12 +268,13 @@ def test_discover_geodata_edge_case_extensions(tmp_path):
         test_dir / "file.unknown",  # unsupported
     ]
 
+    # Patch the Enums by replacing them with iterables of SimpleNamespace(value=...)
     with patch(
-        "pipeline.modules.io_tools.input_data.SupportedRasterFormats.get_extensions",
-        return_value={".tif", "."},
+        "pipeline.modules.io_tools.input_data.SupportedRasterFormats",
+        new=[SimpleNamespace(value=".tif"), SimpleNamespace(value=".")],
     ), patch(
-        "pipeline.modules.io_tools.input_data.SupportedVectorFormats.get_extensions",
-        return_value={".shp", ""},
+        "pipeline.modules.io_tools.input_data.SupportedVectorFormats",
+        new=[SimpleNamespace(value=".shp"), SimpleNamespace(value="")],
     ):
 
         for file in files:

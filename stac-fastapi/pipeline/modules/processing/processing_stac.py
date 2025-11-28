@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import re
 import xml.etree.ElementTree as ET
+from collections import OrderedDict
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -14,8 +16,8 @@ from pipeline.logging_setup import handle_error, setup_logging
 from pipeline.mapping import (
     STAC_COLLECTION_TEMPLATE,
     STAC_ITEM_TEMPLATE,
+    ColumnMappings,
     DefaultMetadata,
-    VectorColumnsMapping,
 )
 from pydantic import BaseModel, Field, ValidationError
 from pystac import Asset, Collection, Extent, Item, SpatialExtent, TemporalExtent
@@ -26,6 +28,25 @@ from stac_pydantic.collection import Collection as PydanticCollection
 from stac_pydantic.item import Item as PydanticItem
 
 logger = setup_logging()
+
+
+# ---------------------------------------
+# Precomputed constants
+# ---------------------------------------
+# precompute datetime keys and their case variants once
+_DATETIME_KEYS = ColumnMappings.DATETIME.value.alias + [
+    ColumnMappings.DATETIME.value.canonical
+]
+
+_DATETIME_KEY_VARIANTS = []
+
+for k in _DATETIME_KEYS:
+    _DATETIME_KEY_VARIANTS.extend([k, k.upper(), k.lower()])
+
+# preserve order, remove duplicates
+_DATETIME_KEY_VARIANTS = list(OrderedDict.fromkeys(_DATETIME_KEY_VARIANTS))
+
+_DATETIME_KEYS_LOWER = {k.lower() for k in _DATETIME_KEYS}
 
 
 # ---------------------------------------
@@ -43,28 +64,26 @@ def _ensure_datetime_with_tz(dt: str | datetime | date) -> datetime:
     Notes:
         STAC requires datetime fields to be timezone-aware.
     """
-    logger.info(f"Ensuring datetime with timezone for input: {dt}")
-
     if isinstance(dt, str):
         try:
             dt = parse(dt)
-        except ValueError:
+        except Exception:
             logger.warning(
-                f"Failed to parse string datetime: {dt}. Using default start date."
+                f"Failed to parse string datetime: {dt}. Using DEFAULT_DATETIME={Config.DEFAULT_DATETIME}"
             )
-            return Config.DEFAULT_START_DATE
+            return None
 
     # Handle date and datetime objects
     if isinstance(dt, date) and not isinstance(dt, datetime):
         return datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
 
-    # Handle datetime objects
-    elif isinstance(dt, datetime):
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
 
-    # Handle unexpected types
-    logger.warning(f"Invalid datetime: {dt}. Using default start date.")
-    return Config.DEFAULT_START_DATE
+    logger.debug("Invalid datetime value: %r", dt)
+    return None
 
 
 def _clean_metadata(obj) -> dict:
@@ -152,6 +171,116 @@ def _parse_xml_metadata(xml_path: Path) -> dict:
     return properties
 
 
+def _extract_datetime_from_sources(
+    metadata: Optional[dict] = None,
+    filename: Optional[str] = None,
+) -> Optional[datetime]:
+    """Try multiple strategies to extract a datetime from metadata/filename.
+
+    Order:
+    1) explicit keys in metadata
+    2) nested metadata values
+    3) filename regex search
+    4) fallback to Config.DEFAULT_DATETIME
+
+    Args:
+        metadata: Metadata dictionary to search for datetime.
+        filename: Optional filename to search for datetime patterns.
+
+    Returns:
+        timezone-aware datetime (UTC) or Config.DEFAULT_DATETIME on failure.
+
+    Notes:
+        - This function attempts to extract a datetime from various sources.
+        - If no valid datetime is found, it returns Config.DEFAULT_DATETIME.
+        1. Looks for common datetime keys in metadata (case-insensitive).
+        2. Searches nested metadata values for datetime-like strings.
+        3. Attempts to extract datetime from filename using regex patterns.
+    """
+    meta = metadata or {}
+
+    # 1) explicit keys and common raster tag keys (case-insensitive)
+    meta_lc = {k.lower(): v for k, v in meta.items()} if isinstance(meta, dict) else {}
+
+    for key_lc in _DATETIME_KEYS_LOWER:
+        if key_lc in meta_lc:
+            val = meta_lc[key_lc]
+            logger.debug(
+                "Found datetime in metadata key/tag (normalized) '%s': %r", key_lc, val
+            )
+            dt = _ensure_datetime_with_tz(val)
+            if dt is not None:
+                return dt
+
+    # 2) search nested metadata values (shallow)
+    if isinstance(meta, dict):
+        for v in meta.values():
+            if isinstance(v, (str, date, datetime)):
+                dt = _ensure_datetime_with_tz(v)
+                if dt is not None:
+                    logger.debug("Found datetime-like value in metadata: %r", v)
+                    return dt
+
+    # 3) try filename patterns
+    if filename:
+        patterns = [
+            r"(?P<ymdhms>\d{8}[_T-]?\d{6})",  # 20251027_185755 or 20251027T185755
+            r"(?P<ymd>\d{8})",  # 20251027
+            r"(?P<year>(19|20)\d{2})",  # 2020
+        ]
+        for pat in patterns:
+            m = re.search(pat, filename)
+            if not m:
+                continue
+            val = m.group(0)
+            if m.lastgroup == "year":
+                try:
+                    year = int(val)
+                    dt = datetime(year, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+                    logger.info(
+                        "Parsed year from filename '%s' -> %s", filename, dt.isoformat()
+                    )
+                    return dt
+                except Exception:
+                    continue
+            normalized = re.sub(r"[_-]", "T", val)
+            try:
+                parsed = parse(normalized)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                else:
+                    parsed = parsed.astimezone(timezone.utc)
+                logger.info(
+                    "Parsed datetime from filename '%s' -> %s",
+                    filename,
+                    parsed.isoformat(),
+                )
+                return parsed
+            except Exception:
+                if len(val) == 8 and val.isdigit():
+                    try:
+                        y = int(val[0:4])
+                        mo = int(val[4:6])
+                        d = int(val[6:8])
+                        dt = datetime(y, mo, d, 0, 0, 0, tzinfo=timezone.utc)
+                        logger.info(
+                            "Manually parsed YYYYMMDD from filename '%s' -> %s",
+                            filename,
+                            dt.isoformat(),
+                        )
+                        return dt
+                    except Exception:
+                        continue
+
+    logger.debug(
+        "No datetime extracted from metadata/filename. Metadata keys: %s, filename: %s. Falling back to Config.DEFAULT_DATETIME",
+        list(meta.keys()),
+        filename,
+    )
+    fallback = Config.DEFAULT_DATETIME
+    return fallback
+
+
 # ---------------------------------------
 # STAC Item processing
 # ---------------------------------------
@@ -175,26 +304,46 @@ def _create_stac_item_from_vector(vector_dict: dict, unique_id: str) -> Item:
 
     geometry_mapped = mapping(geometry)
 
+    # Extract datetime from sources
+    dt_candidate = vector_dict.get("datetime")
+    if dt_candidate is None:
+        dt_candidate = _extract_datetime_from_sources(
+            metadata=vector_dict.get("metadata", {}),
+            filename=vector_dict.get("file_url"),
+        )
+    logger.debug(
+        "create_stac_item_from_vector: extracted dt_candidate from sources=%r",
+        dt_candidate,
+    )
+
+    dt_resolved = _ensure_datetime_with_tz(dt_candidate)
+    if dt_resolved is None:
+        logger.warning(
+            "Could not normalize datetime candidate %r for item %s — using DEFAULT_DATETIME=%s",
+            dt_candidate,
+            unique_id,
+            Config.DEFAULT_DATETIME,
+        )
+        dt = Config.DEFAULT_DATETIME
+    else:
+        dt = dt_resolved
+    logger.debug("create_stac_item_from_vector: resolved datetime (tz-aware)=%r", dt)
+
+    # Prepare properties using template
     template = STAC_ITEM_TEMPLATE.copy()
     properties = template["properties"].copy()
     properties.update(_clean_metadata(vector_dict.get("metadata", {})))
     # Add automatic fields
     properties.update(
         {
-            "datetime": Config.DEFAULT_DATETIME,
-            "created": Config.DEFAULT_DATETIME,
-            "updated": Config.DEFAULT_DATETIME,
+            "datetime": dt,
+            "updated": Config.NOW_DATETIME,
             "title": unique_id,
             "source": "vector_processing",
             "data_type": "vector",
+            "description": vector_dict.get("description"),
         }
     )
-
-    # Ensure datetime fields are timezone-aware
-    dt = vector_dict.get("datetime")
-    if dt is None:
-        dt = Config.DEFAULT_DATETIME
-    dt = _ensure_datetime_with_tz(dt)
 
     # Prepare common item fields
     item_kwargs = dict(
@@ -238,9 +387,21 @@ def build_stac_items_from_gdf(
 
         # Map the GeoDataFrame row to the expected vector dictionary
         vector_dict = {
-            col: getattr(row, real_col, None)
-            for col, real_col in VectorColumnsMapping.get_mapping_dict().items()
+            m.value.canonical: getattr(row, m.value.canonical, None)
+            for m in ColumnMappings
         }
+
+        # ensure a filename-like value is available for extraction (use source_table_name as fallback)
+        if not vector_dict.get("file_url"):
+            vector_dict["file_url"] = source_table_name
+
+        # prefer extracted datetime (from metadata or filename) over Config defaults
+        extracted_dt = _extract_datetime_from_sources(
+            metadata=vector_dict.get("metadata", {}),
+            filename=vector_dict.get("file_url"),
+        )
+        if extracted_dt is not None:
+            vector_dict["datetime"] = extracted_dt
 
         # Create the STAC item
         item = _create_stac_item_from_vector(
@@ -304,21 +465,26 @@ def _create_stac_item_from_raster(
             aux_metadata = _parse_xml_metadata(aux_path)
             raster_props.update(aux_metadata)
 
-    properties.update(_clean_metadata(raster_props))
+    dt_candidate = raster_dict.get("datetime")
+    if dt_candidate is None:
+        dt_candidate = _extract_datetime_from_sources(
+            metadata=raster_dict.get("properties", {}) or raster_dict.get("tags", {}),
+            filename=raster_dict.get("file_url"),
+        )
+    dt = _ensure_datetime_with_tz(dt_candidate)
 
-    # Add automatic fields
+    # Update properties
+    properties.update(_clean_metadata(raster_props))
     properties.update(
         {
-            "datetime": Config.DEFAULT_DATETIME,
-            "created": Config.DEFAULT_DATETIME,
-            "updated": Config.DEFAULT_DATETIME,
+            "datetime": dt,
+            "updated": Config.NOW_DATETIME,
             "title": unique_id,
             "source": "cog_processing",
             "data_type": "raster",
+            "description": raster_dict.get("description"),
         }
     )
-
-    dt = _ensure_datetime_with_tz(dt=raster_dict.get("datetime"))
 
     # Create item
     item = Item(

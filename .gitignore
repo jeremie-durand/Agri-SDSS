@@ -183,3 +183,6 @@ data/tmp/
 data/pg/
 data/input/
 data/output/
+
+# Log files
+stac-fastapi/pipeline/logs/

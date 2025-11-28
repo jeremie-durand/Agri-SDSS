@@ -1,18 +1,19 @@
 import json
 import re
-from datetime import datetime, timezone
 from typing import Mapping, Optional
 
 import geopandas as gpd
+import pandas as pd
 import sqlalchemy
 from geoalchemy2 import Geometry
 from pipeline.config import Config
 from pipeline.logging_setup import handle_error, setup_logging
 from pipeline.mapping import (
     NamingPatterns,
+    PostgresDataTypes,
     RasterStacColumns,
     SqlAlchemyTypes,
-    VectorStacColumns,
+    VectorPostGISColumns,
 )
 from pydantic import BaseModel
 from shapely.geometry import box
@@ -115,7 +116,63 @@ class PostGISManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.close()
-        return False
+
+    def _convert_pg_mapping_to_sqlalchemy(self, pg_mapping: dict) -> dict:
+        """Convert a Postgres column mapping to a SQLAlchemy column mapping.
+
+        Args:
+            pg_mapping: Dictionary mapping column names to Postgres data types.
+
+        Returns:
+            Dictionary mapping column names to SQLAlchemy data types/configurations.
+        """
+        sqlalchemy_mapping = {}
+
+        # For each Postgres type string, try to find the corresponding SqlAlchemyTypes member.
+        # Avoid using member.value as a dict key (unhashable). Instead search members.
+        for col, pg_type in pg_mapping.items():
+            found = False
+
+            for member in SqlAlchemyTypes:
+                member_value = getattr(member, "value", None)
+
+                # direct string match (member.value is a string)
+                if isinstance(member_value, str) and member_value == pg_type:
+                    # prefer returning a dict config when available via indexing
+                    try:
+                        sqlalchemy_mapping[col] = SqlAlchemyTypes[member.name].value
+                    except Exception:
+                        sqlalchemy_mapping[col] = member_value
+                    found = True
+                    break
+
+                # if member.value is a dict, try common keys that might store the Postgres representation
+                if isinstance(member_value, dict):
+                    if (
+                        member_value.get("postgres_type") == pg_type
+                        or member_value.get("postgres") == pg_type
+                        or member_value.get("pg") == pg_type
+                    ):
+                        sqlalchemy_mapping[col] = member_value
+                        found = True
+                        break
+
+                # fallback: match by enum member name (e.g. "TEXT", "INTEGER")
+                if member.name == pg_type:
+                    sqlalchemy_mapping[col] = member_value
+                    found = True
+                    break
+
+                # last resort: stringified member value
+                if str(member_value) == pg_type:
+                    sqlalchemy_mapping[col] = member_value
+                    found = True
+                    break
+
+            if not found:
+                raise ValueError(f"Unknown Postgres type: {pg_type}")
+
+        return sqlalchemy_mapping
 
     def _create_table_from_mapping(
         self,
@@ -158,41 +215,42 @@ class PostGISManager:
             metadata = sqlalchemy.MetaData(schema=schema)
             columns = []
 
-            for col_name, sql_type in column_mapping.items():
-                col_config = SqlAlchemyTypes.get_type_mapping().get(sql_type)
-                if not col_config:
-                    error_msg = f"Unknown SQL type: {sql_type}"
-                    handle_error(
-                        logger=logger, error_msg=error_msg, exc_class=ValueError
-                    )
+            for col_name, col_config in column_mapping.items():
 
-                # Construire la colonne selon le type
-                if col_config["type"] == "Integer":
+                col_type = col_config["type"]
+
+                # Define SQLAlchemy column based on type
+                if col_type == "Integer":
                     column = sqlalchemy.Column(
                         col_name,
                         sqlalchemy.Integer,
                         primary_key=col_config.get("primary_key", False),
                         autoincrement=col_config.get("autoincrement", False),
                     )
-                elif col_config["type"] == "Text":
+
+                elif col_type == "Text":
                     column = sqlalchemy.Column(
                         col_name,
                         sqlalchemy.Text,
                         primary_key=col_config.get("primary_key", False),
                     )
-                elif col_config["type"] == "TIMESTAMP":
+
+                elif col_type == "TIMESTAMP":
                     column = sqlalchemy.Column(
                         col_name,
                         sqlalchemy.TIMESTAMP(
                             timezone=col_config.get("timezone", False)
                         ),
                     )
-                elif col_config["type"] == "JSONB":
+
+                elif col_type == "JSONB":
                     column = sqlalchemy.Column(col_name, JSONB)
-                elif col_config["type"] == "ARRAY":
+
+                elif col_type == "ARRAY":
                     item_type = getattr(sqlalchemy, col_config["item_type"])
                     column = sqlalchemy.Column(col_name, sqlalchemy.ARRAY(item_type))
-                elif col_config["type"] == "Geometry":
+
+                elif col_type == "Geometry":
                     column = sqlalchemy.Column(
                         col_name,
                         Geometry(
@@ -200,21 +258,98 @@ class PostGISManager:
                             srid=col_config["srid"],
                         ),
                     )
+
                 else:
-                    error_msg = f"Unsupported column type: {col_config['type']}"
-                    handle_error(
-                        logger=logger, error_msg=error_msg, exc_class=ValueError
-                    )
+                    raise ValueError(f"Unsupported SQLAlchemy type: {col_type}")
 
                 columns.append(column)
 
+            # Create the table
             table = sqlalchemy.Table(table_name, metadata, *columns)
             metadata.create_all(self.engine, tables=[table])
+
             logger.info(f"Table '{table_name}' created successfully from mapping.")
 
-        except Exception:
-            error_msg = f"Error creating table '{table_name}' from mapping"
+        except Exception as exc:
+            error_msg = f"Error creating table '{table_name}' from mapping: {exc}"
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+
+    def _build_column_mapping_from_gdf(self, gdf: gpd.GeoDataFrame) -> dict:
+        """
+        Build a Postgres column mapping for all columns found in the GeoDataFrame.
+
+        The mapping process is as follows:
+        - Start from the default STAC-required columns.
+        - Infer types for remaining fields:
+        datetime -> TIMESTAMP WITH TIME ZONE
+        object/dict/list -> JSONB
+        float -> TEXT (safe default)
+        int -> TEXT (safe default)
+
+        Args:
+            gdf: The GeoDataFrame to build the mapping from.
+
+        Returns:
+            A dictionary mapping column names to Postgres data types.
+        """
+        # Create initial mapping
+        mapping = {col.name.lower(): col.value for col in VectorPostGISColumns}
+
+        # Normalize incoming column names
+        gdf_cols_normalized = {col.lower(): col for col in gdf.columns}
+
+        # Helper: infer a Postgres type from a pandas series
+        def infer_pg_type(series: pd.Series):
+            dtype = series.dtype
+
+            # Datetime
+            if pd.api.types.is_datetime64_any_dtype(dtype):
+                return PostgresDataTypes.TIMESTAMP_WITH_TIMEZONE.value
+
+            # Integer → TEXT (safe)
+            if pd.api.types.is_integer_dtype(dtype):
+                return PostgresDataTypes.TEXT.value
+
+            # Float → TEXT (safe default)
+            if pd.api.types.is_float_dtype(dtype):
+                return PostgresDataTypes.TEXT.value
+
+            # Object → maybe JSONB ?
+            if pd.api.types.is_object_dtype(dtype):
+                non_null = series.dropna()
+                if non_null.empty:
+                    return PostgresDataTypes.TEXT.value
+
+                # % of values that are dict/list
+                sample = non_null.head(50).tolist()
+                structural = sum(isinstance(x, (dict, list)) for x in sample)
+                proportion = structural / len(sample)
+
+                # >70% looks like actual JSON → use JSONB
+                if proportion >= 0.7:
+                    return PostgresDataTypes.JSONB.value
+
+                return PostgresDataTypes.TEXT.value
+
+            # Fallback
+            return PostgresDataTypes.TEXT.value
+
+        # Infer types for other columns
+        for norm_col, original_col in gdf_cols_normalized.items():
+
+            # Skip existing defaults
+            if norm_col in mapping:
+                continue
+
+            # Geometry
+            if norm_col == "geometry":
+                mapping[norm_col] = PostgresDataTypes.GEOMETRY_4326.value
+                continue
+
+            # Infer other data types
+            mapping[norm_col] = infer_pg_type(gdf[original_col])
+
+        return mapping
 
     def insert_gdf(
         self, gdf: gpd.GeoDataFrame, table_name: str, override_method: str = "replace"
@@ -228,38 +363,21 @@ class PostGISManager:
                 Options: 'replace', 'append'.
         """
         try:
-            # Verify if table exists
-            if not sqlalchemy.inspect(self.engine).has_table(table_name):
-                logger.warning(f"Table '{table_name}' does not exist. Creating it.")
+            if not table_name:
+                raise ValueError("Invalid table name")
+
+            inspector = sqlalchemy.inspect(self.engine)
+
+            # If table does not exist, build mapping and create it
+            if not inspector.has_table(table_name):
+                pg_mapping = self._build_column_mapping_from_gdf(gdf)
+                sqlalchemy_mapping = self._convert_pg_mapping_to_sqlalchemy(pg_mapping)
                 self._create_table_from_mapping(
-                    table_name=table_name,
-                    column_mapping=VectorStacColumns.get_columns_dict(),
+                    table_name=table_name, column_mapping=sqlalchemy_mapping
                 )
 
-            # Detect geometry column
-            geometry_column = None
-            for col in ["geometry"]:
-                if col in gdf.columns:
-                    geometry_column = col
-                    break
-            if geometry_column is None:
-                error_msg = "GeoDataFrame must contain a 'geometry' column"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+            gdf.to_postgis(name=table_name, con=self.engine, if_exists=override_method)
 
-            if "gid" not in gdf.columns:
-                gdf = gdf.reset_index(drop=True)
-                gdf["gid"] = gdf.index + 1
-
-            # Write the GeoDataFrame to PostGIS
-            gdf.to_postgis(
-                name=table_name,
-                con=self.engine,
-                if_exists=override_method,
-                index=False,
-            )
-            logger.info(
-                f"GeoDataFrame inserted into PostGIS table '{table_name}' successfully."
-            )
         except Exception:
             error_msg = "Error inserting GeoDataFrame into PostGIS"
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
@@ -317,7 +435,9 @@ class PostGISManager:
                 logger.info(f"Table '{table_name}' does not exist. Creating it.")
                 self._create_table_from_mapping(
                     table_name=table_name,
-                    column_mapping=RasterStacColumns.get_columns_dict(),
+                    column_mapping=self._convert_pg_mapping_to_sqlalchemy(
+                        RasterStacColumns
+                    ),
                 )
 
             essential_fields = ["id", "bbox", "file_url"]
@@ -328,23 +448,7 @@ class PostGISManager:
                         logger=logger, error_msg=error_msg, exc_class=ValueError
                     )
 
-            start_date = metadata.get("start_date")
-            end_date = metadata.get("end_date")
-
-            if not start_date and "datetime" in metadata:
-                start_date = metadata["datetime"]
-            if not end_date and "datetime" in metadata:
-                end_date = metadata["datetime"]
-
-            if not start_date:
-                start_date = datetime.now(timezone.utc)
-            if not end_date:
-                end_date = datetime.now(timezone.utc)
-
-            if hasattr(start_date, "isoformat"):
-                start_date = start_date.isoformat()
-            if hasattr(end_date, "isoformat"):
-                end_date = end_date.isoformat()
+            datetime = metadata.get("datetime", Config.DEFAULT_DATETIME)
 
             # Verify bbox format
             if (
@@ -357,11 +461,10 @@ class PostGISManager:
             with self.engine.begin() as conn:
                 insert_stmt = sqlalchemy.text(
                     f"""
-                    INSERT INTO {table_name} (gid, start_date, end_date, bbox, geometry, file_url, metadata)
-                    VALUES (:gid, :start_date, :end_date, :bbox, ST_GeomFromText(:geometry, 4326), :file_url, :metadata)
+                    INSERT INTO {table_name} (gid, datetime, bbox, geometry, file_url, metadata)
+                    VALUES (:gid, :datetime, :bbox, ST_GeomFromText(:geometry, 4326), :file_url, :metadata)
                     ON CONFLICT (gid) DO UPDATE
-                    SET start_date = EXCLUDED.start_date,
-                        end_date = EXCLUDED.end_date,
+                    SET datetime = EXCLUDED.datetime,
                         bbox = EXCLUDED.bbox,
                         geometry = EXCLUDED.geometry,
                         file_url = EXCLUDED.file_url,
@@ -372,8 +475,7 @@ class PostGISManager:
                     insert_stmt,
                     {
                         "gid": metadata["id"],
-                        "start_date": start_date,
-                        "end_date": end_date,
+                        "datetime": datetime,
                         "bbox": metadata["bbox"],
                         "geometry": box(*metadata["bbox"]).wkt,
                         "file_url": metadata.get("file_url", ""),
@@ -405,8 +507,8 @@ class PostGISManager:
             stmt = sqlalchemy.select(
                 table.c.gid,
                 table.c.geometry,
-                table.c.start_date,
-                table.c.end_date,
+                table.c.datetime,
+                table.c.bbox,
                 table.c.file_url,
                 table.c.metadata,
             )

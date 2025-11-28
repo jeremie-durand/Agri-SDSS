@@ -1,8 +1,9 @@
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import duckdb
 import geopandas as gpd
+import pandas as pd
 import pytest
 from pipeline.config import Config
 from pipeline.modules.db.duckdb_utils import DuckDBManager, DuckDBSpatialExtensionError
@@ -43,6 +44,120 @@ def gdf_points_fixture_v2():
         crs="EPSG:4326",
     )
     return gdf
+
+
+# ------------------------------------------
+# Test cases for save_df_to_parquet()
+# ------------------------------------------
+@pytest.fixture(autouse=True)
+def patch_data_dir(tmp_path, monkeypatch):
+    """Ensure DUCKDB_DATA_DIR points to a temp dir for all tests in this module."""
+    monkeypatch.setattr(
+        "pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+    yield
+
+
+def test_save_df_to_parquet_success(tmp_path):
+    """Test successful saving of a simple DataFrame to Parquet."""
+    df = pd.DataFrame({"id": [1, 2], "name": ["a", "b"]})
+    output_name = "success_test"
+
+    DuckDBManager.save_df_to_parquet(df=df, output_file_name=output_name)
+
+    expected = Path(tmp_path) / f"{output_name}.parquet"
+    assert expected.exists()
+    # verify readable and content preserved
+    df_read = pd.read_parquet(expected)
+    assert list(df_read["id"]) == [1, 2]
+    assert list(df_read["name"]) == ["a", "b"]
+
+
+def test_save_df_to_parquet_empty_dataframe_raises():
+    """Test that saving an empty DataFrame raises a ValueError."""
+    df = pd.DataFrame()
+    with pytest.raises(ValueError, match="Cannot save empty DataFrame"):
+        DuckDBManager.save_df_to_parquet(df=df, output_file_name="any")
+
+
+def test_save_df_to_parquet_empty_filename_raises():
+    """Test that saving with an empty output file name raises a ValueError."""
+    df = pd.DataFrame({"x": [1]})
+    with pytest.raises(ValueError, match="Output file name must not be empty"):
+        DuckDBManager.save_df_to_parquet(df=df, output_file_name=" ")
+
+
+def test_save_df_to_parquet_overwrite_false_raises(tmp_path, monkeypatch):
+    """Test that saving with overwrite=False return empty when file exists."""
+    # Patch the directory used by the function
+    monkeypatch.setattr(Config, "DUCKDB_DATA_DIR", str(tmp_path))
+
+    df = pd.DataFrame({"x": [1]})
+    output_name = "already_there"
+
+    target = tmp_path / f"{output_name}.parquet"
+    target.write_bytes(b"existing")
+
+    DuckDBManager.save_df_to_parquet(
+        df=df, output_file_name=output_name, overwrite=False
+    )
+    # file should be unchanged
+    assert target.read_bytes() == b"existing"
+
+
+def test_save_df_to_parquet_removes_existing_tmp_and_creates_parquet(
+    tmp_path, monkeypatch
+):
+    """Test that stale tmp file is removed and parquet is created successfully."""
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    output_name = "tmp_remove_test"
+
+    # Patch the DUCKDB_DATA_DIR to use pytest's tmp_path
+    monkeypatch.setattr(Config, "DUCKDB_DATA_DIR", str(tmp_path))
+
+    parquet_path = tmp_path / f"{output_name}.parquet"
+    tmp_file = tmp_path / f"{output_name}.tmp"
+
+    # Create a stale tmp file
+    tmp_file.write_bytes(b"stale temp")
+
+    DuckDBManager.save_df_to_parquet(df=df, output_file_name=output_name)
+
+    assert parquet_path.exists()  # now passes
+    assert not tmp_file.exists()  # tmp removed
+
+    df_read = pd.read_parquet(parquet_path)
+    assert len(df_read) == 3
+
+
+def test_save_df_to_parquet_filesystem_error_triggers_cleanup(tmp_path, monkeypatch):
+    """Test that a filesystem error during save triggers cleanup of tmp file."""
+    df = pd.DataFrame({"a": [1]})
+    output_name = "fs_error_test"
+
+    # force DataFrame.to_parquet to raise OSError
+    def raise_oserror(self, *args, **kwargs):
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", raise_oserror)
+
+    cleanup_mock = Mock()
+    # patch the class method directly so calls to DuckDBManager._cleanup_temp_file are intercepted
+    monkeypatch.setattr(DuckDBManager, "_cleanup_temp_file", cleanup_mock)
+
+    with pytest.raises(
+        RuntimeError, match="File system error saving DataFrame to Parquet"
+    ):
+        DuckDBManager.save_df_to_parquet(df=df, output_file_name=output_name)
+
+    # cleanup may be called with a positional arg or a keyword arg (tmp_path)
+    call_args, call_kwargs = cleanup_mock.call_args
+    if call_kwargs:
+        assert "tmp_path" in call_kwargs
+        assert isinstance(call_kwargs["tmp_path"], Path)
+    else:
+        assert len(call_args) == 1
+        assert isinstance(call_args[0], Path)
 
 
 # ------------------------------------------

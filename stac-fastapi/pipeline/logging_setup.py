@@ -1,20 +1,35 @@
 import logging
-import os
 import sys
+from logging.handlers import RotatingFileHandler
+from os import getenv
+from pathlib import Path
 
 import structlog
 
 
 def setup_logging():
     """Set up structured logging with structlog + standard logging."""
-    log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level_str = getenv("LOG_LEVEL", "INFO").upper()
     numeric_level = getattr(logging, log_level_str, logging.INFO)
+
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_path = str(log_dir / "app.log")
+
+    file_handler = RotatingFileHandler(
+        log_path,
+        mode="a",
+        maxBytes=10 * 1024 * 1024,  # 10 MB for development
+        backupCount=5,
+        encoding="utf-8",
+    )
+    stream_handler = logging.StreamHandler(sys.stdout)
 
     # Python standard logging configuration
     logging.basicConfig(
         level=numeric_level,
         format="%(message)s",  # structlog handles formatting
-        stream=sys.stdout,
+        handlers=[file_handler, stream_handler],
     )
 
     # structlog configuration
@@ -35,6 +50,8 @@ def setup_logging():
         cache_logger_on_first_use=True,
     )
 
+    logger = structlog.get_logger()
+    logger.info("Logging initialized", log_file=log_path)
     return structlog.get_logger()
 
 

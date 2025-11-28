@@ -16,6 +16,7 @@ from pipeline.modules.processing.processing_stac import (
     _create_stac_item_from_raster,
     _create_stac_item_from_vector,
     _ensure_datetime_with_tz,
+    _extract_datetime_from_sources,
     _parse_xml_metadata,
     build_stac_collection_from_items,
     build_stac_items_from_cog,
@@ -104,8 +105,7 @@ def sample_vector_row():
     return {
         "geometry": Point(0, 0),
         "metadata": {"source": "test", "type": "sample"},
-        "start_date": datetime(2024, 1, 1, tzinfo=timezone.utc),
-        "end_date": datetime(2024, 12, 31, tzinfo=timezone.utc),
+        "datetime": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "file_url": "/test/data.shp",
     }
 
@@ -117,15 +117,10 @@ def sample_gdf():
         {
             "gid": [1, 2, 3],
             "name": ["Feature A", "Feature B", "Feature C"],
-            "start_date": [
+            "datetime": [
                 datetime(2024, 1, 1, tzinfo=timezone.utc),
                 datetime(2024, 2, 1, tzinfo=timezone.utc),
                 datetime(2024, 3, 1, tzinfo=timezone.utc),
-            ],
-            "end_date": [
-                datetime(2024, 1, 31, tzinfo=timezone.utc),
-                datetime(2024, 2, 28, tzinfo=timezone.utc),
-                datetime(2024, 3, 31, tzinfo=timezone.utc),
             ],
             "metadata": [{"type": "A"}, {"type": "B"}, {"type": "C"}],
             "file_url": ["/data/a.shp", "/data/b.shp", "/data/c.shp"],
@@ -263,11 +258,9 @@ def test_ensure_datetime_with_tz_aware_datetime_input(sample_datetime_aware):
 
 def test_ensure_datetime_with_tz_invalid_type():
     """Test _ensure_datetime_with_tz with invalid input type."""
-    with patch("pipeline.modules.processing.processing_stac.logger") as mock_logger:
-        result = _ensure_datetime_with_tz(dt=12345)  # Invalid type
+    result = _ensure_datetime_with_tz(dt=12345)  # Invalid type
 
-        assert result == Config.DEFAULT_START_DATE
-        mock_logger.warning.assert_called_once()
+    assert result is None
 
 
 @pytest.mark.parametrize(
@@ -449,6 +442,58 @@ def test_parse_xml_metadata_permission_error_returns_defaults(tmp_path):
 
 
 # ------------------------------------------
+# Test cases for _extract_datetime_from_sources()
+# ------------------------------------------
+def test_extract_datetime_from_metadata_nested_string_value():
+    """A shallow nested string value that parses as a date/time is accepted."""
+    meta = {"other": "2024-01-10"}
+    res = _extract_datetime_from_sources(metadata=meta, filename=None)
+    assert isinstance(res, datetime)
+    assert res == datetime(2024, 1, 10, 0, 0, 0, tzinfo=timezone.utc)
+
+
+def test_extract_datetime_from_metadata_nested_date_object():
+    """A shallow nested date object is converted to midnight UTC."""
+    meta = {"x": date(2024, 2, 5)}
+    res = _extract_datetime_from_sources(metadata=meta, filename=None)
+    assert isinstance(res, datetime)
+    assert res == datetime(2024, 2, 5, 0, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    "filename,expected_dt",
+    [
+        (
+            "IMG_20240115T123045.tif",
+            datetime(2024, 1, 15, 12, 30, 45, tzinfo=timezone.utc),
+        ),
+        (
+            "IMG_20240115_123045.tif",
+            datetime(2024, 1, 15, 12, 30, 45, tzinfo=timezone.utc),
+        ),
+        ("IMG_20240115.tif", datetime(2024, 1, 15, 0, 0, 0, tzinfo=timezone.utc)),
+        ("file_2023_extra.tif", datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc)),
+    ],
+)
+def test_extract_datetime_from_filename_patterns(filename, expected_dt):
+    """Filename patterns (ymdhms, ymd, year) are parsed into UTC datetimes."""
+    res = _extract_datetime_from_sources(metadata=None, filename=filename)
+    assert isinstance(res, datetime)
+    # normalize to UTC for comparison
+    if res.tzinfo is None:
+        res = res.replace(tzinfo=timezone.utc)
+    else:
+        res = res.astimezone(timezone.utc)
+    assert res == expected_dt
+
+
+def test_extract_datetime_returns_none_when_no_sources():
+    """If neither metadata nor filename yield a datetime the function returns default datetime."""
+    res = _extract_datetime_from_sources(metadata=None, filename=None)
+    assert res == Config.DEFAULT_DATETIME
+
+
+# ------------------------------------------
 # Test cases for _create_stac_item_from_vector()
 # ------------------------------------------
 def test_create_stac_item_from_vector_valid_input(sample_vector_row):
@@ -496,7 +541,7 @@ def test_create_stac_item_from_vector_no_metadata(sample_vector_row):
     )
 
     assert isinstance(result, Item)
-    assert result.properties["datetime"] == Config.DEFAULT_DATETIME
+    assert result.datetime == sample_vector_row["datetime"]
     assert result.properties["data_type"] == "vector"
 
 
@@ -613,12 +658,11 @@ def test_build_stac_items_from_gdf_valid_input(sample_gdf):
     table_name = "test_table"
 
     with patch(
-        "pipeline.modules.processing.processing_stac.VectorColumnsMapping.get_mapping_dict",
+        "pipeline.modules.processing.processing_stac.ColumnMappings",
         return_value={
             "geometry": "geometry",
             "metadata": "metadata",
-            "start_date": "start_date",
-            "end_date": "end_date",
+            "datetime": "datetime",
             "file_url": "file_url",
         },
     ):
@@ -654,13 +698,9 @@ def test_build_stac_items_from_gdf_missing_gid():
             "name": ["A", "B"],
             "geometry": [Point(0, 0), Point(1, 1)],
             "metadata": [{}, {}],
-            "start_date": [
+            "datetime": [
                 datetime(2024, 1, 1, tzinfo=timezone.utc),
                 datetime(2024, 1, 2, tzinfo=timezone.utc),
-            ],
-            "end_date": [
-                datetime(2024, 1, 31, tzinfo=timezone.utc),
-                datetime(2024, 2, 28, tzinfo=timezone.utc),
             ],
         },
         crs="EPSG:4326",
@@ -668,12 +708,11 @@ def test_build_stac_items_from_gdf_missing_gid():
     table_name = "no_gid_table"
 
     with patch(
-        "pipeline.modules.processing.processing_stac.VectorColumnsMapping.get_mapping_dict",
+        "pipeline.modules.processing.processing_stac.ColumnMappings",
         return_value={
             "geometry": "geometry",
             "metadata": "metadata",
-            "start_date": "start_date",
-            "end_date": "end_date",
+            "datetime": "datetime",
         },
     ):
         result = build_stac_items_from_gdf(gdf=gdf_no_gid, source_table_name=table_name)
@@ -691,13 +730,9 @@ def test_build_stac_items_from_gdf_geometry_types():
             "gid": [1, 2],
             "geometry": [Point(0, 0), Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])],
             "metadata": [{}, {}],
-            "start_date": [
+            "datetime": [
                 datetime(2024, 1, 1, tzinfo=timezone.utc),
                 datetime(2024, 1, 2, tzinfo=timezone.utc),
-            ],
-            "end_date": [
-                datetime(2024, 1, 31, tzinfo=timezone.utc),
-                datetime(2024, 2, 28, tzinfo=timezone.utc),
             ],
         },
         crs="EPSG:4326",
@@ -705,12 +740,11 @@ def test_build_stac_items_from_gdf_geometry_types():
     table_name = "mixed_table"
 
     with patch(
-        "pipeline.modules.processing.processing_stac.VectorColumnsMapping.get_mapping_dict",
+        "pipeline.modules.processing.processing_stac.ColumnMappings",
         return_value={
             "geometry": "geometry",
             "metadata": "metadata",
-            "start_date": "start_date",
-            "end_date": "end_date",
+            "datetime": "datetime",
         },
     ):
         result = build_stac_items_from_gdf(gdf=mixed_gdf, source_table_name=table_name)
@@ -805,6 +839,7 @@ def test_create_stac_item_from_raster_uses_provided_metadata_and_not_parse_aux(
         "bbox": [0.0, 0.0, 0.0, 0.0],
         "properties": {"existing": "value"},
         "metadata": {"from_meta": "yes"},
+        "datetime": "2024-01-15T12:00:00Z",
     }
 
     with patch(
@@ -830,6 +865,7 @@ def test_create_stac_item_from_raster_falls_back_to_aux_parse(tmp_path):
         "bbox": [5.0, 6.0, 5.0, 6.0],
         "properties": {"sensor": "s"},
         "file_url": str(raster_file),
+        "datetime": "2024-01-15T12:00:00Z",
     }
 
     with patch(

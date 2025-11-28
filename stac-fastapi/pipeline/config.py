@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import datetime as dt
+from datetime import timezone
 from os import getenv
 from pathlib import Path
 
@@ -18,9 +19,8 @@ class Config:
     GLOBAL_CRS = cfg["pipeline"]["GLOBAL_CRS"]
     PROJ_LIB = cfg["pipeline"]["PROJ_LIB"]
     STAC_COLLECTION_ID = cfg["pipeline"]["STAC_COLLECTION_ID"]
-    DEFAULT_START_DATE = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    DEFAULT_END_DATE = datetime(2024, 12, 31, tzinfo=timezone.utc)
-    DEFAULT_DATETIME = datetime.now(tz=timezone.utc).replace(
+    DEFAULT_DATETIME = dt(1950, 1, 1, tzinfo=timezone.utc)  # Fallback datetime
+    NOW_DATETIME = dt.now(tz=timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
     HASH_HEX_LENGTH = 6  # number of hex chars taken from md5 hexdigest

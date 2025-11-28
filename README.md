@@ -37,21 +37,6 @@ A new endpoint "/processes" has been added to the API using [pygeoapi](https://p
 **NOTE:** DuckDB uses Parquet or GeoParquet files. They are built for vector data, such as GeoJSON. This is not for raster data.
 
 ## Planned Features / Future Work
-**Improvements in pipeline vector data:**
-   - Add support for points and lines
-   - Refacto logic
-   - Update unit testing
-
-**Improvements in pipeline raster data:**
-   - Improve raster harmonization and processing
-   - Refacto logic
-   - Update unit testing
-   - Debug GDAL cog overviews creation
-
-**Improvements in pipeline STAC processing:**
-   - Refacto logic
-   - Update unit testing
-
 **New features in pipeline:**
 - Earth Observation data integration
 - Add specific usage processes that uses OGC API Processes
