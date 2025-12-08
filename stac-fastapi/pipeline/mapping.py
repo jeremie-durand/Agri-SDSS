@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Iterable
@@ -100,10 +101,9 @@ class AttributeNullValues(Enum):
 class CSVDataRegistryForSourceCRS(Enum):
     """CSV data registry for source CRS."""
 
-    STATION_HYDROMETRIQUES = ("station_hydrometriques", "EPSG:4326")
+    STATIONS_HYDROMETRIQUES = ("stations_hydrometriques", "EPSG:4326")
     RESEAU_AGROMETEO = ("reseau_agrometeo", "EPSG:4326")
     QUEBEC_4326 = ("quebec_4326", "EPSG:4326")  # Test
-    QUEBEC_4617 = ("quebec_4617", "EPSG:4617")  # Test
     QUEBEC_32198 = ("quebec_32198", "EPSG:32198")  # Test
 
 
@@ -232,6 +232,14 @@ class NamingPatterns(Enum):
     PATTERN_DUCKDB_NAME = r"^[A-Za-z0-9_]+$"
     PATTERN_RASTER_NAME = r"[^0-9a-zA-Z_]+"
     VALID_PG_IDENTIFIER = r"^[A-Za-z_][A-Za-z0-9_]*$"
+
+
+class DatePatterns(Enum):
+    PATTERNS = [
+        re.compile(r"(?P<ymdhms>\d{8}[_T-]?\d{6})"),
+        re.compile(r"(?P<ymd>\d{8})"),
+    ]
+    YEAR_PATTERN = re.compile(r"(?P<year>(19|20)\d{2})(?!\d)")
 
 
 class DefaultMetadata(Enum):

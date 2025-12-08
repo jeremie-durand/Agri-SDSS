@@ -504,31 +504,54 @@ def test_build_column_mapping_object_mixed_fallback(postgis_manager):
 # ------------------------------------------
 # Test cases for insert_gdf()
 # ------------------------------------------
-def test_insert_gdf_new_table_success(postgis_manager, gdf_points_fixture):
-    """Test inserting GeoDataFrame into new table."""
+def test_insert_gdf_new_table_calls_create_with_converted_mapping(
+    postgis_manager, gdf_points_fixture
+):
     table_name = "test_table"
-
     mock_inspector = Mock()
     mock_inspector.has_table.return_value = False
+
+    # Provide controlled mappings so _convert_pg_mapping_to_sqlalchemy doesn't raise
+    fake_pg_mapping = {
+        "gid": "INTEGER PRIMARY KEY",
+        "geometry": "geometry(Geometry, 4326)",
+    }
+    expected_sqlalchemy = {
+        "gid": {"type": "Integer", "primary_key": True, "autoincrement": True},
+        "geometry": {"type": "Geometry", "geometry_type": "POLYGON", "srid": 4326},
+    }
 
     with patch(
         "pipeline.modules.db.pg_utils.sqlalchemy.inspect", return_value=mock_inspector
     ):
-        with patch.object(postgis_manager, "_create_table_from_mapping") as mock_create:
-            with patch.object(gdf_points_fixture, "to_postgis") as mock_to_postgis:
-                mock_to_postgis.return_value = None
+        with patch.object(
+            postgis_manager,
+            "_build_column_mapping_from_gdf",
+            return_value=fake_pg_mapping,
+        ) as mock_build:
+            with patch.object(
+                postgis_manager,
+                "_convert_pg_mapping_to_sqlalchemy",
+                return_value=expected_sqlalchemy,
+            ) as mock_convert:
+                with patch.object(
+                    postgis_manager, "_create_table_from_mapping"
+                ) as mock_create:
+                    with patch.object(
+                        gdf_points_fixture, "to_postgis"
+                    ) as mock_to_postgis:
+                        mock_to_postgis.return_value = None
 
-                postgis_manager.insert_gdf(
-                    gdf=gdf_points_fixture, table_name=table_name
-                )
+                        postgis_manager.insert_gdf(
+                            gdf=gdf_points_fixture, table_name=table_name
+                        )
 
-                expected_mapping = postgis_manager._build_column_mapping_from_gdf(
-                    gdf_points_fixture
-                )
-                mock_create.assert_called_once_with(
-                    table_name=table_name, column_mapping=expected_mapping
-                )
-                mock_to_postgis.assert_called_once()
+                        mock_build.assert_called_once_with(gdf_points_fixture)
+                        mock_convert.assert_called_once_with(fake_pg_mapping)
+                        mock_create.assert_called_once_with(
+                            table_name=table_name, column_mapping=expected_sqlalchemy
+                        )
+                        mock_to_postgis.assert_called_once()
 
 
 def test_insert_gdf_existing_table_success(postgis_manager, gdf_points_fixture):
@@ -578,20 +601,44 @@ def test_insert_gdf_table_creation_flow(postgis_manager, gdf_points_fixture):
     mock_inspector = Mock()
     mock_inspector.has_table.return_value = False
 
+    # Controlled mapping/conversion so conversion doesn't raise during test
+    fake_pg_mapping = {
+        "gid": "INTEGER PRIMARY KEY",
+        "geometry": "geometry(Geometry, 4326)",
+    }
+    expected_sqlalchemy = {
+        "gid": {"type": "Integer", "primary_key": True, "autoincrement": True},
+        "geometry": {"type": "Geometry", "geometry_type": "POLYGON", "srid": 4326},
+    }
+
     with patch(
         "pipeline.modules.db.pg_utils.sqlalchemy.inspect", return_value=mock_inspector
     ):
-        with patch.object(postgis_manager, "_create_table_from_mapping") as mock_create:
-            with patch.object(gdf_points_fixture, "to_postgis") as mock_to_postgis:
-                mock_create.return_value = None
-                mock_to_postgis.return_value = None
+        with patch.object(
+            postgis_manager,
+            "_build_column_mapping_from_gdf",
+            return_value=fake_pg_mapping,
+        ):
+            with patch.object(
+                postgis_manager,
+                "_convert_pg_mapping_to_sqlalchemy",
+                return_value=expected_sqlalchemy,
+            ):
+                with patch.object(
+                    postgis_manager, "_create_table_from_mapping"
+                ) as mock_create:
+                    with patch.object(
+                        gdf_points_fixture, "to_postgis"
+                    ) as mock_to_postgis:
+                        mock_create.return_value = None
+                        mock_to_postgis.return_value = None
 
-                postgis_manager.insert_gdf(
-                    gdf=gdf_points_fixture, table_name=table_name
-                )
+                        postgis_manager.insert_gdf(
+                            gdf=gdf_points_fixture, table_name=table_name
+                        )
 
-                mock_create.assert_called_once()
-                mock_to_postgis.assert_called_once()
+                        mock_create.assert_called_once()
+                        mock_to_postgis.assert_called_once()
 
 
 def test_insert_gdf_inspection_error(postgis_manager, gdf_points_fixture):
@@ -705,18 +752,28 @@ def test_insert_cog_metadata_new_table(postgis_manager, cog_metadata_simple):
     mock_inspector = Mock()
     mock_inspector.has_table.return_value = False
 
+    expected_sqlalchemy = {"id": {"type": "Text"}}  # controlled return for conversion
+
     with patch(
         "pipeline.modules.db.pg_utils.sqlalchemy.inspect", return_value=mock_inspector
     ):
-        with patch.object(postgis_manager, "_create_table_from_mapping") as mock_create:
-            postgis_manager.insert_cog_metadata(
-                metadata=cog_metadata_simple, table_name=table_name
-            )
+        with patch.object(
+            postgis_manager,
+            "_convert_pg_mapping_to_sqlalchemy",
+            return_value=expected_sqlalchemy,
+        ) as mock_convert:
+            with patch.object(
+                postgis_manager, "_create_table_from_mapping"
+            ) as mock_create:
+                postgis_manager.insert_cog_metadata(
+                    metadata=cog_metadata_simple, table_name=table_name
+                )
 
-            mock_create.assert_called_once_with(
-                table_name=table_name,
-                column_mapping=RasterStacColumns,
-            )
+                mock_convert.assert_called_once_with(RasterStacColumns)
+                mock_create.assert_called_once_with(
+                    table_name=table_name,
+                    column_mapping=expected_sqlalchemy,
+                )
 
 
 def test_insert_cog_metadata_missing_id(postgis_manager, cog_metadata_missing_id):

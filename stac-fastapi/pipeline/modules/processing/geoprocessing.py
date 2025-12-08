@@ -6,7 +6,6 @@ from pathlib import Path
 
 import fiona
 import geopandas as gpd
-import pandas as pd
 import rasterio
 from pipeline.config import Config
 from pipeline.logging_setup import handle_error, setup_logging
@@ -14,7 +13,6 @@ from pipeline.mapping import (
     AttributeNullValues,
     ColumnMappings,
     CSVDataRegistryForSourceCRS,
-    DefaultMetadata,
     NamingPatterns,
 )
 from pipeline.modules.db.duckdb_utils import DuckDBManager
@@ -24,10 +22,8 @@ from pipeline.modules.processing.processing_stac import (
     StacApiClient,
     build_stac_collection_from_items,
     build_stac_items_from_cog,
-    build_stac_items_from_gdf,
 )
 from pipeline.utils import add_process_to_logger
-from pystac import Item
 
 logger = setup_logging()
 
@@ -37,48 +33,11 @@ class GeoprocessingVector:
         self,
         gdf: gpd.GeoDataFrame,
         target_crs: str,
-        stac_collection_id: str,
+        collection_id: str,
     ):
         self.gdf = gdf
         self.target_crs = target_crs
-        self.stac_collection_id = stac_collection_id
-        self.required_fields = ["gid", "file_url", "metadata"]
-
-    def _add_metadata_fields_in_gdf(
-        self, gdf: gpd.GeoDataFrame, missing_fields: list, database_table_name: str
-    ):
-        """Add missing metadata fields to a GeoDataFrame.
-
-        Args:
-            gdf: The GeoDataFrame to modify.
-            missing_fields: The list of missing fields to add.
-            database_table_name: The name of the database table (used for file_url).
-
-        Returns:
-            The modified GeoDataFrame.
-
-        Notes:
-            This function modifies the GeoDataFrame in place by adding the specified missing fields with default values.
-        """
-        n_rows = gdf.shape[0]
-
-        for field in missing_fields:
-            if field == "gid":
-                gdf[field] = range(1, n_rows + 1)
-            elif field == "file_url":
-                gdf[field] = pd.Series(
-                    [f"/data/input/{database_table_name}"] * n_rows,
-                    index=gdf.index,
-                    dtype="object",
-                )
-            elif field == "metadata":
-                gdf[field] = pd.Series(
-                    [DefaultMetadata.get_defaults().copy() for _ in range(n_rows)],
-                    index=gdf.index,
-                    dtype="object",
-                )
-
-        return gdf
+        self.collection_id = collection_id
 
     def _find_overlapping_polygons(self, geometry_column: str) -> list[tuple[int, int]]:
         """Find overlapping polygons in a GeoDataFrame.
@@ -428,30 +387,6 @@ class GeoprocessingVector:
         ):
             self.gdf = self.gdf.to_crs(self.target_crs)
 
-    def prepare_gdf_for_stac(self, database_table_name: str) -> gpd.GeoDataFrame:
-        """
-        Prepare a GeoDataFrame for STAC item creation by ensuring required fields are present.
-
-        Args:
-            database_table_name: Name of the source table.
-        """
-        gdf = self.gdf.copy()
-
-        missing_fields = [
-            field for field in self.required_fields if field not in gdf.columns
-        ]
-
-        if len(missing_fields) > 0:
-            logger.info(f"Adding missing STAC fields: {missing_fields}")
-
-            gdf = self._add_metadata_fields_in_gdf(
-                gdf=gdf,
-                missing_fields=missing_fields,
-                database_table_name=database_table_name,
-            )
-
-        self.gdf = gdf
-
     @staticmethod
     def convert_vector_files_to_gdf(vector_files: list[Path]) -> list[gpd.GeoDataFrame]:
         """Convert a list of vector file paths to multiple GeoDataFrames.
@@ -505,17 +440,15 @@ class GeoprocessingVector:
 
 def geoprocessing_vector_data(
     gdf_list: list[tuple[str, gpd.GeoDataFrame]],
+    collection_id: str,
     target_crs: str = Config.GLOBAL_CRS,
-    stac_collection_id: str = Config.STAC_COLLECTION_ID,
-    stac_api_url: str = Config.STAC_API_URL,
 ):
-    """Process vector data and insert into PostGIS and STAC API.
+    """Process vector data and insert into PostGIS and Vector API.
 
     Args:
-        pg_manager: PostGISManager instance for database operations.
         gdf_list: List of tuples containing table names and GeoDataFrames to process.
         target_crs: Target CRS as an EPSG code (e.g., 4326).
-        stac_collection_id: Unique ID for the STAC collection.
+        collection_id: Unique ID for the Vector collection.
     """
     add_process_to_logger(logger, "Processing Vector Data PostGIS")
 
@@ -525,8 +458,6 @@ def geoprocessing_vector_data(
 
     logger.info(f"Found {len(gdf_list)} vector tables to process.")
 
-    all_items: list[list[Item]] = []
-
     # Iterate over each table and its corresponding GeoDataFrame
     for table, gdf in gdf_list:
         logger.info(f"Processing vector data for table: {table}")
@@ -535,13 +466,12 @@ def geoprocessing_vector_data(
         processor = GeoprocessingVector(
             gdf=gdf,
             target_crs=target_crs,
-            stac_collection_id=stac_collection_id,
+            collection_id=collection_id,
         )
         processor.validate_vector_data()
         processor.harmonize_gdf()
         processor.clean_geometries_gdf()
         processor.harmonize_crs_gdf()
-        processor.prepare_gdf_for_stac(database_table_name=table)
 
         # Get the processed GeoDataFrame
         processed_gdf = processor.gdf
@@ -556,35 +486,6 @@ def geoprocessing_vector_data(
 
         # Insert processed GeoDataFrame into GeoParquet
         DuckDBManager.save_gdf_to_geoparquet(gdf=processed_gdf, output_file_name=table)
-
-        # Build STAC items from the processed GeoDataFrame
-        stac_items = build_stac_items_from_gdf(
-            gdf=processed_gdf, source_table_name=table
-        )
-
-        # Collect all items
-        all_items.extend(stac_items)
-
-    # Build STAC collection from items
-    stac_collection = build_stac_collection_from_items(
-        items=all_items,
-        collection_id=stac_collection_id,
-    )
-
-    # Create a STAC API client
-    stac_client = StacApiClient(
-        api_url=stac_api_url,
-        collection_id=stac_collection_id,
-        stac_collection=stac_collection,
-        stac_items=all_items,
-        logger=logger,
-    )
-
-    # Post the collection to the STAC API
-    stac_client.post_collection()
-
-    # PUT (update) items to the STAC API
-    stac_client.upsert_items()
 
 
 class GeoprocessingRaster:

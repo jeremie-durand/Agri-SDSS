@@ -3,9 +3,12 @@ from pathlib import Path
 
 from pipeline.config import Config
 from pipeline.logging_setup import setup_logging
-from pipeline.mapping import CSVDataRegistryForSourceCRS
 from pipeline.modules.db.duckdb_utils import DuckDBManager
-from pipeline.modules.io_tools.input_data import discover_geodata, read_csv_file
+from pipeline.modules.io_tools.input_data import (
+    detect_non_spatial_csv,
+    discover_geodata,
+    read_csv_file,
+)
 from pipeline.modules.processing.geoprocessing import (
     GeoprocessingVector,
     geoprocessing_raster_data,
@@ -39,16 +42,10 @@ def parse_args(return_parser=False):
         help="Global CRS to reproject all data to (EPSG code).",
     )
     parser.add_argument(
-        "--stac-collection-id",
+        "--collection",
         type=str,
         default=Config.STAC_COLLECTION_ID,
-        help="STAC Collection ID to associate with the ingested data.",
-    )
-    parser.add_argument(
-        "--csv-items",
-        action="store_true",
-        default=False,
-        help="Flag to enable CSV data processing, including direct conversion of non-spatial CSVs to Parquet format.",
+        help="Collection ID to associate with the ingested data.",
     )
 
     if return_parser:
@@ -67,59 +64,40 @@ def process_vector_pipeline(vector_files, args, report_data):
     if len(vector_files) == 0:
         logger.info("No vector files found. Skipping vector data processing.")
         report_data["vector_data"]["skipped"] += 1
+        return  # Early return if no vector files
 
-    else:
-        try:
-            # Handle CSV items separately
-            if args.csv_items:
-                csv_vector_files = [
-                    vf for vf in vector_files if vf.suffix.lower() == ".csv"
-                ]
-                non_spatial_csvs = [
-                    vf
-                    for vf in csv_vector_files
-                    if vf.stem.lower() not in CSVDataRegistryForSourceCRS.__members__
-                ]
+    try:
+        csv_files = [
+            vector_file
+            for vector_file in vector_files
+            if vector_file.suffix.lower() == ".csv"
+        ]
+        non_spatial_csv_files = detect_non_spatial_csv(csv_files=csv_files) or []
+        report_data["vector_data"]["non_spatial_csv"] += len(non_spatial_csv_files)
 
-                if not csv_vector_files:
-                    logger.warning(
-                        "No CSV vector files found for --csv-items processing. Checking for non-spatial CSV."
-                    )
-                    report_data["vector_data"]["skipped"] += 1
-
-                elif non_spatial_csvs:
-                    with DuckDBManager() as duckdb_manager:
-                        for vector_file in non_spatial_csvs:
-                            df = read_csv_file(vector_file=vector_file)
-                            duckdb_manager.save_df_to_parquet(
-                                df=df,
-                                output_file_name=vector_file.stem,
-                            )
-                    # Remove those saved to DuckDB from further processing
-                    vector_files = [
-                        vf for vf in vector_files if vf not in non_spatial_csvs
-                    ]
-
-                else:
-                    logger.debug(
-                        "All discovered CSVs are already in the CRS registry; nothing to save to DuckDB."
+        if non_spatial_csv_files:
+            with DuckDBManager() as duckdb_manager:
+                for non_spatial_csv_file in non_spatial_csv_files:
+                    df = read_csv_file(vector_file=non_spatial_csv_file)
+                    duckdb_manager.save_df_to_parquet(
+                        df=df,
+                        output_file_name=non_spatial_csv_file.stem,
                     )
 
-            # Convert vector files to GeoDataFrames
-            vector_data_gdf_list = GeoprocessingVector.convert_vector_files_to_gdf(
-                vector_files=vector_files
-            )
+        # Convert remaining vector files to GeoDataFrames
+        vector_data_gdf_list = GeoprocessingVector.convert_vector_files_to_gdf(
+            vector_files=[vf for vf in vector_files if vf not in non_spatial_csv_files]
+        )
 
-            geoprocessing_vector_data(
-                gdf_list=vector_data_gdf_list,
-                target_crs=args.crs,
-                stac_collection_id=args.stac_collection_id,
-                stac_api_url=Config.STAC_API_URL,
-            )
-            report_data["vector_data"]["processed"] += len(vector_data_gdf_list)
-        except GeoprocessingPipelineError as e:
-            logger.error(f"Error during vector data processing: {e}")
-            report_data["vector_data"]["errors"] += 1
+        geoprocessing_vector_data(
+            gdf_list=vector_data_gdf_list,
+            target_crs=args.crs,
+            collection_id=args.collection,
+        )
+        report_data["vector_data"]["processed"] += len(vector_data_gdf_list)
+    except GeoprocessingPipelineError as e:
+        logger.error(f"Error during vector data processing: {e}")
+        report_data["vector_data"]["errors"] += 1
 
 
 def process_raster_pipeline(raster_files, args, report_data):
@@ -139,7 +117,7 @@ def process_raster_pipeline(raster_files, args, report_data):
             geoprocessing_raster_data(
                 rasters=raster_files,
                 target_crs=args.crs,
-                stac_collection_id=args.stac_collection_id,
+                stac_collection_id=args.collection,
                 api_url=Config.STAC_API_URL,
             )
             report_data["raster_data"]["processed"] += len(raster_files)
@@ -165,7 +143,12 @@ def main():
 
     # Initialize report data structure
     report_data = {
-        "vector_data": {"processed": 0, "errors": 0, "skipped": 0},
+        "vector_data": {
+            "processed": 0,
+            "errors": 0,
+            "skipped": 0,
+            "non_spatial_csv": 0,
+        },
         "raster_data": {"processed": 0, "errors": 0, "skipped": 0},
     }
 

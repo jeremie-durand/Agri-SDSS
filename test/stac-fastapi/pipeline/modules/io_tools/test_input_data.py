@@ -3,7 +3,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from pipeline.modules.io_tools.input_data import discover_geodata
+from pipeline.modules.io_tools.input_data import (
+    detect_non_spatial_csv,
+    discover_geodata,
+    read_csv_file,
+)
 
 
 # ------------------------------------------
@@ -285,3 +289,120 @@ def test_discover_geodata_edge_case_extensions(tmp_path):
         # Only .tif should be found as raster
         assert len(result["rasters"]) == 1
         assert files[0] in result["rasters"]
+
+
+# ------------------------------------------
+# Test cases for read_csv_file()
+# ------------------------------------------
+def test_read_csv_file_utf8_default(tmp_path):
+    """Reads a simple UTF-8 encoded CSV with default settings."""
+    csv_file = tmp_path / "utf8.csv"
+    csv_file.write_text("colA,colB\n1,2\nx,y", encoding="utf-8")
+
+    df = read_csv_file(csv_file)
+
+    assert df.shape == (2, 2)
+    assert "colA" in df.columns and "colB" in df.columns
+
+
+def test_read_csv_file_latin1_fallback_and_semicolon_sep(tmp_path):
+    """Ensures fallback to latin1 when utf-8 fails and semicolon separator is detected."""
+    csv_file = tmp_path / "latin1_semicolon.csv"
+    # bytes that are valid latin1 but invalid utf-8 for the é character
+    csv_bytes = b"col1;col2\nv1;caf\xe9\n"
+    csv_file.write_bytes(csv_bytes)
+
+    df = read_csv_file(csv_file)  # default encodings try utf-8 then latin1
+
+    assert df.shape == (1, 2)
+    # pandas should have detected ';' as separator and decoded to 'café'
+    assert df.iloc[0]["col2"] == "café"
+
+
+def test_read_csv_file_accepts_read_csv_kwargs(tmp_path):
+    """Passes additional kwargs to pandas.read_csv (header/names)."""
+    csv_file = tmp_path / "no_header.csv"
+    csv_file.write_text("a;bb\nc;d", encoding="utf-8")
+
+    df = read_csv_file(csv_file, header=None, names=["first", "second"])
+
+    assert list(df.columns) == ["first", "second"]
+    assert df.shape == (2, 2)
+
+
+def test_read_csv_file_no_encodings_provided_raises_value_error(tmp_path):
+    """If encodings list is empty the function should raise ValueError."""
+    csv_file = tmp_path / "some.csv"
+    csv_file.write_text("col1,col2\n1,2", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        read_csv_file(csv_file, encodings=[])
+
+
+def test_read_csv_file_propagates_last_exception_when_all_fail(tmp_path):
+    """If pandas.read_csv raises for all attempts, the last exception is propagated."""
+    csv_file = tmp_path / "bad.csv"
+    csv_file.write_text("not,a,csv", encoding="utf-8")
+
+    with patch(
+        "pipeline.modules.io_tools.input_data.pd.read_csv",
+        side_effect=RuntimeError("read failure"),
+    ):
+        with pytest.raises(RuntimeError, match="read failure"):
+            read_csv_file(csv_file, encodings=["utf-8", "latin1"])
+
+
+# ------------------------------------------
+# Test cases for detect_non_spatial_csv()
+# ------------------------------------------
+def test_detect_non_spatial_csv_mixed(tmp_path):
+    """Detects non-spatial CSVs when mixed with known spatial CSVs."""
+    with patch(
+        "pipeline.modules.io_tools.input_data.CSVDataRegistryForSourceCRS",
+        new=[
+            SimpleNamespace(value=["spatial1"]),
+            SimpleNamespace(value=["spatial2"]),
+        ],
+    ):
+        known1 = tmp_path / "spatial1.csv"
+        known2 = tmp_path / "spatial2.csv"
+        unknown = tmp_path / "other.csv"
+
+        known1.write_text("a")
+        known2.write_text("b")
+        unknown.write_text("c")
+
+        result = detect_non_spatial_csv([known1, known2, unknown])
+
+        assert isinstance(result, list)
+        assert result == [unknown]
+
+
+def test_detect_non_spatial_csv_case_insensitive(tmp_path):
+    """Stems comparison should be case-insensitive."""
+    with patch(
+        "pipeline.modules.io_tools.input_data.CSVDataRegistryForSourceCRS",
+        new=[SimpleNamespace(value=["spatialX"])],
+    ):
+        file_upper = tmp_path / "SPATIALX.csv"
+        file_mixed = tmp_path / "Spatialx.csv"
+        unknown = tmp_path / "other.csv"
+
+        file_upper.write_text("x")
+        file_mixed.write_text("y")
+        unknown.write_text("z")
+
+        result = detect_non_spatial_csv([file_upper, file_mixed, unknown])
+
+        # both spatialX variants should be treated as known -> only unknown returned
+        assert result == [unknown]
+
+
+def test_detect_non_spatial_csv_empty_input(tmp_path):
+    """Returns empty list for empty input."""
+    with patch(
+        "pipeline.modules.io_tools.input_data.CSVDataRegistryForSourceCRS",
+        new=[SimpleNamespace(value=["spatial"])],
+    ):
+        result = detect_non_spatial_csv([])
+        assert result == []

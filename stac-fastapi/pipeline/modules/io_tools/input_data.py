@@ -1,9 +1,15 @@
+from difflib import get_close_matches
 from pathlib import Path
 from typing import Dict, List
 
 import pandas as pd
 from pipeline.logging_setup import setup_logging
-from pipeline.mapping import SupportedRasterFormats, SupportedVectorFormats
+from pipeline.mapping import (
+    ColumnMappings,
+    CSVDataRegistryForSourceCRS,
+    SupportedRasterFormats,
+    SupportedVectorFormats,
+)
 
 logger = setup_logging()
 
@@ -73,3 +79,43 @@ def read_csv_file(
     if last_exc is None:
         raise ValueError(f"No encodings provided to read CSV {vector_file}")
     raise last_exc
+
+
+def detect_non_spatial_csv(csv_files: list[Path]) -> list[Path]:
+    """Detect CSVs and classify as non-spatial.
+
+    Args:
+        csv_files: List of Path objects pointing to CSV files.
+
+    Returns:
+        List of Paths to non-spatial CSV files.
+    """
+    known_csv_stems = {e.value[0].lower() for e in CSVDataRegistryForSourceCRS}
+
+    non_spatial_files = []
+
+    for csv_file in csv_files:
+        stem = csv_file.stem.lower()
+
+        if not get_close_matches(stem, known_csv_stems, n=1, cutoff=0.8):
+            try:
+                df = pd.read_csv(csv_file, nrows=3)  # Only read first 3 rows for speed
+                columns_lower = [c.lower() for c in df.columns]
+
+                lat_cols = [c.lower() for c in ColumnMappings.LATITUDE.value.alias] + [
+                    ColumnMappings.LATITUDE.value.canonical
+                ]
+                lon_cols = [c.lower() for c in ColumnMappings.LONGITUDE.value.alias] + [
+                    ColumnMappings.LONGITUDE.value.canonical
+                ]
+
+                if not any(c in columns_lower for c in lat_cols) or not any(
+                    c in columns_lower for c in lon_cols
+                ):
+                    non_spatial_files.append(csv_file)
+
+            except Exception:
+                # If the CSV is unreadable, consider it non-spatial
+                non_spatial_files.append(csv_file)
+
+    return non_spatial_files

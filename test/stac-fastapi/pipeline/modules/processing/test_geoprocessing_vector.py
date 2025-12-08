@@ -1,6 +1,4 @@
 import hashlib
-from datetime import datetime as dt
-from datetime import timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -10,7 +8,6 @@ import geopandas as gpd
 import pandas as pd
 import pytest
 from pipeline.config import Config
-from pipeline.mapping import DefaultMetadata
 from pipeline.modules.processing.geoprocessing import GeoprocessingVector
 from shapely.geometry import MultiPolygon, Point, Polygon
 
@@ -161,61 +158,6 @@ def temp_multilayer_gpkg(tmp_path):
 
 
 # ------------------------------------------
-# Test cases for GeoprocessingVector._add_metadata_fields_in_gdf
-# ------------------------------------------
-def test_add_metadata_fields_basic(tmp_path):
-    """gid, file_url and metadata fields are added with correct values and types."""
-    gdf = gpd.GeoDataFrame(
-        {"val": [10, 20, 30]},
-        geometry=[Point(0, 0), Point(1, 1), Point(2, 2)],
-        crs="EPSG:4326",
-    )
-
-    gp = GeoprocessingVector(
-        gdf=gdf.copy(),
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-    missing = ["gid", "file_url", "metadata"]
-    out = gp._add_metadata_fields_in_gdf(
-        gdf=gdf.copy(), missing_fields=missing, database_table_name="tbl_name"
-    )
-
-    assert "gid" in out.columns
-    assert list(out["gid"]) == [1, 2, 3]
-
-    assert "file_url" in out.columns
-    assert all(u == "/data/input/tbl_name" for u in out["file_url"])
-
-    assert "metadata" in out.columns
-    defaults = DefaultMetadata.get_defaults()
-    for m in out["metadata"]:
-        assert isinstance(m, dict)
-        assert m == defaults
-
-
-def test_metadata_copies_are_independent():
-    """Ensure the metadata objects inserted are independent copies (modifying one does not affect others)."""
-    gdf = gpd.GeoDataFrame(
-        {"val": [1, 2]}, geometry=[Point(0, 0), Point(1, 1)], crs="EPSG:4326"
-    )
-    gp = GeoprocessingVector(
-        gdf=gdf.copy(),
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    out = gp._add_metadata_fields_in_gdf(
-        gdf=gdf.copy(), missing_fields=["metadata"], database_table_name="db"
-    )
-    assert isinstance(out["metadata"].iloc[0], dict)
-    # mutate first metadata dict and verify second remains unchanged
-    out["metadata"].iloc[0]["injected"] = "x"
-    assert "injected" in out["metadata"].iloc[0]
-    assert "injected" not in out["metadata"].iloc[1]
-
-
-# ------------------------------------------
 # Test cases for GeoprocessingVector._find_overlapping_polygons()
 # ------------------------------------------
 def test_find_overlapping_polygons_no_overlaps():
@@ -235,7 +177,7 @@ def test_find_overlapping_polygons_no_overlaps():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -261,7 +203,7 @@ def test_find_overlapping_polygons_with_overlaps():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -292,7 +234,7 @@ def test_find_overlapping_polygons_touching_not_overlapping():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -313,7 +255,7 @@ def test_find_overlapping_polygons_empty_geodataframe():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -333,7 +275,7 @@ def test_find_overlapping_polygons_no_polygons():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -363,7 +305,7 @@ def test_find_overlapping_polygons_mixed_geometry_types_reindexed():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -394,7 +336,7 @@ def test_find_overlapping_polygons_multipolygon():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -417,7 +359,7 @@ def test_find_overlapping_polygons_single_polygon():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -448,7 +390,7 @@ def test_find_overlapping_polygons_multiple_overlaps():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -474,7 +416,7 @@ def test_find_overlapping_polygons_identical_polygons():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -513,7 +455,7 @@ def test_find_overlapping_polygons_large_dataset():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -545,7 +487,7 @@ def test_find_overlapping_polygons_invalid_geometry_column():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     # Should raise KeyError for non-existent column
@@ -571,7 +513,7 @@ def test_find_overlapping_polygons_polygon_within_polygon():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -598,7 +540,7 @@ def test_find_overlapping_polygons_complex_shapes():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -620,7 +562,7 @@ def test_find_overlapping_polygons_return_type():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -653,7 +595,7 @@ def test_find_overlapping_polygons_different_overlap_types(overlap_type):
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     overlaps = geoprocessing_vector._find_overlapping_polygons(
@@ -960,19 +902,11 @@ def test_read_csv_as_gdf_fallback_to_latin1(monkeypatch, tmp_path):
     # create a simple file (content doesn't matter because we patch pd.read_csv)
     csv_path.write_text("lon,lat\n0,0\n", encoding="latin1")
 
-    # prepare DataFrame that should be returned by the second call (latin1)
-    returned_df = pd.DataFrame({"lon": [0.0], "lat": [0.0]})
-
-    # make pd.read_csv first raise UnicodeDecodeError then return our DataFrame
-    err = UnicodeDecodeError("utf-8", b"", 0, 1, "invalid start byte")
-    with patch(
-        "pipeline.modules.processing.geoprocessing.pd.read_csv",
-        side_effect=[err, returned_df],
-    ):
-        gdf = GeoprocessingVector._read_csv_as_gdf(vector_file=csv_path)
-        assert isinstance(gdf, gpd.GeoDataFrame)
-        assert len(gdf) == 1
-        assert gdf.crs.to_epsg() == 4326
+    csv_path.write_text("lon;lat\n0;0\n", encoding="latin1")
+    gdf = GeoprocessingVector._read_csv_as_gdf(vector_file=csv_path)
+    assert gdf.shape[0] == 1
+    assert gdf.geometry.iloc[0].x == 0
+    assert gdf.geometry.iloc[0].y == 0
 
 
 def test_read_csv_as_gdf_missing_coordinate_columns_raises(tmp_path):
@@ -1019,7 +953,7 @@ def test_validate_vector_data_success(gdf_polygon_fixture):
         geoprocessing_vector = GeoprocessingVector(
             gdf=gdf_polygon_fixture,
             target_crs=Config.GLOBAL_CRS,
-            stac_collection_id=Config.STAC_COLLECTION_ID,
+            collection_id=Config.STAC_COLLECTION_ID,
         )
 
         geoprocessing_vector.validate_vector_data()
@@ -1046,7 +980,7 @@ def test_validate_vector_data_not_geodataframe():
     geoprocessing_vector = GeoprocessingVector(
         gdf=df,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     with pytest.raises(
@@ -1063,7 +997,7 @@ def test_validate_vector_data_missing_geometry_column():
     geoprocessing_vector = GeoprocessingVector(
         gdf=df,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     with pytest.raises(
@@ -1084,7 +1018,7 @@ def test_validate_vector_data_geometry_column_not_in_columns():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     with pytest.raises(
@@ -1101,7 +1035,7 @@ def test_validate_vector_data_empty_geodataframe():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     with pytest.raises(ValueError, match="GeoDataFrame is empty"):
@@ -1116,7 +1050,7 @@ def test_validate_vector_data_no_crs():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     with pytest.raises(
@@ -1133,7 +1067,7 @@ def test_validate_vector_data_crs_no_epsg():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     with patch.object(geoprocessing_vector.gdf.crs, "to_epsg", return_value=None):
@@ -1156,7 +1090,7 @@ def test_validate_vector_data_index_reset():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     geoprocessing_vector.validate_vector_data()
@@ -1177,7 +1111,7 @@ def test_validate_vector_data_preserves_data():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf.copy(),  # Use copy to compare
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     geoprocessing_vector.validate_vector_data()
@@ -1199,7 +1133,7 @@ def test_validate_vector_data_custom_geometry_column():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     # Should work with custom geometry column name
@@ -1217,7 +1151,7 @@ def test_validate_vector_data_multiple_validation_calls():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     # Multiple calls should not cause issues
@@ -1251,7 +1185,7 @@ def test_validate_vector_data_with_different_crs_formats():
             geoprocessing_vector = GeoprocessingVector(
                 gdf=gdf,
                 target_crs=Config.GLOBAL_CRS,
-                stac_collection_id=Config.STAC_COLLECTION_ID,
+                collection_id=Config.STAC_COLLECTION_ID,
             )
 
             # Should validate successfully if CRS has EPSG code
@@ -1278,7 +1212,7 @@ def test_validate_vector_data_edge_case_single_row():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     geoprocessing_vector.validate_vector_data()
@@ -1299,7 +1233,7 @@ def test_validate_vector_data_edge_case_many_columns():
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     geoprocessing_vector.validate_vector_data()
@@ -1323,7 +1257,7 @@ def test_validate_vector_data_invalid_input_types(invalid_input):
     geoprocessing_vector = GeoprocessingVector(
         gdf=invalid_input,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
 
     with pytest.raises(
@@ -1354,7 +1288,7 @@ def test_validate_vector_data_exception_details():
         geoprocessing_vector = GeoprocessingVector(
             gdf=test_gdf,
             target_crs=Config.GLOBAL_CRS,
-            stac_collection_id=Config.STAC_COLLECTION_ID,
+            collection_id=Config.STAC_COLLECTION_ID,
         )
 
         with pytest.raises(ValueError, match=expected_pattern):
@@ -1371,7 +1305,7 @@ def test_harmonize_gdf_removes_duplicates(gdf_points_harmonization_fixture):
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf_points_harmonization_fixture,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
     # Count the lines number before and after suppression
     initial_count = len(gdf_points_harmonization_fixture)
@@ -1391,7 +1325,7 @@ def test_harmonize_gdf_handles_nulls(gdf_points_harmonization_fixture):
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf_points_harmonization_fixture,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
     geoprocessing_vector.harmonize_gdf()
     null_count = geoprocessing_vector.gdf.isnull().sum().sum()
@@ -1405,7 +1339,7 @@ def test_harmonize_gdf_renames_columns(gdf_points_harmonization_fixture):
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf_points_harmonization_fixture,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
     geoprocessing_vector.harmonize_gdf(rename_columns=True)
 
@@ -1446,7 +1380,7 @@ def test_harmonize_gdf_drops_null_geometries(gdf_points_harmonization_fixture):
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf_points_harmonization_fixture,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
     geoprocessing_vector.harmonize_gdf(drop_null_geoms=True)
     assert geoprocessing_vector.gdf.loc[:, "geometry"].isnull().sum() == 0
@@ -1459,7 +1393,7 @@ def test_harmonize_gdf_invalid_input():
     geoprocessing_vector = GeoprocessingVector(
         gdf=pd.DataFrame({"a": [1, 2, 3]}),
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
     with pytest.raises(AttributeError):
         geoprocessing_vector.harmonize_gdf()
@@ -1475,7 +1409,7 @@ def test_clean_geometries_gdf_removes_nulls(gdf_with_null_geoms):
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf_with_null_geoms,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
     geoprocessing_vector.clean_geometries_gdf()
     assert geoprocessing_vector.gdf["geometry"].isnull().sum() == 0
@@ -1491,7 +1425,7 @@ def test_clean_geometries_gdf_detects_geometry_column(gdf_with_null_geoms):
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf_with_null_geoms,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
     # Should auto-detect 'geometry' column
     geoprocessing_vector.clean_geometries_gdf()
@@ -1505,7 +1439,7 @@ def test_clean_geometries_gdf_check_overlaps(gdf_with_polygons):
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf_with_polygons,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
     # Should run without error and return the same number of rows
     geoprocessing_vector.clean_geometries_gdf(is_check_overlaps=True)
@@ -1532,7 +1466,7 @@ def test_harmonize_crs_gdf(initial_crs, expected_epsg, gdf_epsg3857):
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
     geoprocessing_vector.harmonize_crs_gdf()
 
@@ -1547,360 +1481,10 @@ def test_harmonize_crs_gdf_missing_crs(gdf_no_crs):
     geoprocessing_vector = GeoprocessingVector(
         gdf=gdf_no_crs,
         target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
+        collection_id=Config.STAC_COLLECTION_ID,
     )
     with pytest.raises(ValueError):
         geoprocessing_vector.harmonize_crs_gdf()
-
-
-# ------------------------------------------
-# Test cases for GeoprocessingVector.prepare_gdf_for_stac()
-# ------------------------------------------
-def test_prepare_gdf_for_stac_some_fields_exist():
-    """Test prepare_gdf_for_stac when some required fields already exist."""
-    existing_datetime = dt(2023, 6, 15, tzinfo=timezone.utc)
-    existing_metadata = [{"existing": "data"}, {"more": "info"}]
-
-    gdf = gpd.GeoDataFrame(
-        {
-            "existing_col": [1, 2],
-            "datetime": [existing_datetime, existing_datetime],
-            "metadata": existing_metadata,
-            "geometry": [Point(0, 0), Point(1, 1)],
-        },
-        crs="EPSG:4326",
-    )
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf,
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    table_name = "test_table"
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-
-    result_gdf = geoprocessing_vector.gdf
-
-    # Check that existing fields are preserved
-    assert all(result_gdf["datetime"] == existing_datetime)
-    assert list(result_gdf["metadata"]) == existing_metadata
-
-    # Check that missing fields are added
-    assert "gid" in result_gdf.columns
-    assert "datetime" in result_gdf.columns
-    assert "file_url" in result_gdf.columns
-
-    # Check new field values
-    assert list(result_gdf["gid"]) == [1, 2]
-    expected_url = f"/data/input/{table_name}"
-    assert all(result_gdf["file_url"] == expected_url)
-
-
-def test_prepare_gdf_for_stac_all_fields_exist():
-    """Test prepare_gdf_for_stac when all required fields already exist."""
-    existing_datetime = dt(2023, 6, 15, tzinfo=timezone.utc)
-    existing_metadata = [{"custom": "data"}, {"more": "info"}]
-    existing_file_url = ["/custom/path/1", "/custom/path/2"]
-    existing_gid = [100, 200]
-
-    gdf = gpd.GeoDataFrame(
-        {
-            "gid": existing_gid,
-            "datetime": [existing_datetime, existing_datetime],
-            "file_url": existing_file_url,
-            "metadata": existing_metadata,
-            "geometry": [Point(0, 0), Point(1, 1)],
-        },
-        crs="EPSG:4326",
-    )
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf,
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    table_name = "test_table"
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-
-    result_gdf = geoprocessing_vector.gdf
-
-    # All existing values should be preserved
-    assert list(result_gdf["gid"]) == existing_gid
-    assert all(result_gdf["datetime"] == existing_datetime)
-    assert list(result_gdf["file_url"]) == existing_file_url
-    assert list(result_gdf["metadata"]) == existing_metadata
-
-
-def test_prepare_gdf_for_stac_single_row():
-    """Test prepare_gdf_for_stac with single row GeoDataFrame."""
-    gdf = gpd.GeoDataFrame({"col": [1], "geometry": [Point(0, 0)]}, crs="EPSG:4326")
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf,
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    table_name = "single_row_table"
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-
-    result_gdf = geoprocessing_vector.gdf
-
-    assert len(result_gdf) == 1
-    assert result_gdf["gid"].iloc[0] == 1
-    assert result_gdf["file_url"].iloc[0] == f"/data/input/{table_name}"
-    assert result_gdf["metadata"].iloc[0] == DefaultMetadata.get_defaults()
-
-
-def test_prepare_gdf_for_stac_large_geodataframe():
-    """Test prepare_gdf_for_stac with large GeoDataFrame."""
-    n_rows = 1000
-    gdf = gpd.GeoDataFrame(
-        {"id": range(n_rows), "geometry": [Point(i, i) for i in range(n_rows)]},
-        crs="EPSG:4326",
-    )
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf,
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    table_name = "large_table"
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-
-    result_gdf = geoprocessing_vector.gdf
-
-    assert len(result_gdf) == n_rows
-    assert list(result_gdf["gid"]) == list(range(1, n_rows + 1))
-
-
-def test_prepare_gdf_for_stac_special_table_name():
-    """Test prepare_gdf_for_stac with special characters in table name."""
-    gdf = gpd.GeoDataFrame(
-        {"col": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}, crs="EPSG:4326"
-    )
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf,
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    # Test with special characters in table name
-    table_name = "special-table_name.with@chars"
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-
-    result_gdf = geoprocessing_vector.gdf
-
-    # file_url should include the exact table name
-    expected_url = f"/data/input/{table_name}"
-    assert all(result_gdf["file_url"] == expected_url)
-
-
-def test_prepare_gdf_for_stac_preserves_original_gdf():
-    """Test that prepare_gdf_for_stac doesn't modify the original GeoDataFrame."""
-    original_data = {"col": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}
-    gdf = gpd.GeoDataFrame(original_data, crs="EPSG:4326")
-    original_gdf = gdf.copy()
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf,
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    table_name = "test_table"
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-
-    # Original GeoDataFrame structure should be preserved within the copy
-    result_gdf = geoprocessing_vector.gdf
-
-    # Check that original columns are still there
-    assert "col" in result_gdf.columns
-    assert list(result_gdf["col"]) == [1, 2]
-
-    # Check that new columns were added
-    assert len(result_gdf.columns) > len(original_gdf.columns)
-
-
-def test_prepare_gdf_for_stac_no_end_date():
-    """Test prepare_gdf_for_stac when end_date column is missing."""
-    gdf = gpd.GeoDataFrame(
-        {
-            "gid": [1, 2],  # Existing gid
-            "datetime": [
-                dt(2023, 1, 1, tzinfo=timezone.utc),
-                dt(2023, 6, 1, tzinfo=timezone.utc),
-            ],  # Existing datetime
-            "geometry": [Point(0, 0), Point(1, 1)],
-        },
-        crs="EPSG:4326",
-    )
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf,
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    table_name = "no_end_date_table"
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-    result_gdf = geoprocessing_vector.gdf
-
-    # Existing fields should be preserved
-    assert list(result_gdf["gid"]) == [1, 2]
-    assert list(result_gdf["datetime"]) == [
-        dt(2023, 1, 1, tzinfo=timezone.utc),
-        dt(2023, 6, 1, tzinfo=timezone.utc),
-    ]
-
-
-def test_prepare_gdf_for_stac_partial_existing_fields():
-    """Test prepare_gdf_for_stac with partial mix of existing fields."""
-    gdf = gpd.GeoDataFrame(
-        {
-            "gid": [10, 20],  # Existing gid
-            "file_url": ["/data/1", "/data/2"],  # Existing file_url
-            "other_col": ["a", "b"],
-            "geometry": [Point(0, 0), Point(1, 1)],
-            "datetime": [
-                dt(2023, 1, 1, tzinfo=timezone.utc),
-                dt(2023, 6, 1, tzinfo=timezone.utc),
-            ],
-        },
-        crs="EPSG:4326",
-    )
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf,
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    table_name = "partial_table"
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-    result_gdf = geoprocessing_vector.gdf
-
-    # Missing fields should be added
-    assert "datetime" in result_gdf.columns
-    assert "metadata" in result_gdf.columns
-
-
-@pytest.mark.parametrize(
-    "table_name",
-    [
-        "simple_table",
-        "table_with_underscores",
-        "table-with-dashes",
-        "table.with.dots",
-        "table@with#special$chars",
-        "123_numeric_start",
-        "",  # Edge case: empty string
-    ],
-)
-def test_prepare_gdf_for_stac_various_table_names(table_name):
-    """Parametrized test for various table name formats."""
-    gdf = gpd.GeoDataFrame({"col": [1], "geometry": [Point(0, 0)]}, crs="EPSG:4326")
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf,
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-
-    result_gdf = geoprocessing_vector.gdf
-
-    # file_url should contain the exact table name
-    expected_url = f"/data/input/{table_name}"
-    assert result_gdf["file_url"].iloc[0] == expected_url
-
-
-def test_prepare_gdf_for_stac_modifies_instance_gdf():
-    """Test that prepare_gdf_for_stac modifies the instance's gdf attribute."""
-    original_gdf = gpd.GeoDataFrame(
-        {
-            "col": [1, 2],
-            "geometry": [Point(0, 0), Point(1, 1)],
-            "datetime": [
-                dt(2023, 1, 1, tzinfo=timezone.utc),
-                dt(2023, 6, 1, tzinfo=timezone.utc),
-            ],
-        },
-        crs="EPSG:4326",
-    )
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=original_gdf.copy(),
-        target_crs=Config.GLOBAL_CRS,
-        stac_collection_id=Config.STAC_COLLECTION_ID,
-    )
-
-    # Store reference to original gdf
-    original_columns = list(geoprocessing_vector.gdf.columns)
-
-    table_name = "test_table"
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-
-    # Check that the instance's gdf was modified
-    new_columns = list(geoprocessing_vector.gdf.columns)
-    assert len(new_columns) > len(original_columns)
-
-    # Required fields should be present
-    required_fields = ["gid", "datetime", "file_url", "metadata"]
-    for field in required_fields:
-        assert field in new_columns
-
-
-def test_prepare_gdf_for_stac_integration_with_other_methods():
-    """Integration test: prepare_gdf_for_stac after other processing methods."""
-    gdf = gpd.GeoDataFrame(
-        {
-            "Name": ["Feature 1", "Feature 2"],
-            "Value": [10, 20],
-            "geometry": [Point(0, 0), Point(1, 1)],
-            "datetime": [
-                dt(2023, 1, 1, tzinfo=timezone.utc),
-                dt(2023, 6, 1, tzinfo=timezone.utc),
-            ],
-        },
-        crs="EPSG:4326",
-    )
-
-    geoprocessing_vector = GeoprocessingVector(
-        gdf=gdf,
-        target_crs="EPSG:4326",
-        stac_collection_id="test_collection",
-    )
-
-    # Run validate and harmonize first (typical workflow)
-    geoprocessing_vector.validate_vector_data()
-    geoprocessing_vector.harmonize_gdf()
-
-    # Then prepare for STAC
-    table_name = "integration_test_table"
-    geoprocessing_vector.prepare_gdf_for_stac(database_table_name=table_name)
-
-    result_gdf = geoprocessing_vector.gdf
-
-    # Columns are normalized by harmonize_gdf (lowercase, underscores)
-    assert "name" in result_gdf.columns  # normalized from "Name"
-    assert "value" in result_gdf.columns  # normalized from "Value"
-    assert "geometry" in result_gdf.columns
-    # STAC fields present
-    assert "gid" in result_gdf.columns
-    assert "datetime" in result_gdf.columns
-    assert "file_url" in result_gdf.columns
-    assert "metadata" in result_gdf.columns
-
-    # Check STAC field values
-    assert list(result_gdf["gid"]) == [1, 2]
-    expected_url = f"/data/input/{table_name}"
-    assert all(result_gdf["file_url"] == expected_url)
 
 
 # ------------------------------------------

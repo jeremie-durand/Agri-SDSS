@@ -186,3 +186,6 @@ data/output/
 
 # Log files
 stac-fastapi/pipeline/logs/
+
+# Custom processes
+pygeoapi/processes/hamed_functions/
