@@ -41,7 +41,7 @@ snuggs==1.4.7
 structlog==25.4.0
 SQLAlchemy==2.0.47
 stac-fastapi.api==5.2.1
-stac-fastapi.extensions==5.2.1
+stac-fastapi.extensions==6.2.1
 stac-fastapi.pgstac==5.0.3
 stac-fastapi.types==5.2.1
 stac-pydantic==3.1.5
