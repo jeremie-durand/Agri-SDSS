@@ -1,0 +1,12 @@
+pipeline:
+  GLOBAL_CRS: 4326
+  PROJ_LIB: /usr/share/proj
+  STAC_COLLECTION_ID: demo_collection
+
+paths:
+  INPUT_DATA_PATH: /data/input
+  RASTER_COG_PATH: /data/output/raster_cog
+  LOG_DIR: /gis-pipeline/logs
+
+demo:
+  DEMO_VECTOR_TABLES: sud_du_quebec_4326,bdppad_2024_4326_sample_stac

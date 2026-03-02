@@ -1,5 +1,5 @@
 # Official STAC Browser image
-FROM ghcr.io/radiantearth/stac-browser:3.3.5
+FROM ghcr.io/radiantearth/stac-browser:4.0.1
 
 # Copy config and entrypoint script
 COPY config/browser_config.js /usr/share/nginx/html/config.js

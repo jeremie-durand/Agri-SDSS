@@ -184,8 +184,20 @@ data/pg/
 data/input/
 data/output/
 
+# OpenEO authentication tokens (sensitive)
+mos-pygeoapi/config/openeo-config/refresh-tokens.json
+
 # Log files
-stac-fastapi/pipeline/logs/
+gis-pipeline/logs/
 
 # Custom processes
 pygeoapi/processes/hamed_functions/
+pygeoapi/config/openeo-config/refresh-tokens.json
+mos-pygeoapi/processes/hamed_functions/
+
+# AI development tools
+.claude/
+.github/prompts/
+.github/skills/
+.cursor/
+openspec/

@@ -1,0 +1,68 @@
+metadata:
+  identification:
+    title: pygeoapi OGC API - Processes
+    description: Provide an OGC API - Processes service using pygeoapi
+    keywords:
+        - ogc
+        - process
+        - api
+    keywords_type: theme
+    terms_of_service: https://creativecommons.org/licenses/by/4.0/
+    url: https://example.org
+  license:
+      name: CC-BY 4.0 license
+      url: https://creativecommons.org/licenses/by/4.0/
+  provider:
+      name: Organization Name
+      url: https://pygeoapi.io
+  contact:
+      name: Jérémie Durand
+      position: Intern 
+      address: X
+      city: X
+      stateorprovince: X
+      postalcode: X
+      country: Canada
+      phone: +xx-xxx-xxx-xxxx
+      fax: +xx-xxx-xxx-xxxx
+      email: durj1104@usherbrooke.ca
+      url: X
+      hours: X
+      instructions: X
+      role: X
+
+resources:
+  hello-world-pygeoapi:
+    type: process
+    title: Hello World Process pygeoapi basic
+    description: A simple process that returns a welcome message.
+    processor:
+      name: pygeoapi.process.hello_world.HelloWorldProcessor # basic pygeoapi process
+  
+  sentinel-fetch:
+    type: process
+    title: Sentinel-2 Earth Observation Data Fetch
+    description: Fetches Sentinel-2 data from openEO backends for a farm polygon, calculates vegetation indices (NDVI, EVI, SAVI), and stores as Cloud Optimized GeoTIFF in STAC catalog
+    processor:
+      name: processes.eo_sentinel_fetch.SentinelFetchProcessor
+
+server:
+  bind:
+    host: 0.0.0.0
+    port: 5000
+  url: http://localhost:5000
+  mimetype: application/json
+  encoding: utf-8
+  language: en-US
+
+logging:
+  level: DEBUG
+  logfile: /tmp/pygeoapi.log
+
+manager:
+  name: Dummy
+  connection:
+    subscribers:
+      - in_progress_uri: http://localhost:5000/status/in-progress
+        success_uri: http://localhost:5000/status/success
+        failed_uri: http://localhost:5000/status/failed

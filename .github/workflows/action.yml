@@ -1,4 +1,4 @@
-name: Run Mocked API Tests
+name: Run Tests
 
 on:
   pull_request:
@@ -16,27 +16,59 @@ jobs:
     permissions:
       contents: read
 
-    env:
-      STAC_API_URL: "http://localhost:8081"
-      RASTER_API_URL: "http://localhost:8082"
-      VECTOR_API_URL: "http://localhost:8083"
-      STAC_BROWSER_URL: "http://localhost:8085"
-      PYGEOAPI_URL: "http://localhost:5000"
-      DUCKDB_DATABASE: "/tmp/eoapi.duckdb"
+    services:
+      database:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: eoapi
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Check ARGS.md is up-to-date
         run: |
           python -m pip install --upgrade pip
-          pip install -r stac-fastapi/requirements-stac-fastapi.txt
+          python -m pip install pyyaml
+          PYTHONPATH=gis-pipeline/src python -m gis_pipeline.generate_args_md
+          if ! git diff --quiet gis-pipeline/docs/ARGS.md; then
+            echo "ARGS.md is out of sync!"
+            echo "Run: PYTHONPATH=gis-pipeline/src python -m gis_pipeline.generate_args_md"
+            git diff gis-pipeline/docs/ARGS.md
+            exit 1
+          fi
+          echo "ARGS.md is up-to-date"
 
-      - name: Run tests with mocked endpoints
-        run: pytest -m mocked test/
+      - name: Build test image
+        run: docker build -f Dockerfile.test -t mos-gis-tests .
+
+      - name: Run all tests
+        env:
+          POSTGRES_HOST: database
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: eoapi
+          DUCKDB_DATA_DIR: /tmp
+        run: |
+          docker run --rm \
+            --network ${{ job.services.database.network }} \
+            -e POSTGRES_HOST=$POSTGRES_HOST \
+            -e POSTGRES_USER=$POSTGRES_USER \
+            -e POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
+            -e POSTGRES_DB=$POSTGRES_DB \
+            -e DUCKDB_DATA_DIR=$DUCKDB_DATA_DIR \
+            mos-gis-tests

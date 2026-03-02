@@ -1,0 +1,65 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/vector-api/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "feat"
+
+  - package-ecosystem: "docker"
+    directory: "/vector-api/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "pip"
+    directory: "/mos-pygeoapi/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "feat"
+
+  - package-ecosystem: "pip"
+    directory: "/gis-pipeline/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "feat"
+
+  - package-ecosystem: "pip"
+    directory: "/stac-api/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "feat"
+
+  - package-ecosystem: "docker"
+    directory: "/raster-api/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/frontend/stac-browser/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore"

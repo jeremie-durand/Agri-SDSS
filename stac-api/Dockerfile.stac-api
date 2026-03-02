@@ -1,0 +1,46 @@
+FROM python:3.11-slim
+
+# Set non-interactive mode for apt-get
+ENV DEBIAN_FRONTEND=noninteractive
+
+# STAC API specific environment variables
+ENV PROJ_NETWORK=OFF
+ENV PYTHONPATH=/app
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV HOST=0.0.0.0
+ENV STAC_API_PORT=8081
+ENV CORS_ORIGINS=*
+ENV WEB_CONCURRENCY=10
+ENV PYTHONUNBUFFERED=1
+
+# Set the working directory
+WORKDIR /app
+
+# Copy wait-for-it and entrypoint scripts
+COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
+COPY stac-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN mkdir -p /app/scripts && chmod +x /usr/local/bin/wait-for-it.sh /usr/local/bin/entrypoint.sh
+
+# Copy requirements
+ENV PROJ_DIR=/usr
+COPY stac-api/requirements-stac-api.txt ./requirements-stac-api.txt
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    libgeos-dev \
+    libproj-dev \
+    curl \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/* && \
+    pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir numpy>=2.0 psycopg[binary] uvicorn fastapi && \
+    pip install --no-cache-dir -r requirements-stac-api.txt && \
+    rm requirements-stac-api.txt && \
+    mkdir -p /app/data
+
+# Expose the port FastAPI will run on
+EXPOSE ${STAC_API_PORT}
+
+# API entrypoint
+CMD ["/usr/local/bin/entrypoint.sh"]

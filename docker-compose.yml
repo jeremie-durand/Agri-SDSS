@@ -9,16 +9,14 @@ services:
     environment:
       - FRONTEND_PORT=${FRONTEND_PORT}
     depends_on:
-      - stac-fastapi
+      - stac-api
       - raster-api
       - database
-
-  stac-fastapi:
+    
+  gis-pipeline:
     build:
       context: .
-      dockerfile: stac-fastapi/Dockerfile.stac-fastapi
-    ports:
-      - "${STAC_API_PORT}:8080"
+      dockerfile: gis-pipeline/Dockerfile.gis-pipeline
     environment:
       # PostgreSQL
       - POSTGRES_USER=${POSTGRES_USER}
@@ -46,11 +44,46 @@ services:
       - ./data/input:/data/input
       - ./data/duckdb:/data/duckdb
       - ./data/duckdb/duckdb_extensions:/app/duckdb_extensions
+      - ./gis-pipeline/logs:/gis-pipeline/logs
       - ./test:/app/test
-      - ./stac-fastapi/pipeline:/app/pipeline
-      - ./stac-fastapi/config.yaml:/app/config.yaml
+      - ./gis-pipeline/src/gis_pipeline:/app/gis_pipeline
+      - ./gis-pipeline/config.yaml:/app/config.yaml
+      - ./gis-pipeline/docs:/app/docs
     depends_on:
       - database
+
+  stac-api:
+    build:
+      context: .
+      dockerfile: stac-api/Dockerfile.stac-api
+    ports:
+      - "${STAC_API_PORT}:8080"
+    environment:
+      # PostgreSQL
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASS=${POSTGRES_PASS}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_HOST_READER=${POSTGRES_HOST}
+      - POSTGRES_HOST_WRITER=${POSTGRES_HOST}
+      - POSTGRES_USER_READER=${POSTGRES_USER}
+      - POSTGRES_USER_WRITER=${POSTGRES_USER}
+      - POSTGRES_PASS_READER=${POSTGRES_PASS}
+      - POSTGRES_PASS_WRITER=${POSTGRES_PASS}
+      - POSTGRES_DBNAME_READER=${POSTGRES_DBNAME}
+      - POSTGRES_DBNAME_WRITER=${POSTGRES_DBNAME}
+      - POSTGRES_PORT_READER=${POSTGRES_PORT}
+      - POSTGRES_PORT_WRITER=${POSTGRES_PORT}
+      # API
+      - STAC_API_URL=${STAC_API_URL}
+      - PYGEOAPI_API_URL=${PYGEOAPI_API_URL}
+      - STAC_API_PORT=${STAC_API_PORT}
+    working_dir: /app
+    depends_on:
+      - database
+    stdin_open: true
+    tty: true
 
   raster-api:
     build:
@@ -83,19 +116,46 @@ services:
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
       - VECTOR_API_PORT=${VECTOR_API_PORT}
+      - TIPG_FALLBACK_KEY_NAMES=["gid"]
+      - DUCKDB_DATA_DIR=/data/duckdb
+      - VECTOR_API_CORS_ORIGINS=${VECTOR_API_CORS_ORIGINS:-}
+    volumes:
+      - ./data/duckdb:/data/duckdb
     depends_on:
       - database
 
-  pygeoapi:
+  mos-pygeoapi:
     build:
-      context: ./pygeoapi
-      dockerfile: Dockerfile.pygeoapi
+      context: ./mos-pygeoapi
+      dockerfile: Dockerfile.mos-pygeoapi
     ports:
       - "${PYGEOAPI_API_PORT}:5000"
     environment:
       - PYGEOAPI_CONFIG=/app/config/pygeoapi-config.yaml
       - PYGEOAPI_OPENAPI=/app/openapi/openapi.yaml
       - PYGEOAPI_API_PORT=${PYGEOAPI_API_PORT}
+      # PostgreSQL
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASS=${POSTGRES_PASS}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      # OpenEO Authentication
+      - OPENEO_CONFIG_HOME=/app/config/openeo-config
+      # OPENEO_REFRESH_TOKEN: Fallback method
+      - OPENEO_REFRESH_TOKEN=${OPENEO_REFRESH_TOKEN}
+      # Farm Data Configuration
+      - FARM_TABLE_NAME=${FARM_TABLE_NAME}
+      - FARM_GEOMETRY_COLUMN=${FARM_GEOMETRY_COLUMN}
+      - FARM_ID_COLUMN=${FARM_ID_COLUMN}
+      # API
+      - RASTER_API_PORT=${RASTER_API_PORT}
+      - STAC_API_URL=${STAC_API_URL}
+    volumes:
+      - ./data/output/raster_cog:/data
+      - ./mos-pygeoapi/config/openeo-config:/app/config/openeo-config
+    depends_on:
+      - database
 
   database:
     image: ghcr.io/stac-utils/pgstac:v0.8.5
@@ -114,6 +174,24 @@ services:
       - ./scripts/001_create_postgres_role.sql:/docker-entrypoint-initdb.d/001_create_postgres_role.sql
       - ./data/demo/init_demo_bdppad_2024_4326_sample_STAC.sql:/docker-entrypoint-initdb.d/init_demo_bdppad_2024_4326_sample_STAC.sql
       - ./data/demo/init_demo_sud_du_quebec_4326.sql:/docker-entrypoint-initdb.d/init_demo_sud_du_quebec_4326.sql
+
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    working_dir: /workspace
+    environment:
+      PYTHONPATH: /workspace
+    volumes:
+      - .:/workspace
+    profiles:
+      - manual
+    depends_on:
+      - stac-api
+      - gis-pipeline
+      - vector-api
+      - raster-api
+      - mos-pygeoapi
 
 networks:
   default:
