@@ -20,7 +20,7 @@ importlib_resources==6.4.5
 numpy==2.4.2
 packaging==25.0
 pandas==3.0.1
-psycopg[binary]==3.2.10
+psycopg[binary]==3.3.3
 pyarrow==23.0.1
 pydantic==2.11.9
 pydantic_core==2.33.2
