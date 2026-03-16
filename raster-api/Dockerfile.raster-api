@@ -1,5 +1,5 @@
 # Official TiTiler image
-FROM ghcr.io/developmentseed/titiler:1.2.0
+FROM ghcr.io/developmentseed/titiler:2.0.0
 
 # Set environment variables
 ENV RASTER_API_PORT=8082
