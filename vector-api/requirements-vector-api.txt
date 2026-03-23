@@ -1,6 +1,6 @@
 # Vector API - Additional dependencies for Parquet/GeoParquet support
 # Base TiPg dependencies are included in the base image
-duckdb==1.4.4
+duckdb==1.5.1
 pyarrow==23.0.1
 #geopandas 
 #responses
