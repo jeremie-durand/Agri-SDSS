@@ -1,6 +1,6 @@
 # Vector API - Additional dependencies for Parquet/GeoParquet support
 # Base TiPg dependencies are included in the base image
 duckdb==1.4.4
-pyarrow==23.0.1
+pyarrow==24.0.0
 #geopandas 
 #responses
