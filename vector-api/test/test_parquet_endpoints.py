@@ -11,7 +11,7 @@ from unittest.mock import patch
 import geopandas as gpd
 import pytest
 import responses
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Polygon
 
 # Import the modules to test
 try:
@@ -27,33 +27,6 @@ except ImportError:
 # ------------------------------------------
 # Fixtures
 # ------------------------------------------
-@pytest.fixture
-def temp_parquet_dir(tmp_path):
-    """Create a temporary directory for Parquet files."""
-    return tmp_path
-
-
-@pytest.fixture
-def sample_geoparquet(temp_parquet_dir):
-    """Create a sample GeoParquet file for testing."""
-    # Create sample GeoDataFrame
-    data = {
-        "gid": [1, 2, 3],
-        "name": ["Feature A", "Feature B", "Feature C"],
-        "value": [100.5, 200.0, 300.75],
-        "category": ["cat1", "cat2", "cat1"],
-        "geometry": [
-            Point(-73.5, 45.5),
-            Point(-73.6, 45.6),
-            Point(-73.7, 45.7),
-        ],
-    }
-    gdf = gpd.GeoDataFrame(data, crs="EPSG:4326")
-
-    output_path = temp_parquet_dir / "test_collection.parquet"
-    gdf.to_parquet(output_path)
-
-    return output_path
 
 
 @pytest.fixture
@@ -95,6 +68,8 @@ def duckdb_manager(temp_parquet_dir, sample_geoparquet):
 # ------------------------------------------
 class TestDuckDBManager:
     """Tests for DuckDBManager class."""
+
+    pytestmark = pytest.mark.unit
 
     def test_init_extensions(self, duckdb_manager):
         """Test that spatial extension is loaded."""
@@ -242,7 +217,7 @@ class TestDuckDBManager:
 @pytest.fixture
 def parquet_api_url_fixture():
     """Base URL for Parquet API endpoints."""
-    return "http://localhost:8083/parquet"
+    return os.getenv("VECTOR_API_URL", "http://localhost:8083") + "/parquet"
 
 
 @pytest.fixture
@@ -453,6 +428,33 @@ def test_mocked_parquet_items_with_bbox(parquet_api_url_fixture):
 
 @pytest.mark.mocked
 @responses.activate
+@pytest.mark.parametrize(
+    "bbox",
+    [
+        "-181,45,-73,46",  # min_lon out of range
+        "-73,45,181,46",  # max_lon out of range
+        "-73,-91,-72,46",  # min_lat out of range
+        "-73,45,-72,91",  # max_lat out of range
+        "-73,45,-74,46",  # min_lon >= max_lon
+        "-73,46,-72,45",  # min_lat >= max_lat
+    ],
+)
+def test_mocked_parquet_items_invalid_bbox(parquet_api_url_fixture, bbox):
+    """Test that invalid bbox coordinates return 400."""
+    collection_id = "couverture_pedo_2022"
+    url = f"{parquet_api_url_fixture}/collections/{collection_id}/items?bbox={bbox}"
+    responses.add(
+        responses.GET, url, json={"detail": "Invalid bbox format"}, status=400
+    )
+
+    import requests
+
+    resp = requests.get(url)
+    assert resp.status_code == 400
+
+
+@pytest.mark.mocked
+@responses.activate
 def test_mocked_parquet_items_pagination(parquet_api_url_fixture):
     """Test items endpoint with pagination parameters."""
     collection_id = "couverture_pedo_2022"
@@ -513,3 +515,389 @@ def test_mocked_parquet_queryables(parquet_api_url_fixture):
     assert resp.status_code == 200
     data = resp.json()
     assert "properties" in data
+
+
+@pytest.mark.mocked
+@responses.activate
+def test_mocked_parquet_openapi_json(parquet_api_url_fixture):
+    """Test GET /parquet/openapi.json returns a valid OpenAPI schema."""
+    base = os.getenv("VECTOR_API_URL", "http://localhost:8083")
+    url = f"{base}/parquet/openapi.json"
+
+    response_data = {
+        "openapi": "3.1.0",
+        "info": {
+            "title": "Parquet Collections API",
+            "version": "1.0.0",
+            "description": "OGC API Features style endpoints for GeoParquet files",
+        },
+        "paths": {
+            "/parquet/collections": {},
+            "/parquet/collections/{collection_id}": {},
+            "/parquet/collections/{collection_id}/items": {},
+            "/parquet/collections/{collection_id}/items/{item_id}": {},
+        },
+    }
+    responses.add(responses.GET, url, json=response_data, status=200)
+
+    import requests
+
+    resp = requests.get(url)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "openapi" in data
+    assert "info" in data
+    assert data["info"]["title"] == "Parquet Collections API"
+    assert "paths" in data
+
+
+# ------------------------------------------
+# FastAPI TestClient — HTTP router tests
+# ------------------------------------------
+
+
+@pytest.mark.unit
+def test_list_collections_returns_required_keys(parquet_app_client):
+    """GET /parquet/collections must include collections, numberMatched, and links."""
+    resp = parquet_app_client.get("/parquet/collections")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "collections" in body
+    assert "numberMatched" in body
+    assert "links" in body
+
+
+@pytest.mark.unit
+def test_get_collection_missing_returns_404(parquet_app_client):
+    """GET /parquet/collections/{id} for a non-existent collection returns 404."""
+    resp = parquet_app_client.get("/parquet/collections/does_not_exist")
+    assert resp.status_code == 404
+
+
+@pytest.mark.unit
+def test_get_items_returns_feature_collection(parquet_app_client):
+    """GET /parquet/collections/test_collection/items returns a GeoJSON FeatureCollection."""
+    resp = parquet_app_client.get("/parquet/collections/test_collection/items")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["type"] == "FeatureCollection"
+    assert "features" in body
+
+
+# ------------------------------------------
+# Response body structure validation
+# ------------------------------------------
+
+
+@pytest.mark.mocked
+@responses.activate
+def test_mocked_collections_response_has_pagination_fields(
+    parquet_api_url_fixture, sample_collections_response
+):
+    """GET /parquet/collections response must include OGC pagination metadata."""
+    url = f"{parquet_api_url_fixture}/collections"
+    responses.add(responses.GET, url, json=sample_collections_response, status=200)
+
+    import requests
+
+    data = requests.get(url).json()
+
+    assert "numberMatched" in data, "OGC response must include numberMatched"
+    assert "numberReturned" in data, "OGC response must include numberReturned"
+    assert "links" in data, "OGC response must include links array"
+    assert isinstance(data["links"], list)
+    assert data["numberMatched"] == len(data["collections"])
+
+
+@pytest.mark.mocked
+@responses.activate
+def test_mocked_collections_each_item_has_id_and_links(
+    parquet_api_url_fixture, sample_collections_response
+):
+    """Each collection entry must have 'id' and 'links' fields."""
+    url = f"{parquet_api_url_fixture}/collections"
+    responses.add(responses.GET, url, json=sample_collections_response, status=200)
+
+    import requests
+
+    data = requests.get(url).json()
+
+    for col in data["collections"]:
+        assert "id" in col, f"Collection entry missing 'id': {col}"
+        assert "links" in col, f"Collection entry missing 'links': {col}"
+        assert isinstance(col["links"], list)
+
+
+@pytest.mark.mocked
+@responses.activate
+def test_mocked_collection_detail_has_required_fields(parquet_api_url_fixture):
+    """GET /parquet/collections/{id} must return OGC-required metadata fields."""
+    collection_id = "couverture_pedo_2022"
+    url = f"{parquet_api_url_fixture}/collections/{collection_id}"
+
+    response_data = {
+        "id": collection_id,
+        "title": "Couverture Pedo 2022",
+        "description": "GeoParquet collection with 1000 features",
+        "itemType": "feature",
+        "links": [{"href": url, "rel": "self", "type": "application/json"}],
+        "numberMatched": 1000,
+    }
+    responses.add(responses.GET, url, json=response_data, status=200)
+
+    import requests
+
+    resp = requests.get(url)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == collection_id
+    assert "title" in data
+    assert "description" in data
+    assert data["itemType"] == "feature"
+    assert "links" in data
+    assert isinstance(data["links"], list)
+
+
+@pytest.mark.mocked
+@responses.activate
+def test_mocked_parquet_swagger_ui_html(parquet_api_url_fixture):
+    """Test GET /parquet/api.html returns a Swagger UI HTML page."""
+    base = os.getenv("VECTOR_API_URL", "http://localhost:8083")
+    url = f"{base}/parquet/api.html"
+
+    html_body = """<!DOCTYPE html>
+<html>
+  <head><title>Parquet Collections API</title></head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist/swagger-ui-bundle.js"></script>
+    <script>
+      SwaggerUIBundle({ url: "/parquet/openapi.json", dom_id: "#swagger-ui" });
+    </script>
+  </body>
+</html>"""
+    responses.add(
+        responses.GET,
+        url,
+        body=html_body,
+        status=200,
+        content_type="text/html; charset=utf-8",
+    )
+
+    import requests
+
+    resp = requests.get(url)
+
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["Content-Type"]
+    assert "swagger-ui" in resp.text.lower()
+    assert "/parquet/openapi.json" in resp.text
+
+
+@pytest.mark.mocked
+@responses.activate
+def test_mocked_items_response_features_have_geometry(
+    parquet_api_url_fixture, sample_parquet_feature_collection
+):
+    """Each feature in items response must have a geometry field."""
+    collection_id = "couverture_pedo_2022"
+    url = f"{parquet_api_url_fixture}/collections/{collection_id}/items"
+    responses.add(
+        responses.GET, url, json=sample_parquet_feature_collection, status=200
+    )
+
+    import requests
+
+    data = requests.get(url).json()
+
+    assert data["type"] == "FeatureCollection"
+    for feature in data["features"]:
+        assert feature["type"] == "Feature"
+        assert "geometry" in feature
+        assert "properties" in feature
+
+
+@pytest.mark.mocked
+@responses.activate
+def test_mocked_collection_not_found_returns_detail_field(parquet_api_url_fixture):
+    """404 responses must include a 'detail' field explaining what was not found."""
+    collection_id = "nonexistent_collection"
+    url = f"{parquet_api_url_fixture}/collections/{collection_id}"
+    responses.add(
+        responses.GET,
+        url,
+        json={"detail": f"Collection '{collection_id}' not found"},
+        status=404,
+    )
+
+    import requests
+
+    resp = requests.get(url)
+
+    assert resp.status_code == 404
+    data = resp.json()
+    assert "detail" in data
+    assert collection_id in data["detail"]
+
+
+# ------------------------------------------
+# Error propagation and edge-case tests
+# ------------------------------------------
+
+
+@pytest.fixture
+def corrupt_parquet_dir(temp_parquet_dir, sample_geoparquet):
+    """Temp dir with a valid parquet file plus a corrupt one."""
+    (temp_parquet_dir / "corrupt.parquet").write_bytes(b"not a parquet file at all")
+    return temp_parquet_dir
+
+
+@pytest.fixture
+def corrupt_parquet_client(corrupt_parquet_dir):
+    """FastAPI TestClient with a corrupt parquet file in the data dir."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from vector_api.duckdb_manager import DuckDBManager as _DuckDBManager
+    from vector_api.parquet_router import router
+
+    real_manager = _DuckDBManager(data_dir=str(corrupt_parquet_dir))
+    test_app = FastAPI()
+    test_app.include_router(router)
+
+    with patch(
+        "vector_api.parquet_router.get_shared_manager", return_value=real_manager
+    ):
+        with TestClient(test_app, raise_server_exceptions=False) as client:
+            yield client
+
+    real_manager.conn.close()
+
+
+@pytest.fixture
+def nonspatial_parquet_dir(tmp_path):
+    """Temp dir with a Parquet file that has no geometry column."""
+    import pandas as pd
+
+    df = pd.DataFrame({"gid": [1, 2], "name": ["a", "b"], "value": [10, 20]})
+    df.to_parquet(tmp_path / "nonspatial.parquet", index=False)
+    return tmp_path
+
+
+@pytest.fixture
+def nonspatial_parquet_client(nonspatial_parquet_dir):
+    """FastAPI TestClient pointing at the non-spatial parquet directory."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from vector_api.duckdb_manager import DuckDBManager as _DuckDBManager
+    from vector_api.parquet_router import router
+
+    real_manager = _DuckDBManager(data_dir=str(nonspatial_parquet_dir))
+    test_app = FastAPI()
+    test_app.include_router(router)
+
+    with patch(
+        "vector_api.parquet_router.get_shared_manager", return_value=real_manager
+    ):
+        with TestClient(test_app) as client:
+            yield client
+
+    real_manager.conn.close()
+
+
+@pytest.mark.unit
+def test_corrupt_parquet_items_returns_500(corrupt_parquet_client):
+    """Querying items from a corrupt parquet file returns 500."""
+    resp = corrupt_parquet_client.get("/parquet/collections/corrupt/items")
+    assert resp.status_code == 500
+
+
+@pytest.mark.unit
+def test_invalid_bbox_format_returns_400(parquet_app_client):
+    """bbox with non-numeric values returns 400."""
+    resp = parquet_app_client.get(
+        "/parquet/collections/test_collection/items?bbox=abc,def,ghi,jkl"
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.unit
+def test_bbox_too_few_values_returns_400(parquet_app_client):
+    """bbox with fewer than 4 values returns 400."""
+    resp = parquet_app_client.get(
+        "/parquet/collections/test_collection/items?bbox=1,2,3"
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.unit
+def test_invalid_collection_id_special_chars_returns_400(parquet_app_client):
+    """Collection ID with dots or spaces returns 400."""
+    resp = parquet_app_client.get("/parquet/collections/bad.collection/items")
+    assert resp.status_code == 400
+
+
+@pytest.mark.unit
+def test_spatial_extension_failure_returns_503():
+    """DuckDBSpatialExtensionError from validate_collection_exists propagates as 503."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from vector_api.duckdb_manager import DuckDBSpatialExtensionError
+    from vector_api.parquet_router import router
+
+    test_app = FastAPI()
+    test_app.include_router(router)
+
+    with patch(
+        "vector_api.parquet_router.get_shared_manager",
+        side_effect=DuckDBSpatialExtensionError("spatial extension failed"),
+    ):
+        with TestClient(test_app, raise_server_exceptions=False) as client:
+            resp = client.get("/parquet/collections/any_collection")
+
+    assert resp.status_code == 503
+
+
+@pytest.mark.unit
+def test_nonspatial_parquet_returns_features_with_null_geometry(
+    nonspatial_parquet_client,
+):
+    """A parquet file without a geometry column yields features with geometry=null."""
+    resp = nonspatial_parquet_client.get("/parquet/collections/nonspatial/items")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["type"] == "FeatureCollection"
+    for feature in body["features"]:
+        assert feature["geometry"] is None
+
+
+@pytest.mark.unit
+def test_bbox_no_intersection_returns_empty_features(parquet_app_client):
+    """A bbox that does not overlap the data returns 200 with an empty features list."""
+    # Sample data lives near lon=-73, lat=45; bbox 0,0,1,1 has no overlap.
+    resp = parquet_app_client.get(
+        "/parquet/collections/test_collection/items?bbox=0,0,1,1"
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["type"] == "FeatureCollection"
+    assert body["features"] == []
+
+
+@pytest.mark.unit
+def test_query_items_duckdb_error_returns_500(parquet_app_client):
+    """A DuckDB error raised inside query_items propagates as 500."""
+    from unittest.mock import MagicMock
+
+    import duckdb
+
+    mock_manager = MagicMock()
+    mock_manager.query_items.side_effect = duckdb.Error("simulated DuckDB error")
+
+    with patch(
+        "vector_api.parquet_router.get_duckdb_manager", return_value=mock_manager
+    ):
+        resp = parquet_app_client.get("/parquet/collections/test_collection/items")
+
+    assert resp.status_code == 500

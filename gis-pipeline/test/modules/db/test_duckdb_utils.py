@@ -40,7 +40,7 @@ def gdf_points_fixture_v2():
     """Simple GeoDataFrame with points for testing (version 2 for functions that uses two gdf)."""
     gdf = gpd.GeoDataFrame(
         {
-            "id": [10, 20, 30],
+            "gid": [10, 20, 30],
             "name": ["A", "B", "C"],
             "geometry": gpd.points_from_xy([10, 20, 30], [10, 20, 30]),
         },
@@ -63,7 +63,7 @@ def patch_data_dir(tmp_path, monkeypatch):
 
 def test_save_df_to_parquet_success(tmp_path):
     """Test successful saving of a simple DataFrame to Parquet."""
-    df = pd.DataFrame({"id": [1, 2], "name": ["a", "b"]})
+    df = pd.DataFrame({"gid": [1, 2], "name": ["a", "b"]})
     output_name = "success_test"
 
     DuckDBManager.save_df_to_parquet(df=df, output_file_name=output_name)
@@ -72,7 +72,7 @@ def test_save_df_to_parquet_success(tmp_path):
     assert expected.exists()
     # verify readable and content preserved
     df_read = pd.read_parquet(expected)
-    assert list(df_read["id"]) == [1, 2]
+    assert list(df_read["gid"]) == [1, 2]
     assert list(df_read["name"]) == ["a", "b"]
 
 
@@ -188,7 +188,7 @@ def test_save_gdf_to_geoparquet_simple_success(
     # Verify file can be read back
     gdf_read = gpd.read_parquet(expected_path)
     assert len(gdf_read) == 2
-    assert list(gdf_read["id"]) == [1, 2]
+    assert list(gdf_read["gid"]) == [1, 2]
     assert list(gdf_read["name"]) == ["Feature1", "Feature2"]
 
 
@@ -241,7 +241,208 @@ def test_save_gdf_to_geoparquet_overwrites_existing_file(
     # Verify content is from the new GeoDataFrame
     gdf_read = gpd.read_parquet(expected_path)
     assert len(gdf_read) == 3
-    assert list(gdf_read["id"]) == [10, 20, 30]
+    assert list(gdf_read["gid"]) == [10, 20, 30]
+
+
+# ------------------------------------------
+# Test cases for save_gdf_to_geoparquet() column normalization
+# ------------------------------------------
+def test_save_gdf_to_geoparquet_renames_id_to_gid(tmp_path, monkeypatch):
+    """Test that id column is renamed to gid during export."""
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+
+    # Create GeoDataFrame with 'id' column
+    gdf = gpd.GeoDataFrame(
+        {
+            "id": [100, 200],
+            "name": ["LocationA", "LocationB"],
+            "geometry": gpd.points_from_xy([5, 10], [5, 10]),
+        },
+        crs="EPSG:4326",
+    )
+
+    output_file_name = "test_id_rename"
+    DuckDBManager.save_gdf_to_geoparquet(gdf=gdf, output_file_name=output_file_name)
+
+    # Verify file was created and id was renamed to gid
+    expected_path = tmp_path / f"{output_file_name}.parquet"
+    assert expected_path.exists()
+
+    gdf_read = gpd.read_parquet(expected_path)
+    assert "gid" in gdf_read.columns
+    assert "id" not in gdf_read.columns
+    assert list(gdf_read["gid"]) == [100, 200]
+
+
+def test_save_gdf_to_geoparquet_renames_station_id_to_gid(tmp_path, monkeypatch):
+    """Test that station_id column is renamed to gid during export."""
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+
+    # Create GeoDataFrame with 'station_id' column
+    gdf = gpd.GeoDataFrame(
+        {
+            "station_id": [5, 6, 7],
+            "measurement": [12.5, 13.1, 14.2],
+            "geometry": gpd.points_from_xy([1, 2, 3], [1, 2, 3]),
+        },
+        crs="EPSG:4326",
+    )
+
+    output_file_name = "test_station_id_rename"
+    DuckDBManager.save_gdf_to_geoparquet(gdf=gdf, output_file_name=output_file_name)
+
+    # Verify file was created and station_id was renamed to gid
+    expected_path = tmp_path / f"{output_file_name}.parquet"
+    assert expected_path.exists()
+
+    gdf_read = gpd.read_parquet(expected_path)
+    assert "gid" in gdf_read.columns
+    assert "station_id" not in gdf_read.columns
+    assert list(gdf_read["gid"]) == [5, 6, 7]
+
+
+def test_save_gdf_to_geoparquet_preserves_existing_gid(tmp_path, monkeypatch):
+    """Test that existing gid column is preserved (no renaming)."""
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+
+    # Create GeoDataFrame with 'gid' column already
+    gdf = gpd.GeoDataFrame(
+        {
+            "gid": [50, 51],
+            "category": ["A", "B"],
+            "geometry": gpd.points_from_xy([0, 1], [0, 1]),
+        },
+        crs="EPSG:4326",
+    )
+
+    output_file_name = "test_gid_preserved"
+    DuckDBManager.save_gdf_to_geoparquet(gdf=gdf, output_file_name=output_file_name)
+
+    # Verify file was created and gid remains unchanged
+    expected_path = tmp_path / f"{output_file_name}.parquet"
+    assert expected_path.exists()
+
+    gdf_read = gpd.read_parquet(expected_path)
+    assert "gid" in gdf_read.columns
+    assert list(gdf_read["gid"]) == [50, 51]
+
+
+def test_save_gdf_to_geoparquet_original_gdf_unmodified(tmp_path, monkeypatch):
+    """Test that original GeoDataFrame is not modified during export."""
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+
+    # Create GeoDataFrame with 'id' column
+    gdf = gpd.GeoDataFrame(
+        {
+            "id": [9, 10],
+            "value": [100, 200],
+            "geometry": gpd.points_from_xy([2, 3], [2, 3]),
+        },
+        crs="EPSG:4326",
+    )
+
+    # Save original column names
+    original_columns = list(gdf.columns)
+
+    output_file_name = "test_original_unmodified"
+    DuckDBManager.save_gdf_to_geoparquet(gdf=gdf, output_file_name=output_file_name)
+
+    # Verify original GeoDataFrame is unmodified
+    assert list(gdf.columns) == original_columns
+    assert "id" in gdf.columns
+    assert "gid" not in gdf.columns
+
+
+def test_save_gdf_to_geoparquet_column_rename_logged(tmp_path, monkeypatch):
+    """Test that column renaming is logged at INFO level."""
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+
+    gdf = gpd.GeoDataFrame(
+        {
+            "id": [1, 2],
+            "name": ["X", "Y"],
+            "geometry": gpd.points_from_xy([0, 1], [0, 1]),
+        },
+        crs="EPSG:4326",
+    )
+
+    with patch("gis_pipeline.modules.db.duckdb_utils.logger") as mock_logger:
+        DuckDBManager.save_gdf_to_geoparquet(gdf=gdf, output_file_name="test_logging")
+
+    logged = [call.args[0] for call in mock_logger.info.call_args_list if call.args]
+    assert any("Renamed column 'id' to 'gid'" in msg for msg in logged)
+
+
+def test_save_gdf_to_geoparquet_multiple_id_columns_conflicting_values(
+    tmp_path, monkeypatch
+):
+    """Test that a ValueError is raised when two ID-alias columns map to the same
+    canonical name but contain different values."""
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+
+    # id=[1,2] will be renamed to gid first; then station_id=[100,200] conflicts
+    gdf = gpd.GeoDataFrame(
+        {
+            "id": [1, 2],
+            "station_id": [100, 200],  # different values → conflict
+            "name": ["A", "B"],
+            "geometry": gpd.points_from_xy([0, 1], [0, 1]),
+        },
+        crs="EPSG:4326",
+    )
+
+    with pytest.raises(ValueError, match="Column conflict"):
+        DuckDBManager.save_gdf_to_geoparquet(
+            gdf=gdf, output_file_name="test_multiple_ids_conflict"
+        )
+
+
+def test_save_gdf_to_geoparquet_multiple_id_columns_identical_values(
+    tmp_path, monkeypatch
+):
+    """Test that a redundant alias column is silently dropped when its values are
+    identical to the canonical column that was already renamed from another alias."""
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+
+    # id=[1,2] will be renamed to gid; station_id=[1,2] is identical → dropped
+    gdf = gpd.GeoDataFrame(
+        {
+            "id": [1, 2],
+            "station_id": [1, 2],  # same values as id → redundant
+            "name": ["A", "B"],
+            "geometry": gpd.points_from_xy([0, 1], [0, 1]),
+        },
+        crs="EPSG:4326",
+    )
+
+    output_file_name = "test_multiple_ids_identical"
+    with patch("gis_pipeline.modules.db.duckdb_utils.logger") as mock_logger:
+        DuckDBManager.save_gdf_to_geoparquet(gdf=gdf, output_file_name=output_file_name)
+
+    expected_path = tmp_path / f"{output_file_name}.parquet"
+    assert expected_path.exists()
+
+    gdf_read = gpd.read_parquet(expected_path)
+    assert "gid" in gdf_read.columns
+    assert "id" not in gdf_read.columns
+    assert "station_id" not in gdf_read.columns  # dropped as redundant
+    assert list(gdf_read["gid"]) == [1, 2]
+    logged = [call.args[0] for call in mock_logger.info.call_args_list if call.args]
+    assert any("Dropped redundant alias" in msg for msg in logged)
 
 
 # ------------------------------------------
@@ -270,7 +471,7 @@ def test_save_table_to_geoparquet_simple_success(duckdb_manager):
 
     gdf_read = gpd.read_parquet(saved_path)
     assert gdf_read.shape == (2, 3)
-    assert list(gdf_read.columns) == ["id", "name", "geometry"]
+    assert list(gdf_read.columns) == ["gid", "name", "geometry"]
 
 
 def test_save_table_to_geoparquet_nonexistent_table(duckdb_manager):
@@ -332,8 +533,9 @@ def test_save_table_to_geoparquet_with_various_data_types(duckdb_manager):
 
     # Verify data integrity
     result_path = Path(result_path)
+    # Note: 'id' column is renamed to 'gid' during Parquet export
     verification_result = manager.conn.execute(
-        f"SELECT * FROM '{str(result_path)}' ORDER BY id"
+        f"SELECT * FROM '{str(result_path)}' ORDER BY gid"
     ).fetchall()
     assert len(verification_result) == 2
 
@@ -565,9 +767,146 @@ def test_save_table_to_geoparquet_table_with_complex_sql_query(duckdb_manager):
     ).fetchall()
     column_names = [row[0] for row in columns_result]
 
-    assert "id" in column_names
+    assert "gid" in column_names
     assert "quantity" in column_names
     assert "price" in column_names
+
+
+def test_save_table_to_geoparquet_raises_when_alias_and_canonical_differ(
+    duckdb_manager,
+):
+    """Test that a ValueError is raised when both alias and canonical columns exist
+    with different values — the pipeline cannot determine the authoritative source."""
+    table_name = "table_with_id_and_gid_conflicting"
+
+    duckdb_manager.conn.execute("""
+        CREATE TABLE table_with_id_and_gid_conflicting (
+            id INTEGER,
+            gid INTEGER,
+            name VARCHAR
+        )
+    """)
+    duckdb_manager.conn.execute("""
+        INSERT INTO table_with_id_and_gid_conflicting VALUES
+        (1, 10, 'alpha'),
+        (2, 20, 'beta')
+    """)
+
+    with pytest.raises(ValueError, match="Column conflict"):
+        duckdb_manager.save_table_to_geoparquet(table_name=table_name)
+
+
+def test_save_table_to_geoparquet_drops_alias_when_identical_to_canonical(
+    duckdb_manager,
+):
+    """Test that a redundant alias column is dropped (not duplicated) when its values
+    are identical to the canonical column already present in the table."""
+    table_name = "table_with_id_and_gid_identical"
+
+    duckdb_manager.conn.execute("""
+        CREATE TABLE table_with_id_and_gid_identical (
+            id INTEGER,
+            gid INTEGER,
+            name VARCHAR
+        )
+    """)
+    duckdb_manager.conn.execute("""
+        INSERT INTO table_with_id_and_gid_identical VALUES
+        (10, 10, 'alpha'),
+        (20, 20, 'beta')
+    """)
+
+    with patch("gis_pipeline.modules.db.duckdb_utils.logger") as mock_logger:
+        result_path = duckdb_manager.save_table_to_geoparquet(table_name=table_name)
+
+    assert Path(result_path).exists()
+
+    columns_result = duckdb_manager.conn.execute(
+        f"DESCRIBE SELECT * FROM '{result_path}'"
+    ).fetchall()
+    column_names = [row[0] for row in columns_result]
+
+    assert column_names.count("gid") == 1, "Expected exactly one 'gid' column"
+    assert "id" not in column_names, "Redundant alias 'id' should have been dropped"
+
+    rows = duckdb_manager.conn.execute(
+        f"SELECT gid FROM '{result_path}' ORDER BY gid"
+    ).fetchall()
+    assert [r[0] for r in rows] == [10, 20]
+
+    logged = [call.args[0] for call in mock_logger.info.call_args_list if call.args]
+    assert any("Dropped redundant alias" in msg and "id" in msg for msg in logged)
+
+
+def test_save_table_to_geoparquet_two_aliases_no_explicit_gid_identical(
+    duckdb_manager,
+):
+    """Test: two alias columns (id, station_id) with identical values and no explicit gid.
+    First alias is renamed to gid, second is dropped as redundant.
+    """
+    table_name = "table_two_aliases_identical"
+
+    duckdb_manager.conn.execute("""
+        CREATE TABLE table_two_aliases_identical (
+            id INTEGER,
+            station_id INTEGER,
+            name VARCHAR
+        )
+    """)
+    duckdb_manager.conn.execute("""
+        INSERT INTO table_two_aliases_identical VALUES
+        (1, 1, 'alpha'),
+        (2, 2, 'beta')
+    """)
+
+    with patch("gis_pipeline.modules.db.duckdb_utils.logger") as mock_logger:
+        result_path = duckdb_manager.save_table_to_geoparquet(table_name=table_name)
+
+    assert Path(result_path).exists()
+
+    column_names = [
+        row[0]
+        for row in duckdb_manager.conn.execute(
+            f"DESCRIBE SELECT * FROM '{result_path}'"
+        ).fetchall()
+    ]
+
+    assert column_names.count("gid") == 1, "Expected exactly one 'gid' column"
+    assert "id" not in column_names
+    assert "station_id" not in column_names
+
+    rows = duckdb_manager.conn.execute(
+        f"SELECT gid FROM '{result_path}' ORDER BY gid"
+    ).fetchall()
+    assert [r[0] for r in rows] == [1, 2]
+
+    logged = [call.args[0] for call in mock_logger.info.call_args_list if call.args]
+    assert any("Dropped redundant alias" in msg for msg in logged)
+
+
+def test_save_table_to_geoparquet_two_aliases_no_explicit_gid_conflicting(
+    duckdb_manager,
+):
+    """Test: two alias columns (id, station_id) with different values and no explicit gid.
+    First alias is renamed to gid, second triggers a ValueError.
+    """
+    table_name = "table_two_aliases_conflicting"
+
+    duckdb_manager.conn.execute("""
+        CREATE TABLE table_two_aliases_conflicting (
+            id INTEGER,
+            station_id INTEGER,
+            name VARCHAR
+        )
+    """)
+    duckdb_manager.conn.execute("""
+        INSERT INTO table_two_aliases_conflicting VALUES
+        (1, 10, 'alpha'),
+        (2, 20, 'beta')
+    """)
+
+    with pytest.raises(ValueError, match="Column conflict"):
+        duckdb_manager.save_table_to_geoparquet(table_name=table_name)
 
 
 # ------------------------------------------
@@ -702,11 +1041,15 @@ def test_check_data_error_handling_closed_connection():
 
 
 def test_check_data_error_handling_invalid_connection():
-    """Test check_data handles database errors gracefully."""
-    # This test might be tricky to implement as DuckDB is quite robust
-    # We can test with a corrupted connection state if possible
-    # For now, this is a placeholder for edge case testing
-    pass
+    """Test check_data raises RuntimeError when the connection is closed."""
+    conn = duckdb.connect(":memory:")
+    manager = DuckDBManager(conn=conn)
+    conn.close()
+
+    with pytest.raises(
+        RuntimeError, match="Database connection error while checking data"
+    ):
+        manager.check_data()
 
 
 def test_check_data_large_number_of_tables(duckdb_manager):
@@ -1135,3 +1478,74 @@ def test_get_centroids_empty_list_input(duckdb_manager):
 
     assert isinstance(result, dict)
     assert len(result) == 0
+
+
+# ------------------------------------------
+# _normalize_parquet_value edge cases
+# ------------------------------------------
+
+
+@pytest.mark.unit
+def test_normalize_parquet_value_list_unknown_to_mapping_returns_none():
+    """A list not in the null-value mapping uses the tuple fallback and returns None.
+
+    Documents that the except clause is intentional for TypeError only —
+    unhashable types (list) are converted to tuple for the dict lookup.
+    """
+    result = DuckDBManager._normalize_parquet_value([1, 2, 3])
+    assert result is None
+
+
+@pytest.mark.unit
+def test_normalize_parquet_value_nested_list_returns_none():
+    """A nested list (unhashable even as a tuple) falls through to None with a log."""
+    # [[1,2],[3,4]] → outer TypeError → tuple(x) = ([1,2],[3,4]) → inner TypeError (lists unhashable)
+    result = DuckDBManager._normalize_parquet_value([[1, 2], [3, 4]])
+    assert result is None
+
+
+@pytest.mark.unit
+def test_normalize_parquet_value_dict_returned_as_is_when_non_empty():
+    """Non-empty dicts are returned unchanged (they are not null-value candidates)."""
+    d = {"key": "value"}
+    result = DuckDBManager._normalize_parquet_value(d)
+    assert result == d
+
+
+@pytest.mark.unit
+def test_normalize_parquet_value_empty_dict_returns_na_none():
+    """Empty dict signals missing metadata — mapped to {'NA': None}."""
+    result = DuckDBManager._normalize_parquet_value({})
+    assert result == {"NA": None}
+
+
+@pytest.mark.unit
+def test_normalize_parquet_value_numpy_float32_returns_none():
+    """numpy.float32 scalar is hashable but not in the null-value mapping → returns None."""
+    import numpy as np
+
+    result = DuckDBManager._normalize_parquet_value(np.float32(3.14))
+    assert result is None
+
+
+@pytest.mark.unit
+def test_normalize_parquet_value_numpy_int64_returns_none():
+    """numpy.int64 scalar is hashable but not in the null-value mapping → returns None."""
+    import numpy as np
+
+    result = DuckDBManager._normalize_parquet_value(np.int64(42))
+    assert result is None
+
+
+@pytest.mark.unit
+def test_save_gdf_to_geoparquet_empty_gdf_raises_value_error(tmp_path, monkeypatch):
+    """Passing an empty GeoDataFrame to save_gdf_to_geoparquet must raise ValueError."""
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+    empty_gdf = gpd.GeoDataFrame()
+
+    with pytest.raises(ValueError):
+        DuckDBManager.save_gdf_to_geoparquet(
+            gdf=empty_gdf, output_file_name="empty_test"
+        )

@@ -1,15 +1,19 @@
-import hashlib
-import re
+import glob
 import subprocess
 import time
+import unicodedata
 from pathlib import Path
 
+import duckdb
 import fiona
 import geopandas as gpd
 import pandas as pd
 import rasterio
+import structlog
 from gis_pipeline.core.config import Config
-from gis_pipeline.core.logging_setup import handle_error, setup_logging
+from gis_pipeline.core.exceptions import RasterProcessingError, VectorProcessingError
+from gis_pipeline.core.logging_setup import handle_error
+from gis_pipeline.core.utils import harmonize_name
 from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
 from gis_pipeline.modules.db.pg_utils import PostGISManager
 from gis_pipeline.modules.io_tools.input_data import read_csv_file
@@ -23,10 +27,11 @@ from gis_pipeline.services.mapping import (
     ColumnMappings,
     CSVDataRegistryForSourceCRS,
     NamingPatterns,
+    QGISInternalLayers,
 )
 from gis_pipeline.utils import add_process_to_logger
 
-logger = setup_logging()
+logger = structlog.get_logger()
 
 
 class GeoprocessingVector:
@@ -39,6 +44,14 @@ class GeoprocessingVector:
         self.gdf = gdf
         self.target_crs = target_crs
         self.collection_id = collection_id
+
+    @staticmethod
+    def _harmonize_name_gdf(name: str) -> str:
+        return harmonize_name(
+            name,
+            NamingPatterns.PATTERN_GDF_NAME.value,
+            Config.POSTGRES_MAX_NAME_LENGTH,
+        )
 
     def _find_overlapping_polygons(self, geometry_column: str) -> list[tuple[int, int]]:
         """Find overlapping polygons in a GeoDataFrame.
@@ -80,57 +93,17 @@ class GeoprocessingVector:
 
         return overlaps
 
-    @staticmethod
-    def _reduce_name_length(
-        name: str, max_len: int = Config.POSTGRES_MAX_NAME_LENGTH
-    ) -> str:
-        """Reduce the length of a name to fit within the maximum allowed length.
-
-        Args:
-            name: The original name.
-            max_len: The maximum allowed length.
-
-        Returns:
-            The reduced name.
-        """
-        h = hashlib.md5(name.encode()).hexdigest()[: Config.HASH_HEX_LENGTH]
-        name = f"{name[:max_len-Config.HASH_SUFFIX_LENGTH]}_{h}"
-
-        return name
-
-    @staticmethod
-    def _harmonize_name_gdf(
-        name: str, max_len: int = Config.POSTGRES_MAX_NAME_LENGTH
-    ) -> str:
-        """
-        Harmonize a gdf name to be compatible with database naming conventions.
-
-        Args:
-            name: Original gdf name.
-            max_len: Maximum length for the name.
-
-        Returns:
-            A harmonized gdf name.
-        """
-        if name.strip() == "":
-            error_msg = f"Name must not be empty or whitespace. Received: '{name}'"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
-        clean_name = re.sub(
-            NamingPatterns.PATTERN_GDF_NAME.value, "_", name.lower()
-        ).strip("_")
-
-        if len(clean_name) > max_len:
-            clean_name = GeoprocessingVector._reduce_name_length(
-                name=clean_name, max_len=max_len
-            )
-
-        return clean_name
-
     def _rename_gdf_columns(self):
-        """Rename GeoDataFrame columns based on ColumnMappings."""
+        """
+        This function normalizes column names to lowercase, replaces spaces and hyphens with underscores,
+        and applies specific renaming based on the ColumnMappings enumeration.
+        """
         logger.info("Renaming GeoDataFrame columns based on ColumnMappings...")
 
+        self.gdf.columns = [
+            unicodedata.normalize("NFKD", col).encode("ascii", "ignore").decode("ascii")
+            for col in self.gdf.columns
+        ]
         self.gdf.columns = self.gdf.columns.str.lower()
         self.gdf.columns = self.gdf.columns.str.replace(" ", "_", regex=False)
         self.gdf.columns = self.gdf.columns.str.replace("-", "_", regex=False)
@@ -151,9 +124,20 @@ class GeoprocessingVector:
 
         if rename_map:
             self.gdf = self.gdf.rename(columns=rename_map)
+            # Log each column rename with emphasis on ID columns
+            for old_col, new_col in rename_map.items():
+                if new_col == "gid":
+                    logger.info(
+                        f"Automatically renamed ID column '{old_col}' to '{new_col}'"
+                    )
+                else:
+                    logger.debug(f"Renamed column '{old_col}' to '{new_col}'")
 
     def _handle_null_values_in_attributes(self):
-        """Handle null values in GeoDataFrame attributes based on AttributeNullValues."""
+        """
+        Handle null values in GeoDataFrame attributes based on AttributeNullValues.
+        This function replaces any values in the GeoDataFrame that match the defined null value representations with actual nulls (None).
+        """
         mapping: dict = {}
         for member in AttributeNullValues:
             value = member.value
@@ -338,9 +322,8 @@ class GeoprocessingVector:
         """Clean geometries in a GeoDataFrame.
 
         Args:
-            fix_invalid: Whether to fix invalid geometries.
-            check_overlaps: Whether to check for overlapping polygons.
-            geometry_column: Name of the geometry column in the GeoDataFrame.
+            is_fix_invalid: Whether to attempt to fix invalid geometries. Default is True.
+            is_check_overlaps: Whether to check for overlapping polygons. Default is False.
 
 
         Notes:
@@ -404,6 +387,15 @@ class GeoprocessingVector:
             self.gdf = self.gdf.to_crs(self.target_crs)
 
     @staticmethod
+    def _harmonize_name_gdf(name: str) -> str:
+        """Return a harmonized, Postgres-compatible name for a GeoDataFrame table."""
+        return harmonize_name(
+            name,
+            NamingPatterns.PATTERN_GDF_NAME.value,
+            Config.POSTGRES_MAX_NAME_LENGTH,
+        )
+
+    @staticmethod
     def convert_vector_files_to_gdf(vector_files: list[Path]) -> list[gpd.GeoDataFrame]:
         """Convert a list of vector file paths to multiple GeoDataFrames.
 
@@ -415,49 +407,210 @@ class GeoprocessingVector:
         """
         logger.info(f"Converting {len(vector_files)} vector files to GeoDataFrame...")
 
-        vector_data_gdf_list = []
-        for vector_file in vector_files:
-            if not vector_file.exists():
-                error_msg = f"Vector file does not exist: {vector_file}"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+        try:
+            vector_data_gdf_list = []
+            for vector_file in vector_files:
+                with structlog.contextvars.bound_contextvars(file=vector_file.name):
+                    if not vector_file.exists():
+                        error_msg = f"Vector file does not exist: {vector_file}"
+                        handle_error(
+                            logger=logger, error_msg=error_msg, exc_class=ValueError
+                        )
 
-            try:
-                if vector_file.suffix.lower() == ".csv":
-                    # Special CSV file reading
-                    gdf = GeoprocessingVector._read_csv_as_gdf(vector_file)
-                    gdf_name = vector_file.stem
-                    clean_name = GeoprocessingVector._harmonize_name_gdf(name=gdf_name)
-
-                    vector_data_gdf_list.append((clean_name, gdf))
-
-                else:
-                    # Standard vector file reading
-                    layers = fiona.listlayers(vector_file)
-                    for layer in layers:
-                        gdf = gpd.read_file(vector_file, layer=layer)
-                        if len(layers) == 1:
-                            gdf_name = vector_file.stem
-                        else:
-                            gdf_name = f"{vector_file.stem}_{layer.strip()}"
-
+                try:
+                    if vector_file.suffix.lower() == ".csv":
+                        # Special CSV file reading
+                        gdf = GeoprocessingVector._read_csv_as_gdf(vector_file)
+                        gdf_name = vector_file.stem
                         clean_name = GeoprocessingVector._harmonize_name_gdf(
                             name=gdf_name
                         )
 
                         vector_data_gdf_list.append((clean_name, gdf))
-            except Exception as e:
-                logger.warning(
-                    f"Error reading vector file {vector_file}, skipping: {e}"
-                )
-                continue
 
-        return vector_data_gdf_list
+                    else:
+                        layers = fiona.listlayers(vector_file)
+                        for layer in layers:
+                            if layer.lower() in {e.value for e in QGISInternalLayers}:
+                                logger.info(
+                                    f"Skipping QGIS internal layer '{layer}' in {vector_file}"
+                                )
+                                continue
+                            gdf = gpd.read_file(vector_file, layer=layer)
+                            if len(layers) == 1:
+                                gdf_name = vector_file.stem
+                            else:
+                                gdf_name = f"{vector_file.stem}_{layer.strip()}"
+                            clean_name = GeoprocessingVector._harmonize_name_gdf(
+                                name=gdf_name
+                            )
+                            vector_data_gdf_list.append((clean_name, gdf))
+
+                except Exception as e:
+                    logger.warning(
+                        f"Error reading vector file {vector_file}, skipping: {e}"
+                    )
+                    continue
+
+            return vector_data_gdf_list
+        except VectorProcessingError:
+            raise
+        except Exception as e:
+            raise VectorProcessingError(str(e)) from e
+
+
+def _process_spatial_table(
+    table: str,
+    processor: "GeoprocessingVector",
+    override_method: str = "replace",
+    write_parquet: bool = True,
+    gid_offset: int = 0,
+) -> gpd.GeoDataFrame | None:
+    """Validate, harmonize, and persist a spatial table to PostGIS and GeoParquet.
+
+    Args:
+        table: Target table name.
+        processor: Configured GeoprocessingVector instance.
+        override_method: PostGIS insert mode — 'replace' for first/only chunk, 'append' for subsequent chunks.
+        write_parquet: Whether to export GeoParquet via DuckDB. Set False for chunked large layers.
+
+    Returns:
+        Processed GeoDataFrame, or None if the result is empty.
+    """
+    logger.info(
+        f"Loaded GeoDataFrame: {len(processor.gdf)} rows, columns={list(processor.gdf.columns)}"
+    )
+    processor.validate_vector_data()
+    processor.harmonize_gdf()
+    processor.clean_geometries_gdf()
+    processor.harmonize_crs_gdf()
+
+    processed_gdf = processor.gdf
+    logger.info(f"Vector data for table {table} processed successfully.")
+
+    if processed_gdf is None or processed_gdf.empty:
+        logger.warning(
+            "Skipping postgis and parquet export: GeoDataFrame is empty",
+            table=table,
+        )
+        return None
+
+    with PostGISManager() as pg_manager:
+        pg_manager.insert_table_data(
+            gdf=processed_gdf,
+            table_name=table,
+            override_method=override_method,
+            gid_offset=gid_offset,
+        )
+
+    if write_parquet:
+        DuckDBManager.save_gdf_to_geoparquet(gdf=processed_gdf, output_file_name=table)
+    return processed_gdf
+
+
+def _process_non_spatial_table(
+    table: str, processor: "GeoprocessingVector"
+) -> gpd.GeoDataFrame | None:
+    """Rename columns and persist a non-spatial table to PostGIS and Parquet.
+
+    Args:
+        table: Target table name.
+        processor: Configured GeoprocessingVector instance.
+
+    Returns:
+        Processed DataFrame, or None if the result is empty.
+    """
+    processor._rename_gdf_columns()
+    logger.info(f"Non-spatial data for table {table} processed successfully.")
+    processed_gdf = processor.gdf
+
+    if processed_gdf is None or processed_gdf.empty:
+        logger.warning(
+            f"Skipping parquet export because GeoDataFrame is empty for table '{table}'."
+        )
+        return None
+
+    with PostGISManager() as pg_manager:
+        pg_manager.insert_table_data(gdf=processed_gdf, table_name=table)
+
+    DuckDBManager.save_df_to_parquet(df=processed_gdf, output_file_name=table)
+    return processed_gdf
+
+
+GEE_TABLE_NAME = "som_field_boundaries"
+
+
+def get_gee_field_ids(duckdb_data_dir: str) -> set[int]:
+    """Return FIELD_IDs that have GEE Sentinel-2 data from BareSoil parquet files.
+
+    Args:
+        duckdb_data_dir: Directory containing BareSoil_TOPCLI_*.parquet files.
+
+    Returns:
+        Set of FIELD_IDs with GEE data.
+    """
+    parquet_glob = str(Path(duckdb_data_dir) / "BareSoil_TOPCLI_*.parquet")
+    if not glob.glob(parquet_glob):
+        logger.warning("gee_flags_no_parquet", glob=parquet_glob)
+        return set()
+    try:
+        con = duckdb.connect()
+        rows = con.execute(
+            f"SELECT DISTINCT CAST(FIELD_ID AS INTEGER) FROM read_parquet('{parquet_glob}')"
+        ).fetchall()
+        con.close()
+        return {r[0] for r in rows}
+    except Exception as exc:
+        logger.warning("gee_field_ids_query_failed", error=str(exc))
+        return set()
+
+
+def stamp_gee_flags_on_field_boundaries() -> None:
+    """Stamp has_gee_data on som_field_boundaries and refresh its GeoParquet.
+
+    Called once after all vector tables are loaded (end of process_vector_pipeline).
+    Fully non-fatal: any failure is logged as a warning and does not abort the pipeline.
+    """
+    field_ids = get_gee_field_ids(Config.DUCKDB_DATA_DIR)
+    try:
+        with PostGISManager() as pg_manager:
+            pg_manager.stamp_gee_flags(GEE_TABLE_NAME, field_ids)
+    except Exception as exc:
+        logger.warning("gee_stamp_postgis_failed", error=str(exc))
+        return
+    _refresh_gee_geoparquet()
+
+
+def _refresh_gee_geoparquet() -> None:
+    """Overwrite the GeoParquet for som_field_boundaries with the PostGIS version.
+
+    The parquet written during the main pipeline run lacks has_gee_data because
+    the column is added post-insertion. This function reads the updated table back
+    from PostGIS and overwrites the parquet so both stores stay in sync.
+    """
+    parquet_path = Path(Config.DUCKDB_DATA_DIR) / f"{GEE_TABLE_NAME}.parquet"
+    if not parquet_path.exists():
+        return
+    try:
+        with PostGISManager() as pg_manager:
+            gdf = gpd.read_postgis(
+                f'SELECT * FROM "{GEE_TABLE_NAME}"',
+                pg_manager.engine,
+                geom_col="geometry",
+            )
+        DuckDBManager.save_gdf_to_geoparquet(gdf=gdf, output_file_name=GEE_TABLE_NAME)
+        logger.info("gee_parquet_refreshed", rows=len(gdf))
+    except Exception as exc:
+        logger.warning("gee_parquet_refresh_failed", error=str(exc))
 
 
 def geoprocessing_vector_data(
     gdf_list: list[tuple[str, gpd.GeoDataFrame]],
     collection_id: str,
     target_crs: str = Config.GLOBAL_CRS,
+    override_method: str = "replace",
+    write_parquet: bool = True,
+    gid_offset: int = 0,
 ):
     """Process vector data and insert into PostGIS and Vector API.
 
@@ -465,90 +618,80 @@ def geoprocessing_vector_data(
         gdf_list: List of tuples containing table names and GeoDataFrames to process.
         target_crs: Target CRS as an EPSG code (e.g., 4326).
         collection_id: Unique ID for the Vector collection.
+        override_method: PostGIS insert mode — 'replace' for first/only chunk, 'append' for subsequent chunks.
+        write_parquet: Whether to export GeoParquet via DuckDB. Set False for chunked large layers.
+        gid_offset: Added to generated GIDs so chunks have globally unique IDs.
     """
     add_process_to_logger(logger, "Processing Vector Data PostGIS")
 
-    if not gdf_list:
-        error_msg = "gdf_list must be a non-empty list of (table, gdf) tuples."
-        handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+    try:
+        if not gdf_list:
+            error_msg = "gdf_list must be a non-empty list of (table, gdf) tuples."
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
-    logger.info(f"Found {len(gdf_list)} vector tables to process.")
+        logger.info(f"Found {len(gdf_list)} vector tables to process.")
 
-    # Iterate over each table and its corresponding GeoDataFrame
-    for table, gdf in gdf_list:
-        logger.info(f"Processing vector data for table: {table}")
+        for table, gdf in gdf_list:
+            logger.info(f"Processing vector data for table: {table}")
 
-        # Create an instance of GeoprocessingVector
         processor = GeoprocessingVector(
             gdf=gdf,
             target_crs=target_crs,
             collection_id=collection_id,
         )
 
-        geometry_col = set(
+        geometry_cols = set(
             ColumnMappings.GEOMETRY.value.alias
             + [ColumnMappings.GEOMETRY.value.canonical]
         ).intersection(gdf.columns)
 
-        if geometry_col:
+        if geometry_cols:
             logger.info(f"Table {table} is spatial. Processing geometry steps.")
-
-            logger.info(
-                f"Loaded GeoDataFrame: {len(processor.gdf)} rows, columns={list(processor.gdf.columns)}"
-            )
-            processor.validate_vector_data()
-            processor.harmonize_gdf()
-            processor.clean_geometries_gdf()
-            processor.harmonize_crs_gdf()
-
-            # Get the processed GeoDataFrame
-            processed_gdf = processor.gdf
-            logger.info(f"Vector data for table {table} processed successfully.")
-
-            # Check if processed_gdf is empty before proceeding
-            if processed_gdf is None or processed_gdf.empty:
-                logger.warning(
-                    f"Skipping postgis and parquet export because GeoDataFrame is empty for table '{table}'."
+            if (
+                _process_spatial_table(
+                    table,
+                    processor,
+                    override_method=override_method,
+                    write_parquet=write_parquet,
+                    gid_offset=gid_offset,
                 )
+                is None
+            ):
                 return
 
-            # Insert processed GeoDataFrame into PostGIS
-            with PostGISManager() as pg_manager:
-                pg_manager.insert_table_data(
-                    gdf=processed_gdf,
-                    table_name=table,
-                )
-
-            # Insert processed GeoDataFrame into GeoParquet
-            DuckDBManager.save_gdf_to_geoparquet(
-                gdf=processed_gdf, output_file_name=table
-            )
-
         # Fallback non-spatial table handling
-        if not geometry_col:
+        if not geometry_cols:
             logger.warning(
                 f"Table {table} is non-spatial. Skipping geometry processing steps."
             )
-            processor._rename_gdf_columns()
 
-            logger.info(f"Non-spatial data for table {table} processed successfully.")
-            processed_gdf = processor.gdf
+            geometry_cols = set(
+                ColumnMappings.GEOMETRY.value.alias
+                + [ColumnMappings.GEOMETRY.value.canonical]
+            ).intersection(gdf.columns)
 
-            if processed_gdf is None or processed_gdf.empty:
+            if geometry_cols:
+                logger.info(f"Table {table} is spatial. Processing geometry steps.")
+                if (
+                    _process_spatial_table(
+                        table,
+                        processor,
+                        override_method=override_method,
+                        write_parquet=write_parquet,
+                    )
+                    is None
+                ):
+                    return
+            else:
                 logger.warning(
-                    f"Skipping parquet export because GeoDataFrame is empty for table '{table}'."
+                    f"Table {table} is non-spatial. Skipping geometry processing steps."
                 )
-                return
-
-            # Insert processed GeoDataFrame into PostGIS
-            with PostGISManager() as pg_manager:
-                pg_manager.insert_table_data(
-                    gdf=processed_gdf,
-                    table_name=table,
-                )
-
-            # Insert processed GeoDataFrame into GeoParquet
-            DuckDBManager.save_df_to_parquet(df=processed_gdf, output_file_name=table)
+                if _process_non_spatial_table(table, processor) is None:
+                    return
+    except VectorProcessingError:
+        raise
+    except Exception as e:
+        raise VectorProcessingError(str(e)) from e
 
 
 class GeoprocessingRaster:
@@ -579,39 +722,35 @@ class GeoprocessingRaster:
             handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
         rasters = {}
+        skipped = []
         for raster_path in self.raster_paths:
             logger.debug(f"Opening and validating raster: {raster_path}")
             try:
                 with rasterio.open(raster_path) as src:
                     if src.crs is None:
-                        error_msg = f"CRS is not defined: {raster_path}"
-                        handle_error(
-                            logger=logger, error_msg=error_msg, exc_class=ValueError
-                        )
+                        raise ValueError(f"CRS is not defined: {raster_path}")
                     if src.count <= 0:
-                        error_msg = f"Invalid band count: {raster_path}"
-                        handle_error(
-                            logger=logger, error_msg=error_msg, exc_class=ValueError
-                        )
+                        raise ValueError(f"Invalid band count: {raster_path}")
 
-                    opened_raster = rasterio.open(raster_path)
-                    rasters[raster_path] = opened_raster
-                    logger.debug(
-                        f"Raster {raster_path} opened and validated successfully."
-                    )
+                opened_raster = rasterio.open(raster_path)
+                rasters[raster_path] = opened_raster
+                logger.debug(f"Raster {raster_path} opened and validated successfully.")
             except Exception as e:
-                for src in rasters.values():
-                    src.close()
+                logger.warning(
+                    f"Skipping raster {raster_path.name}: {e}",
+                    raster_path=str(raster_path),
+                )
+                skipped.append(raster_path)
 
-                logger.exception(f"Error opening raster: {raster_path}")
+        if skipped:
+            logger.warning(
+                f"Skipped {len(skipped)} unreadable raster(s): "
+                + ", ".join(p.name for p in skipped)
+            )
 
-                if isinstance(e, ValueError):
-                    raise
-                else:
-                    error_msg = f"Error opening raster {raster_path}: {e}"
-                    handle_error(
-                        logger=logger, error_msg=error_msg, exc_class=RuntimeError
-                    )
+        if not rasters:
+            error_msg = "No rasters could be opened. All files failed validation."
+            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
         logger.info(f"Opened {len(rasters)} raster files.")
         return rasters
@@ -660,41 +799,6 @@ class GeoprocessingRaster:
                 handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
         logger.info(f"Analyzed {len(self.rasters)} raster files.")
-
-    def _harmonize_name_for_single_raster(self, raster_name: str) -> str:
-        """Harmonize a raster file name to be compatible with database naming conventions.
-
-        Args:
-            raster_name: Original raster file name.
-
-        Returns:
-            A harmonized raster file name without extension.
-        """
-        if not raster_name.strip():
-            error_msg = "Raster file name must not be empty or whitespace."
-            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
-        input_path = Path(raster_name)
-        name = input_path.stem
-        extension = input_path.suffix.lower()
-        max_name_length = self.config.POSTGRES_MAX_NAME_LENGTH - len(extension)
-
-        pattern = NamingPatterns.PATTERN_RASTER_NAME.value
-        clean_name = re.sub(pattern, Config.HASH_SEPARATOR, name.lower()).strip(
-            Config.HASH_SEPARATOR
-        )
-
-        if len(clean_name) > max_name_length:
-            h = hashlib.md5(clean_name.encode()).hexdigest()[: Config.HASH_HEX_LENGTH]
-            available_length = max_name_length - (Config.HASH_SUFFIX_LENGTH)
-            if available_length > 0:
-                clean_name = (
-                    f"{clean_name[:available_length]}{Config.HASH_SEPARATOR}{h}"
-                )
-            else:
-                clean_name = h[:max_name_length]
-
-        self.harmonized_name = clean_name
 
     def _get_cog_creation_profile(self, profile: str) -> dict:
         """Get COG creation profile with predefined options.
@@ -790,7 +894,7 @@ class GeoprocessingRaster:
                 warp_cmd.extend(["-co", f"{option_name}={value}"])
 
         # Processing options
-        warp_cmd.extend(["-multi", "-dstalpha"])
+        warp_cmd.extend(["-multi"])
 
         # NoData value
         if reference_nodata is not None:
@@ -876,6 +980,37 @@ class GeoprocessingRaster:
 
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
+    @staticmethod
+    def _build_stac_properties(
+        src: rasterio.DatasetReader,
+        crs: rasterio.crs.CRS,
+        raster_bands: list[dict],
+        proj_transform: list[float],
+        dt_val: str,
+    ) -> dict:
+        """Build the STAC ``properties`` sub-dict from an open rasterio dataset.
+
+        Args:
+            src: Open rasterio dataset for the COG.
+            crs: CRS of the dataset.
+            raster_bands: Pre-built list of band descriptors.
+            proj_transform: GDAL-order affine coefficients.
+            dt_val: ISO-8601 datetime string.
+
+        Returns:
+            dict: STAC properties sub-dict.
+        """
+        return {
+            "datetime": dt_val,
+            "proj:epsg": crs.to_epsg() if crs else 4326,
+            "proj:shape": [src.height, src.width],
+            "proj:transform": proj_transform,
+            "raster:bands": raster_bands,
+            "bands": src.count,
+            "source": "cog_processing",
+            "data_type": "raster",
+        }
+
     def prepare_cog_metadata_for_stac(
         self, original_raster_path: Path, cog_file_path: Path
     ) -> dict:
@@ -956,16 +1091,13 @@ class GeoprocessingRaster:
                 },
                 "bbox": [bounds.left, bounds.bottom, bounds.right, bounds.top],
                 "datetime": dt_val,
-                "properties": {
-                    "datetime": dt_val,
-                    "proj:epsg": crs.to_epsg() if crs else 4326,
-                    "proj:shape": [src.height, src.width],
-                    "proj:transform": proj_transform,
-                    "raster:bands": raster_bands,
-                    "bands": src.count,
-                    "source": "cog_processing",
-                    "data_type": "raster",
-                },
+                "properties": self._build_stac_properties(
+                    src=src,
+                    crs=crs,
+                    raster_bands=raster_bands,
+                    proj_transform=proj_transform,
+                    dt_val=dt_val,
+                ),
                 "assets": assets,
                 "stac_extensions": [
                     "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
@@ -973,6 +1105,92 @@ class GeoprocessingRaster:
                 ],
                 "file_url": f"file://{cog_file_path.absolute()}",
             }
+
+    def _process_single_raster_to_cog(
+        self,
+        raster_path: Path,
+        output_path: Path,
+        target_crs: int,
+        cog_profile: str,
+        reference_nodata: float,
+        overwrite_existing: bool,
+    ) -> tuple[Path, Path]:
+        """Process one raster file to COG format with backup management.
+
+        Args:
+            raster_path: Path to the source raster.
+            output_path: Directory where the COG will be written.
+            target_crs: EPSG code for the target CRS.
+            cog_profile: COG creation profile name.
+            reference_nodata: NoData value to set in the output raster.
+            overwrite_existing: Whether to overwrite an existing COG.
+
+        Returns:
+            Tuple of (original_raster_path, cog_file_path).
+
+        Raises:
+            RuntimeError: If warp execution or output verification fails.
+        """
+        backup_file = None
+
+        input_path = Path(raster_path.name)
+        max_len = self.config.POSTGRES_MAX_NAME_LENGTH - len(input_path.suffix.lower())
+        self.harmonized_name = harmonize_name(
+            input_path.stem, NamingPatterns.PATTERN_RASTER_NAME.value, max_len
+        )
+        output_cog = output_path / f"{self.harmonized_name}_cog.tif"
+
+        if output_cog.exists() and not overwrite_existing:
+            timestamp = int(time.time())
+            backup_file = output_cog.with_name(
+                f"{output_cog.stem}_old_{timestamp}{output_cog.suffix}"
+            )
+            logger.info(f"Creating backup of existing file: {backup_file}")
+            output_cog.rename(backup_file)
+        elif output_cog.exists():
+            logger.info(f"Overwriting existing file: {output_cog}")
+
+        try:
+            warp_cmd = self._build_gdalwarp_command(
+                input_raster_path=raster_path,
+                output_path=output_cog,
+                target_crs=target_crs,
+                cog_profile=cog_profile,
+                reference_nodata=reference_nodata,
+                overwrite_existing=overwrite_existing,
+            )
+
+            # Execute the gdalwarp command
+            self._warp_raster(
+                warp_cmd=warp_cmd, raster_path=raster_path, output_path=output_cog
+            )
+
+            # Verify output file was created
+            if not output_cog.exists():
+                error_msg = f"COG file was not created: {output_cog}"
+                handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+
+            logger.info(f"Harmonized raster saved: {output_cog}")
+
+            # Cleanup backup if everything went well
+            if backup_file and backup_file.exists():
+                backup_file.unlink()
+                logger.debug(f"Backup removed: {backup_file}")
+
+            return (raster_path, output_cog)
+
+        except subprocess.CalledProcessError as e:
+            error_msg = f"gdalwarp failed for {raster_path}: exit code {e.returncode}"
+            logger.error(error_msg)
+            logger.error(f"STDERR:\n{e.stderr}")
+            self._restore_backup_file(backup_file, output_path)
+            raise RuntimeError(error_msg) from e
+
+        except Exception as e:
+            error_msg = f"Unexpected error processing {raster_path}: {e}"
+            logger.error(error_msg, exc_info=True)
+            self._restore_backup_file(backup_file, output_path)
+            raise RuntimeError(error_msg) from e
 
     def process_raster_to_cog(
         self,
@@ -984,8 +1202,8 @@ class GeoprocessingRaster:
         """Harmonize rasters and save to cog format.
 
         Args:
-            output_dir: Directory where the harmonized raster will be saved.
-            crs: Target CRS to harmonize to. Default is project CRS.
+            output_path: Directory where the harmonized raster will be saved.
+            target_crs: Target CRS to harmonize to. Default is project CRS.
             reference_nodata: NoData value to set in the output raster.
             overwrite_existing: Whether to overwrite existing files. Default is True.
 
@@ -999,70 +1217,20 @@ class GeoprocessingRaster:
         processing_errors = []
 
         for raster_path in self.raster_paths:
-            backup_file = None
-
-            if hasattr(self, "_harmonize_name_for_single_raster"):
-                self._harmonize_name_for_single_raster(raster_name=raster_path.name)
-            harmonized_names = getattr(self, "harmonized_name", raster_path.stem)
-            output_cog = output_path / f"{harmonized_names}_cog.tif"
-
-            if output_cog.exists() and not overwrite_existing:
-                timestamp = int(time.time())
-                backup_file = output_cog.with_name(
-                    f"{output_cog.stem}_old_{timestamp}{output_cog.suffix}"
-                )
-                logger.info(f"Creating backup of existing file: {backup_file}")
-                output_cog.rename(backup_file)
-            elif output_cog.exists():
-                logger.info(f"Overwriting existing file: {output_cog}")
-            try:
-                warp_cmd = self._build_gdalwarp_command(
-                    input_raster_path=raster_path,
-                    output_path=output_cog,
-                    target_crs=target_crs,
-                    cog_profile="default",
-                    reference_nodata=reference_nodata,
-                    overwrite_existing=overwrite_existing,
-                )
-
-                # Execute the gdalwarp command
-                self._warp_raster(
-                    warp_cmd=warp_cmd, raster_path=raster_path, output_path=output_cog
-                )
-
-                # Verify output file was created
-                if not output_cog.exists():
-                    error_msg = f"COG file was not created: {output_cog}"
-                    handle_error(
-                        logger=logger, error_msg=error_msg, exc_class=RuntimeError
+            with structlog.contextvars.bound_contextvars(raster=raster_path.name):
+                try:
+                    harmonized_files.append(
+                        self._process_single_raster_to_cog(
+                            raster_path=raster_path,
+                            output_path=output_path,
+                            target_crs=target_crs,
+                            cog_profile="default",
+                            reference_nodata=reference_nodata,
+                            overwrite_existing=overwrite_existing,
+                        )
                     )
-
-                harmonized_files.append((raster_path, output_cog))
-                logger.info(f"Harmonized raster saved: {output_cog}")
-
-                # Cleanup backup if everything went well
-                if backup_file and backup_file.exists():
-                    backup_file.unlink()
-                    logger.debug(f"Backup removed: {backup_file}")
-
-            except subprocess.CalledProcessError as e:
-                error_msg = (
-                    f"gdalwarp failed for {raster_path}: exit code {e.returncode}"
-                )
-                logger.error(error_msg)
-                logger.error(f"STDERR:\n{e.stderr}")
-                processing_errors.append(error_msg)
-
-                # Restore backup if something went wrong
-                self._restore_backup_file(backup_file, output_path)
-
-            except Exception as e:
-                error_msg = f"Unexpected error processing {raster_path}: {e}"
-                logger.error(error_msg, exc_info=True)
-                processing_errors.append(error_msg)
-
-                # Restore backup if something went wrong
-                self._restore_backup_file(backup_file, output_path)
+                except RuntimeError as e:
+                    processing_errors.append(str(e))
 
         if processing_errors and not harmonized_files:
             error_msg = "All raster processing failed."
@@ -1097,6 +1265,137 @@ class GeoprocessingRaster:
         logger.info("All raster files have been closed.")
 
 
+def _create_cog_files(
+    rasters: list[Path],
+    output_dir: Path,
+    target_crs: int,
+    processing: "GeoprocessingRaster",
+) -> list[tuple[Path, Path]]:
+    """Convert rasters to COGs and return the (original, cog) path pairs.
+
+    Args:
+        rasters: Source raster file paths.
+        output_dir: Directory for COG output files.
+        target_crs: Target CRS as EPSG code.
+        processing: Configured GeoprocessingRaster instance.
+
+    Returns:
+        List of (original_path, cog_path) tuples for successfully created COGs.
+    """
+    logger.info(f"Found {len(rasters)} raster files to process.")
+    harmonized_cog_pairs = processing.process_raster_to_cog(
+        output_path=output_dir,
+        target_crs=target_crs,
+    )
+
+    logger.info(f"Found {len(harmonized_cog_pairs)} harmonized raster files:")
+    for original_raster, cog_file in harmonized_cog_pairs:
+        logger.info(f"  - {cog_file.name} (from {original_raster.name})")
+
+    if not harmonized_cog_pairs:
+        error_msg = "No harmonized COG files were created successfully"
+        handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+
+    return harmonized_cog_pairs
+
+
+def _process_single_cog(
+    original_raster: Path,
+    cog_file: Path,
+    processing: "GeoprocessingRaster",
+) -> dict | None:
+    """Extract metadata from one COG and persist it to PostGIS.
+
+    Args:
+        original_raster: Path to the source raster file.
+        cog_file: Path to the generated COG file.
+        processing: Configured GeoprocessingRaster instance.
+
+    Returns:
+        Metadata dict, or None if processing failed.
+    """
+    logger.info(f"Processing COG file: {cog_file}")
+    try:
+        if not cog_file.exists():
+            error_msg = f"COG file does not exist: {cog_file}"
+            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+
+        metadata = processing.prepare_cog_metadata_for_stac(
+            original_raster_path=original_raster, cog_file_path=cog_file
+        )
+
+        with PostGISManager() as pg_manager:
+            pg_manager.insert_cog_metadata(metadata=metadata, table_name="cogs")
+
+        logger.info(f"Prepared metadata for: {cog_file.name}")
+        return metadata
+    except Exception as e:
+        logger.warning(f"Error processing COG {cog_file}: {e}", exc_info=True)
+        return None
+
+
+def _collect_cog_metadata(
+    harmonized_cog_pairs: list[tuple[Path, Path]],
+    processing: "GeoprocessingRaster",
+) -> list[dict]:
+    """Process all COG pairs and return successfully extracted metadata entries.
+
+    Args:
+        harmonized_cog_pairs: List of (original_path, cog_path) tuples.
+        processing: Configured GeoprocessingRaster instance.
+
+    Returns:
+        List of metadata dicts for each successfully processed COG.
+    """
+    all_raster_metadata = [
+        metadata
+        for original_raster, cog_file in harmonized_cog_pairs
+        if (metadata := _process_single_cog(original_raster, cog_file, processing))
+        is not None
+    ]
+
+    if not all_raster_metadata:
+        error_msg = f"No valid metadata was extracted from {len(harmonized_cog_pairs)} raster(s)."
+        handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+
+    return all_raster_metadata
+
+
+def _publish_stac(
+    all_raster_metadata: list[dict],
+    stac_collection_id: str,
+    api_url: str,
+) -> None:
+    """Build STAC items and collection from metadata and publish to the STAC API.
+
+    Args:
+        all_raster_metadata: List of COG metadata dicts.
+        stac_collection_id: Unique ID for the STAC collection.
+        api_url: URL of the STAC API.
+    """
+    logger.info(f"Creating STAC items from {len(all_raster_metadata)} metadata entries")
+
+    item_raster_list = build_stac_items_from_cog(
+        raster_metadata_list=all_raster_metadata, source_name="cog_processing"
+    )
+
+    stac_collection = build_stac_collection_from_items(
+        items=item_raster_list,
+        collection_id=stac_collection_id,
+    )
+
+    stac_client = StacApiClient(
+        api_url=api_url,
+        collection_id=stac_collection_id,
+        stac_collection=stac_collection,
+        stac_items=item_raster_list,
+        logger=logger,
+    )
+
+    stac_client.post_collection()
+    stac_client.upsert_items()
+
+
 def geoprocessing_raster_data(
     rasters: list[Path],
     target_crs: int,
@@ -1116,86 +1415,19 @@ def geoprocessing_raster_data(
     add_process_to_logger(logger, "Processing Raster Data PostGIS")
     output_dir = Path(output_dir)
 
-    if not rasters:
-        error_msg = "No raster files found in the specified directory."
-        handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+    try:
+        if not rasters:
+            error_msg = "No raster files found in the specified directory."
+            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
-    processing = GeoprocessingRaster(config=Config, raster_paths=rasters)
-
-    # Harmonize raster data
-    logger.info(f"Found {len(rasters)} raster files to process.")
-    harmonized_cog_pairs = processing.process_raster_to_cog(
-        output_path=output_dir,
-        target_crs=target_crs,
-    )
-
-    logger.info(f"Found {len(harmonized_cog_pairs)} harmonized raster files:")
-    for original_raster, cog_file in harmonized_cog_pairs:
-        logger.info(f"  - {cog_file.name} (from {original_raster.name})")
-
-    if not harmonized_cog_pairs:
-        error_msg = "No harmonized COG files were created successfully"
-        handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
-    all_raster_metadata = []
-
-    # Process each harmonized COG to extract metadata and prepare for STAC
-    for original_raster, cog_file in harmonized_cog_pairs:
-        logger.info(f"Processing COG file: {cog_file}")
-
-        try:
-            # Verify COG file exists
-            if not cog_file.exists():
-                error_msg = f"COG file does not exist: {cog_file}"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
-            # Extract metadata using optimized class
-            metadata = processing.prepare_cog_metadata_for_stac(
-                original_raster_path=original_raster, cog_file_path=cog_file
-            )
-
-            # Insert metadata into PostGIS
-            with PostGISManager() as pg_manager:
-                pg_manager.insert_cog_metadata(metadata=metadata, table_name="cogs")
-
-            all_raster_metadata.append(metadata)
-            logger.info(f"Prepared metadata for: {cog_file.name}")
-
-        except Exception as e:
-            logger.warning(f"Error processing COG {cog_file}: {e}", exc_info=True)
-            continue
-
-    if not all_raster_metadata:
-        error_msg = f"No valid metadata was extracted from {len(rasters)} raster(s)."
-        handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
-    logger.info(f"Creating STAC items from {len(all_raster_metadata)} metadata entries")
-
-    # Build STAC items from raster metadata
-    item_raster_list = build_stac_items_from_cog(
-        raster_metadata_list=all_raster_metadata, source_name="cog_processing"
-    )
-
-    # Build STAC collection from items
-    stac_collection = build_stac_collection_from_items(
-        items=item_raster_list,
-        collection_id=stac_collection_id,
-    )
-
-    # Create a STAC API client
-    stac_client = StacApiClient(
-        api_url=api_url,
-        collection_id=stac_collection_id,
-        stac_collection=stac_collection,
-        stac_items=item_raster_list,
-        logger=logger,
-    )
-
-    # Post the collection to the STAC API
-    stac_client.post_collection()
-
-    # PUT (update) items to the STAC API
-    stac_client.upsert_items()
-
-    # Close all opened rasters
-    processing.close_all_rasters()
+        processing = GeoprocessingRaster(config=Config, raster_paths=rasters)
+        harmonized_cog_pairs = _create_cog_files(
+            rasters, output_dir, target_crs, processing
+        )
+        all_raster_metadata = _collect_cog_metadata(harmonized_cog_pairs, processing)
+        _publish_stac(all_raster_metadata, stac_collection_id, api_url)
+        processing.close_all_rasters()
+    except RasterProcessingError:
+        raise
+    except Exception as e:
+        raise RasterProcessingError(str(e)) from e

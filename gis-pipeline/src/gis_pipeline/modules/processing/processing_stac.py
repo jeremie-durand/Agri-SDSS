@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
@@ -10,9 +9,10 @@ from typing import Any, Dict, Optional
 
 import geopandas as gpd
 import numpy as np
+import structlog
 from dateutil.parser import parse
 from gis_pipeline.core.config import Config
-from gis_pipeline.core.logging_setup import handle_error, setup_logging
+from gis_pipeline.core.logging_setup import handle_error
 from gis_pipeline.services.mapping import (
     STAC_COLLECTION_TEMPLATE,
     STAC_ITEM_TEMPLATE,
@@ -28,7 +28,7 @@ from shapely.geometry import box
 from stac_pydantic.collection import Collection as PydanticCollection
 from stac_pydantic.item import Item as PydanticItem
 
-logger = setup_logging()
+logger = structlog.get_logger()
 
 
 # ---------------------------------------
@@ -118,12 +118,12 @@ def _parse_xml_metadata(xml_path: Path) -> dict:
     """Parse XML metadata from a file into a dictionary.
 
     Args:
-        xml_string: XML metadata as a string.
+        xml_path: Path to the XML metadata file.
 
     Returns:
         Parsed metadata as a dictionary.
     """
-    logger.info("Parsing XML metadata from string.")
+    logger.info("Parsing XML metadata from file.")
 
     properties = {}
 
@@ -233,7 +233,7 @@ def _extract_datetime_from_filename(filename: str | None) -> datetime | None:
                 mm = int(cleaned[10:12])
                 ss = int(cleaned[12:14])
                 return datetime(y, mo, d, hh, mm, ss, tzinfo=timezone.utc)
-            except Exception:
+            except ValueError:
                 pass
 
         # Pure date YYYYMMDD
@@ -243,7 +243,7 @@ def _extract_datetime_from_filename(filename: str | None) -> datetime | None:
                 mo = int(val[4:6])
                 d = int(val[6:8])
                 return datetime(y, mo, d, 0, 0, 0, tzinfo=timezone.utc)
-            except Exception:
+            except ValueError:
                 pass
 
     # 2) fallback: year-only
@@ -252,7 +252,7 @@ def _extract_datetime_from_filename(filename: str | None) -> datetime | None:
         try:
             year = int(m.group("year"))
             return datetime(year, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        except Exception:
+        except ValueError:
             pass
 
     return None
@@ -287,7 +287,7 @@ def _create_stac_item_from_raster(
     """Create a STAC Item from raster data.
 
     Args:
-        raster_data: Dictionary containing raster metadata and properties.
+        raster_dict: Dictionary containing raster metadata and properties.
         unique_id: Unique identifier for the item.
         asset_key: Asset key name. e.g. "ndvi", "classification", "DEM", "soil".
 
@@ -295,7 +295,7 @@ def _create_stac_item_from_raster(
         pystac.Item: The generated STAC Item.
 
     Notes:
-        - This function expects the raster_data to contain geometry, bbox, datetime, and properties.
+        This function expects the raster_dict to contain geometry, bbox, datetime, and properties.
     """
     # Validate required fields
     geometry = raster_dict.get("geometry")
@@ -375,6 +375,53 @@ def _create_stac_item_from_raster(
     return item
 
 
+def _build_single_stac_item(raster_dict: dict, idx: int, source_name: str) -> Item:
+    """Build one STAC Item from a raster metadata dict.
+
+    Args:
+        raster_dict: Metadata for a single raster.
+        idx: Loop index used to generate a fallback item ID.
+        source_name: Source label attached to the item properties.
+
+    Returns:
+        A pystac.Item built from the raster metadata.
+
+    Raises:
+        ValueError: If ``raster_dict`` is not a dict or the item cannot be created.
+    """
+    if not isinstance(raster_dict, dict):
+        error_msg = f"Raster data {idx} is not a dictionary: {type(raster_dict)}"
+        handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
+    # Generate unique ID
+    unique_id = raster_dict.get("id", f"{source_name}_{idx}")
+    logger.debug(f"Processing raster data {idx}: {unique_id}")
+
+    # Create the STAC item
+    item = _create_stac_item_from_raster(raster_dict=raster_dict, unique_id=unique_id)
+
+    if not isinstance(item, Item):
+        error_msg = f"Failed to create valid Item object: {type(item)}"
+        handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
+    item.properties.update({"source": source_name, "data_type": "raster"})
+    logger.debug(f"Successfully created item {unique_id}")
+    return item
+
+
+def _validate_stac_items(items: list[Item]) -> None:
+    """Validate each STAC item against the pystac schema.
+
+    Args:
+        items: List of pystac.Item objects to validate.
+    """
+    for item in items:
+        if hasattr(item, "to_dict"):
+            validate_stac(item.to_dict(), stac_type="item")
+        else:
+            validate_stac(item, stac_type="item")
+
+
 def build_stac_items_from_cog(
     raster_metadata_list: list[dict], source_name: str = "Python gis_pipeline"
 ) -> list[Item]:
@@ -396,31 +443,7 @@ def build_stac_items_from_cog(
 
     for idx, raster_dict in enumerate(raster_metadata_list):
         try:
-            if not isinstance(raster_dict, dict):
-                error_msg = (
-                    f"Raster data {idx} is not a dictionary: {type(raster_dict)}"
-                )
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
-            # Generate unique ID
-            unique_id = raster_dict.get("id", f"{source_name}_{idx}")
-
-            logger.debug(f"Processing raster data {idx}: {unique_id}")
-
-            # Create the STAC item
-            item = _create_stac_item_from_raster(
-                raster_dict=raster_dict, unique_id=unique_id
-            )
-
-            if not isinstance(item, Item):
-                error_msg = f"Failed to create valid Item object: {type(item)}"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
-            item.properties.update({"source": source_name, "data_type": "raster"})
-
-            items.append(item)
-            logger.debug(f"Successfully created item {unique_id}")
-
+            items.append(_build_single_stac_item(raster_dict, idx, source_name))
         except Exception as e:
             error_msg = f"Error creating STAC item {idx}: {e}"
             logger.error(error_msg)
@@ -437,17 +460,55 @@ def build_stac_items_from_cog(
     logger.info(f"Created {len(items)} STAC items from raster metadata")
 
     # Validate all STAC items
-    for item in items:
-        if hasattr(item, "to_dict"):
-            validate_stac(item.to_dict(), stac_type="item")
-        else:
-            validate_stac(item, stac_type="item")
+    _validate_stac_items(items)
     return items
 
 
 # ---------------------------------------
 # STAC Collection processing
 # ---------------------------------------
+def _compute_spatial_extent(items: list[Item]) -> SpatialExtent:
+    """Compute the bounding box for a list of STAC items.
+
+    Args:
+        items: List of pystac.Item objects, each with a valid ``bbox``.
+
+    Returns:
+        SpatialExtent covering all items.
+
+    Raises:
+        ValueError: If any item is missing a valid bbox.
+    """
+    boxes = []
+    # Check if all items have a valid bbox
+    for item in items:
+        if not hasattr(item, "bbox") or not item.bbox:
+            error_msg = f"Item {item.id} does not have a valid bbox."
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+        boxes.append(box(*item.bbox))
+    all_bounds = gpd.GeoSeries(boxes).total_bounds
+    return SpatialExtent([list(all_bounds)])
+
+
+def _compute_temporal_extent(items: list[Item]) -> TemporalExtent:
+    """Compute the datetime range for a list of STAC items.
+
+    Args:
+        items: List of pystac.Item objects.
+
+    Returns:
+        TemporalExtent spanning the earliest and latest item datetimes.
+
+    Raises:
+        ValueError: If no items carry a datetime value.
+    """
+    datetimes = [item.datetime for item in items if getattr(item, "datetime", None)]
+    if not datetimes:
+        error_msg = "No datetime found in items to create the collection."
+        handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+    return TemporalExtent([[min(datetimes), max(datetimes)]])
+
+
 def build_stac_collection_from_items(
     items: list[Item], collection_id: str
 ) -> Collection:  # default license="proprietary"
@@ -473,24 +534,8 @@ def build_stac_collection_from_items(
         error_msg = "The list of items is empty."
         handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
-    # Compute spatial extent
-    boxes = []
-    # Check if all items have a valid bbox
-    for item in items:
-        if not hasattr(item, "bbox") or not item.bbox:
-            error_msg = f"Item {item.id} does not have a valid bbox."
-            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-        boxes.append(box(*item.bbox))
-    all_bounds = gpd.GeoSeries(boxes).total_bounds
-
-    # Compute temporal extent
-    datetimes = [item.datetime for item in items if getattr(item, "datetime", None)]
-    if not datetimes:
-        error_msg = "No datetime found in items to create the collection."
-        handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
-    spatial_extent = SpatialExtent([list(all_bounds)])
-    temporal_extent = TemporalExtent([[min(datetimes), max(datetimes)]])
+    spatial_extent = _compute_spatial_extent(items)
+    temporal_extent = _compute_temporal_extent(items)
     extent = Extent(spatial=spatial_extent, temporal=temporal_extent)
 
     template = STAC_COLLECTION_TEMPLATE.copy()
@@ -557,7 +602,7 @@ class StacApiClient:
         stac_items: list[Item],  # list of pystac.Item
         retries: int = 3,
         backoff_factor: float = 0.3,
-        logger: Optional[logging.Logger] = None,
+        logger: Optional[Any] = None,
     ):
         """Initialize the STAC API client with the base URL."""
         self.api_url = api_url
@@ -565,8 +610,7 @@ class StacApiClient:
         self.stac_collection = stac_collection
         self.stac_items = stac_items
 
-        self.logger = logger
-        self.logger.setLevel(logging.INFO)
+        self.logger = logger if logger is not None else structlog.get_logger()
 
         self.session = Session()
         retry_strategy = Retry(
@@ -653,6 +697,37 @@ class StacApiClient:
         )
         return resp
 
+    def _upsert_single_item(self, item_dict: dict, item_id: str) -> tuple[bool, str]:
+        """POST one STAC item; fall back to PUT on 409 Conflict.
+
+        Args:
+            item_dict: STAC item payload as a plain dict.
+            item_id: Unique item identifier (used in the PUT URL and log messages).
+
+        Returns:
+            ``(success, result_str)`` where ``result_str`` is ``"success"`` or an
+            error description.
+        """
+        endpoint = f"/collections/{self.collection_id}/items"
+        self.logger.info(
+            f"Posting item {item_id} to collection {self.collection_id} (POST)"
+        )
+
+        resp = self._request(method="POST", endpoint=endpoint, payload=item_dict)
+
+        # Retry with PUT if item already exists (409 Conflict)
+        if resp.status_code == 409:
+            self.logger.info(f"Item {item_id} already exists, updating via PUT...")
+            resp = self._request(
+                method="PUT",
+                endpoint=f"{endpoint}/{item_id}",
+                payload=item_dict,
+            )
+
+        if resp.success:
+            return True, "success"
+        return False, f"error ({resp.status_code})"
+
     def upsert_items(self) -> StacApiResponse:
         """Post or update STAC items to the API.
 
@@ -668,39 +743,16 @@ class StacApiClient:
             item_id = stac_item.id
 
             try:
-                endpoint = f"/collections/{self.collection_id}/items"
-                self.logger.info(
-                    f"Posting item {item_id} to collection {self.collection_id} (POST)"
-                )
-
-                resp = self._request(
-                    method="POST",
-                    endpoint=endpoint,
-                    payload=item_dict,
-                )
-
-                # Retry with PUT if item already exists (409 Conflict)
-                if resp.status_code == 409:
-                    self.logger.info(
-                        f"Item {item_id} already exists, updating via PUT..."
-                    )
-                    resp = self._request(
-                        method="PUT",
-                        endpoint=f"{endpoint}/{item_id}",
-                        payload=item_dict,
-                    )
-
-                if resp.success:
+                ok, result_str = self._upsert_single_item(item_dict, item_id)
+                if ok:
                     success_count += 1
-                    results[stac_item.id] = "success"
                 else:
                     error_count += 1
-                    results[stac_item.id] = f"error ({resp.status_code})"
-
+                results[item_id] = result_str
             except Exception as e:
                 error_count += 1
-                results[stac_item.id] = f"exception ({e})"
-                self.logger.exception(f"Error while upserting {stac_item.id}: {e}")
+                results[item_id] = f"exception ({e})"
+                self.logger.exception(f"Error while upserting {item_id}: {e}")
 
         return StacApiResponse(
             success=(error_count == 0),

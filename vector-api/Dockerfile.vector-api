@@ -1,26 +1,38 @@
 # Official TiPg image
-FROM ghcr.io/developmentseed/tipg:1.3.0
+FROM ghcr.io/developmentseed/tipg:1.4.0 AS runtime
 
 # Set environment variables
 ENV VECTOR_API_PORT=8083
 ENV HOST=0.0.0.0
 ENV DUCKDB_DATA_DIR=/data/duckdb
+ENV PYTHONPATH=/app
+ENV PATH="/home/user/.local/bin:${PATH}"
 
 # Install DuckDB and related dependencies for Parquet/GeoParquet support
-COPY vector-api/requirements-vector-api.txt /tmp/requirements-vector-api.txt
-RUN pip install --no-cache-dir -r /tmp/requirements-vector-api.txt \
-&& rm /tmp/requirements-vector-api.txt
+RUN --mount=type=bind,source=vector-api/requirements-vector-api.txt,target=/tmp/requirements-vector-api.txt \
+    pip install --no-cache-dir -r /tmp/requirements-vector-api.txt
 
 # Copy canonical wait-for-it script and entrypoint
-COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
-COPY vector-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/wait-for-it.sh /usr/local/bin/entrypoint.sh
+COPY --chmod=755 scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
+COPY --chmod=755 vector-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Copy custom application code
-COPY vector-api/src /app/vector_api
+COPY --chown=user:user vector-api/src /app/vector_api
 
-# Expose port for vector API
+# TiPg base already has user:x:1000:1000; make the USER directive explicit and ensure ownership
+RUN chown -R user:user /app
+USER user
+
 EXPOSE ${VECTOR_API_PORT}
 
 # Command to wait for the database to be ready before starting the API
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["sh", "-c", "uvicorn vector_api.app:app --host 0.0.0.0 --port ${VECTOR_API_PORT:-8083}"]
+
+FROM runtime AS test
+USER root
+RUN --mount=type=bind,source=vector-api/requirements-vector-api-test.txt,target=/tmp/requirements-vector-api-test.txt \
+    pip install --no-cache-dir -r /tmp/requirements-vector-api-test.txt
+USER user
+COPY --chown=user:user vector-api/test /app/vector_api/test
+COPY --chown=user:user vector-api/pytest.ini /app/pytest.ini

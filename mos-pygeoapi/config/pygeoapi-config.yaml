@@ -32,13 +32,6 @@ metadata:
       role: X
 
 resources:
-  hello-world-pygeoapi:
-    type: process
-    title: Hello World Process pygeoapi basic
-    description: A simple process that returns a welcome message.
-    processor:
-      name: pygeoapi.process.hello_world.HelloWorldProcessor # basic pygeoapi process
-  
   sentinel-fetch:
     type: process
     title: Sentinel-2 Earth Observation Data Fetch
@@ -46,14 +39,79 @@ resources:
     processor:
       name: processes.eo_sentinel_fetch.SentinelFetchProcessor
 
+  weather-timeseries:
+    type: process
+    title: Weather Timeseries
+    description: >
+      Retrieves gridded climate and reanalysis timeseries from the Ouranos PAVICS
+      THREDDS server (OPeNDAP) for a given location and time range.
+      Returns a GeoJSON Feature with temporal data in its properties.
+      Supports farm_id, point, bbox, and polygon location types.
+    processor:
+      name: processes.weather_timeseries.WeatherTimeseriesProcessor
+
+  climate-timeseries:
+    type: process
+    title: Climate Timeseries (CMIP6 Projections)
+    description: >
+      Retrieves daily CMIP6 climate projection timeseries from PAVICS THREDDS (OPeNDAP).
+      Source: ESPO-G6-R2 v1.0.0 bias-adjusted projections (26 models, SSP2-4.5/3-7.0/5-8.5,
+      1950–2100). Returns a GeoJSON Feature with scenario and model metadata.
+    processor:
+      name: processes.climate_timeseries.ClimateTimeseriesProcessor
+
+  climate-indicators:
+    type: process
+    title: Climate Indicators
+    description: >
+      Computes agronomic climate indicators (Growing Degree Days) from gridded
+      temperature data. Supports historical reanalysis (ERA5-Land, RDRS) and CMIP6
+      projections (ESPO-G6-R2). Returns a GeoJSON Feature with indicator results.
+    processor:
+      name: processes.climate_indicators.ClimateIndicatorsProcessor
+
+  msc-observations:
+    type: process
+    title: MSC GeoMet Weather Station Observations
+    description: >
+      Retrieves daily or near real-time surface weather observations from the
+      Meteorological Service of Canada (MSC) GeoMet OGC API (https://api.weather.gc.ca).
+      Data is open and requires no authentication. Returns a GeoJSON FeatureCollection
+      with one Feature per station found within the requested area.
+      Supports farm_id, point, bbox, and polygon location types.
+    processor:
+      name: processes.msc_observations.MSCObservationsProcessor
+
+  lidar-fetch:
+    type: process
+    title: Quebec LiDAR Derived Products Fetch
+    description: Fetches Quebec LiDAR-derived rasters (DTM, CHM, hillshade, slope) from MRNF open data, clips to farm bbox, and stores as Cloud Optimized GeoTIFF in STAC catalog
+    processor:
+      name: processes.quebec_lidar_fetch.LidarFetchProcessor
+
+  som-predict-soil:
+    type: process
+    title: SOM Soil Prediction
+    description: >
+      Predicts Soil Organic Matter (SOM) for selected field IDs using a
+      RandomForest model trained on GEE-derived spectral, topographic, and
+      climate features (2019–2023). Returns a GeoJSON FeatureCollection with
+      per-image predictions and a field-level summary.
+      Note: execution may take several minutes depending on the number of fields.
+    processor:
+      name: processes.som_predict_soil.SOMPredictSoilProcessor
+
 server:
   bind:
     host: 0.0.0.0
     port: 5000
-  url: http://localhost:5000
+  url: ${HOST_PROTOCOL}://${HOST_URL}/mos-pygeoapi
   mimetype: application/json
   encoding: utf-8
   language: en-US
+  limits:
+    default_items: 10
+    maximum_items: 1000
 
 logging:
   level: DEBUG
@@ -63,6 +121,6 @@ manager:
   name: Dummy
   connection:
     subscribers:
-      - in_progress_uri: http://localhost:5000/status/in-progress
-        success_uri: http://localhost:5000/status/success
-        failed_uri: http://localhost:5000/status/failed
+      - in_progress_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PYGEOAPI_API_PORT}/status/in-progress
+        success_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PYGEOAPI_API_PORT}/status/success
+        failed_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PYGEOAPI_API_PORT}/status/failed

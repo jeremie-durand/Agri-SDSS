@@ -1,0 +1,463 @@
+/**
+ * Injected into the chatbot iframe by the home nginx sub_filter.
+ * Listens for MOS_GIS_CONTEXT postMessages from the parent map page,
+ * shows a sticky context banner, fetches real data from local MOS-GIS APIs,
+ * and injects a data-rich prompt into the chat input.
+ */
+(function () {
+  'use strict';
+
+  var ctx = null;
+
+  /* ── Banner DOM ─────────────────────────────────────────────────────────── */
+  var banner = document.createElement('div');
+  banner.id = 'mos-map-context';
+  Object.assign(banner.style, {
+    display:        'none',
+    position:       'sticky',
+    top:            '0',
+    zIndex:         '9999',
+    background:     '#1a1d2b',
+    borderBottom:   '1px solid #2a2e45',
+    padding:        '6px 10px',
+    fontFamily:     'system-ui, sans-serif',
+    fontSize:       '12px',
+    color:          '#8b92a8',
+    alignItems:     'center',
+    gap:            '8px',
+    flexWrap:       'nowrap',
+    boxSizing:      'border-box',
+    width:          '100%',
+  });
+
+  var label = document.createElement('span');
+  Object.assign(label.style, {
+    flex:           '1',
+    overflow:       'hidden',
+    textOverflow:   'ellipsis',
+    whiteSpace:     'nowrap',
+  });
+
+  var analyseBtn = document.createElement('button');
+  analyseBtn.textContent = 'Analyse →';
+  Object.assign(analyseBtn.style, {
+    background:   '#3ecf8e',
+    color:        '#0f1117',
+    border:       'none',
+    borderRadius: '4px',
+    padding:      '3px 8px',
+    fontSize:     '11px',
+    fontWeight:   '600',
+    cursor:       'pointer',
+    whiteSpace:   'nowrap',
+    flexShrink:   '0',
+  });
+
+  var closeBtn = document.createElement('button');
+  closeBtn.textContent = '×';
+  Object.assign(closeBtn.style, {
+    background: 'none',
+    border:     'none',
+    color:      '#8b92a8',
+    cursor:     'pointer',
+    fontSize:   '16px',
+    lineHeight: '1',
+    padding:    '0 2px',
+    flexShrink: '0',
+  });
+
+  banner.appendChild(label);
+  banner.appendChild(analyseBtn);
+  banner.appendChild(closeBtn);
+
+  /* ── Helpers ────────────────────────────────────────────────────────────── */
+  function mountBanner() {
+    if (!document.getElementById('mos-map-context') && document.body) {
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+  }
+
+  function showContext(data) {
+    ctx = data;
+    var id  = data.featureId  || '';
+    var col = data.collection || '';
+    label.textContent = '📍 ' + (id ? id + ' — ' : '') + col;
+    banner.style.display = 'flex';
+    mountBanner();
+  }
+
+  function hideContext() {
+    banner.style.display = 'none';
+    ctx = null;
+  }
+
+  /* ── Fetch helpers ──────────────────────────────────────────────────────── */
+  async function fetchJson(url) {
+    try {
+      var r = await fetch(url, { headers: { Accept: 'application/json' } });
+      return r.ok ? r.json() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function buildPropsSection(props) {
+    var keys = Object.keys(props).filter(function (k) {
+      var v = props[k];
+      return v !== null && v !== undefined && v !== '';
+    });
+    if (!keys.length) return '';
+    var lines = ['Recorded attributes:'];
+    keys.forEach(function (k) { lines.push('  ' + k + ': ' + props[k]); });
+    return lines.join('\n');
+  }
+
+  /**
+   * Fetches real parcel data from local MOS-GIS APIs, then injects an
+   * analysis-framed prompt into the chatbot textarea.
+   * The prompt avoids location/satellite keywords so the router agent
+   * routes to answer_contextual_question (LLM analysis mode).
+   */
+  function buildStacItemSection(item) {
+    if (!item || item.type !== 'Feature') return '';
+    var lines = [];
+    var props = item.properties || {};
+    lines.push('Selected remote sensing item from the platform catalog:');
+    lines.push('  id: ' + (item.id || 'unknown'));
+    lines.push('  collection: ' + (item.collection || (props.collection || 'unknown')));
+    if (item.bbox) {
+      lines.push('  bbox: ' + item.bbox.join(', '));
+    }
+    Object.keys(props).forEach(function (k) {
+      var v = props[k];
+      if (v !== null && v !== undefined && v !== '') {
+        lines.push('  ' + k + ': ' + v);
+      }
+    });
+    return lines.join('\n');
+  }
+
+  function injectPrompt() {
+    if (!ctx) return;
+
+    var id       = ctx.featureId  || '';
+    var col      = ctx.collection || '';
+    var props    = ctx.properties || {};
+    var center   = ctx.center || null;
+    var stacItem = ctx.stacItem   || null;
+
+    analyseBtn.textContent = 'Loading…';
+    analyseBtn.disabled = true;
+
+    var vectorUrl = id && col
+      ? '/mos-vector/parquet/collections/' + encodeURIComponent(col) + '/items/' + encodeURIComponent(id)
+      : null;
+
+    Promise.all([
+      fetchJson('/mos-stac/collections'),
+      vectorUrl ? fetchJson(vectorUrl) : Promise.resolve(null)
+    ]).then(function (results) {
+      var stacResult  = results[0];
+      var featureData = results[1];
+
+      /* Merge properties: postMessage snapshot + freshly-fetched full feature */
+      var mergedProps = Object.assign({}, props);
+      if (featureData && featureData.properties) {
+        Object.assign(mergedProps, featureData.properties);
+      }
+
+      var isBdppad = col.toLowerCase().indexOf('bdppad') === 0;
+
+      var lines = [];
+      /* Coordinates intentionally omitted — the router agent misroutes lat/lon
+         strings to navigate_to. Feature ID + dataset are sufficient for analysis. */
+      if (isBdppad) {
+        lines.push('I am looking at an agricultural parcel from the MOS-GIS platform database. Here is its recorded information:');
+        lines.push('');
+        if (id)  lines.push('Parcel ID: ' + id);
+        if (col) lines.push('Dataset: ' + col);
+        lines.push('');
+        lines.push('Dataset context: BDPPAD (Base de données sur les parcelles et propriétés agricoles du Québec) is the Quebec provincial registry of agricultural parcels. The "typpar" field is the official parcel type code; its meaning is given in the "description" field. The "suphec" field is the parcel area in hectares.');
+      } else {
+        lines.push('I am looking at a geographic feature from the MOS-GIS platform. Here is its recorded information:');
+        lines.push('');
+        if (id)  lines.push('Feature ID: ' + id);
+        if (col) lines.push('Dataset: ' + col);
+      }
+
+      var propsSection = buildPropsSection(mergedProps);
+      if (propsSection) {
+        lines.push('');
+        lines.push(propsSection);
+      }
+
+      /* List real remote sensing collections only — exclude demo/test collections
+         and avoid satellite brand names that trigger the router's STAC_SEARCH routing. */
+      var EXCLUDED_COLLECTIONS = ['demo_collection'];
+      if (stacResult && stacResult.collections && stacResult.collections.length) {
+        var realCollections = stacResult.collections.filter(function (c) {
+          return EXCLUDED_COLLECTIONS.indexOf(c.id) === -1;
+        });
+        if (realCollections.length) {
+          lines.push('');
+          lines.push('Remote sensing datasets available for cross-referencing on this platform:');
+          realCollections.forEach(function (c) {
+            lines.push('  - ' + c.id);
+          });
+        }
+      }
+
+      var stacSection = buildStacItemSection(stacItem);
+      if (stacSection) {
+        lines.push('');
+        lines.push(stacSection);
+      }
+
+      lines.push('');
+      if (isBdppad) {
+        lines.push('Please provide an agronomic analysis of this parcel based on the information above. What does the parcel type, area, and classification suggest? What kind of agricultural use or soil conditions might be expected for this type of parcel?');
+      } else {
+        lines.push('Please analyze this geographic feature based on the information above. What does the data suggest about this location in the context of Quebec agriculture or land use?');
+      }
+
+      injectText(lines.join('\n'));
+
+    }).catch(function () {
+      /* Fallback if API calls fail */
+      var text = 'I am looking at agricultural parcel ID ' + id
+        + ' from dataset ' + col + '.'
+        + ' Please provide an agronomic analysis of what you know about this kind of parcel.';
+      injectText(text);
+    }).finally(function () {
+      analyseBtn.textContent = 'Analyse →';
+      analyseBtn.disabled = false;
+    });
+  }
+
+  /* Inject text into the React-controlled chatbot textarea and submit focus. */
+  function injectText(text) {
+    var textarea = document.querySelector('textarea');
+    if (!textarea) return;
+    var proto = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+    if (proto && proto.set) {
+      proto.set.call(textarea, text);
+    } else {
+      textarea.value = text;
+    }
+    textarea.dispatchEvent(new Event('input',  { bubbles: true }));
+    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+    textarea.focus();
+  }
+
+  /* ── Fetch interceptor: forward map data from backend responses to parent ── */
+  var MAP_ENDPOINTS = /\/(chat|unified-chat|enhanced-chat|query|intelligent-route|sign-mosaic-url)/;
+
+  function isGeoBbox(arr) {
+    return arr.length === 4
+      && arr.every(function (v) { return typeof v === 'number'; })
+      && arr[0] >= -180 && arr[2] <= 180
+      && arr[1] >= -90  && arr[3] <= 90
+      && arr[0] < arr[2] && arr[1] < arr[3];
+  }
+
+  function findBbox(obj, depth) {
+    if (!obj || depth > 6) return null;
+    if (Array.isArray(obj)) {
+      if (isGeoBbox(obj)) return obj;
+      for (var i = 0; i < obj.length; i++) {
+        var r = findBbox(obj[i], depth + 1);
+        if (r) return r;
+      }
+    } else if (typeof obj === 'object') {
+      /* Check 'bbox' key first */
+      if (Array.isArray(obj.bbox) && isGeoBbox(obj.bbox)) return obj.bbox;
+      var keys = Object.keys(obj);
+      for (var j = 0; j < keys.length; j++) {
+        if (keys[j] === 'bbox') continue;
+        var r2 = findBbox(obj[keys[j]], depth + 1);
+        if (r2) return r2;
+      }
+    }
+    return null;
+  }
+
+  function sendTileUrl(url) {
+    url = url.replace(/^\/api\/raster\//, '/mos-raster/');
+    window.parent.postMessage({ type: 'MOS_GIS_TILES', url: url }, '*');
+  }
+
+  function forwardTileUrl(data) {
+    if (!data || typeof data.signed_url !== 'string') return;
+    var url = data.signed_url;
+    if (url.indexOf('{z}') !== -1) {
+      /* Direct XYZ tile template */
+      sendTileUrl(url);
+    } else if (/tilejson\.json/.test(url)) {
+      /* TiTiler tilejson endpoint — fetch it to extract the XYZ tile template */
+      fetch(url)
+        .then(function (r) { return r.json(); })
+        .then(function (tj) {
+          if (tj.tiles && tj.tiles.length > 0) sendTileUrl(tj.tiles[0]);
+        })
+        .catch(function () {});
+    }
+  }
+
+  function forwardMapData(data) {
+    if (!data || typeof data !== 'object') return;
+
+    // navigate_to: prefer lat/lon (unambiguous) over bbox (coordinate order can be ambiguous)
+    if (data.action === 'navigate_to' && data.navigate_to) {
+      var nav = data.navigate_to;
+      if (typeof nav.latitude === 'number' && typeof nav.longitude === 'number') {
+        window.parent.postMessage({
+          type: 'MOS_GIS_ZOOM',
+          lat: nav.latitude,
+          lon: nav.longitude,
+          zoom: nav.zoom || 10
+        }, '*');
+      } else if (Array.isArray(nav.bbox) && isGeoBbox(nav.bbox)) {
+        window.parent.postMessage({ type: 'MOS_GIS_ZOOM', bbox: nav.bbox }, '*');
+      }
+      return;
+    }
+
+    // Any other response: scan for the first valid geo bbox anywhere in the payload
+    var bbox = findBbox(data, 0);
+    if (bbox) {
+      var bboxW = Math.abs(bbox[2] - bbox[0]);
+      var bboxH = Math.abs(bbox[3] - bbox[1]);
+      if (bboxW > 5 || bboxH > 5) {
+        /* Bbox too large (e.g. MODIS tile covering all of eastern Canada) —
+           zoom to centroid at a moderate level instead of fitting the full extent */
+        window.parent.postMessage({
+          type: 'MOS_GIS_ZOOM',
+          lat: (bbox[1] + bbox[3]) / 2,
+          lon: (bbox[0] + bbox[2]) / 2,
+          zoom: 8
+        }, '*');
+      } else {
+        window.parent.postMessage({ type: 'MOS_GIS_ZOOM', bbox: bbox }, '*');
+      }
+    }
+  }
+
+  function dispatchResponse(url, data) {
+    if (/sign-mosaic-url/.test(url)) {
+      forwardTileUrl(data);
+    } else {
+      forwardMapData(data);
+    }
+  }
+
+  (function patchFetch() {
+    var _fetch = window.fetch;
+    window.fetch = async function (input, init) {
+      var url = typeof input === 'string' ? input : (input && input.url) || '';
+      var response = await _fetch.call(this, input, init);
+      if (MAP_ENDPOINTS.test(url)) {
+        response.clone().json().then(function (data) { dispatchResponse(url, data); }).catch(function () {});
+      }
+      return response;
+    };
+  }());
+
+  /* Axios uses XMLHttpRequest, not fetch — patch XHR to intercept map responses. */
+  (function patchXhr() {
+    var _open = XMLHttpRequest.prototype.open;
+    var _send = XMLHttpRequest.prototype.send;
+
+    XMLHttpRequest.prototype.open = function (method, url) {
+      this._mosUrl = url || '';
+      return _open.apply(this, arguments);
+    };
+
+    XMLHttpRequest.prototype.send = function () {
+      if (MAP_ENDPOINTS.test(this._mosUrl)) {
+        var mosUrl = this._mosUrl;
+        this.addEventListener('load', function () {
+          try {
+            dispatchResponse(mosUrl, JSON.parse(this.responseText));
+          } catch (_) {}
+        });
+      }
+      return _send.apply(this, arguments);
+    };
+  }());
+
+  /* ── Event listeners ────────────────────────────────────────────────────── */
+  analyseBtn.addEventListener('click', injectPrompt);
+  closeBtn.addEventListener('click', hideContext);
+
+  window.addEventListener('message', function (e) {
+    if (!e.data || e.data.type !== 'MOS_GIS_CONTEXT') return;
+    showContext(e.data);
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mountBanner);
+  } else {
+    mountBanner();
+  }
+
+  /* ── Welcome message translation ─────────────────────────────────────────── */
+  (function () {
+    var MSGS = {
+      en: 'Welcome to OpenGeo AI Assistant! I\'m here to help you find datasets that include location and date details. Whether you\'re tracking time-sensitive trends or exploring geospatial insights, I\'ve got you covered. Just tell me what you\'re working on, and we\'ll get started!',
+      fr: 'Bienvenue sur l\'Assistant IA MOS-GIS ! Je suis ici pour vous aider à trouver des données géospatiales avec des détails de localisation et de date. Que vous analysiez des tendances temporelles ou exploriez des aperçus spatiaux sur le Québec, je suis là pour vous. Dites-moi sur quoi vous travaillez, et commençons !'
+    };
+
+    // Unique snippets to detect which language version is currently in the DOM
+    var SNIPPET = { en: 'Welcome to OpenGeo AI Assistant', fr: 'Bienvenue sur l\'Assistant IA' };
+
+    function applyWelcome(lang) {
+      // Search for the *opposite* language text currently in the DOM and replace with target
+      var currentLang = lang === 'fr' ? 'en' : 'fr';
+      var searchFor = SNIPPET[currentLang];
+      var to = MSGS[lang];
+
+      // Text node path (plain React render)
+      var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+      var node;
+      while ((node = walker.nextNode())) {
+        if (node.nodeValue && node.nodeValue.indexOf(searchFor) !== -1) {
+          node.nodeValue = to;
+          return true;
+        }
+      }
+      // innerHTML path (dangerouslySetInnerHTML)
+      var all = document.querySelectorAll('*');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.children.length === 0 && el.innerHTML && el.innerHTML.indexOf(searchFor) !== -1) {
+          el.innerHTML = to;
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // Observer only needed when loading with FR: waits for the EN message to appear then swaps it
+    var observer = new MutationObserver(function () {
+      if (applyWelcome('fr')) observer.disconnect();
+    });
+
+    function start() {
+      var lang = localStorage.getItem('mos-lang') || 'fr';
+      if (lang === 'fr' && !applyWelcome('fr')) {
+        observer.observe(document.body, { childList: true, subtree: true });
+      }
+    }
+
+    // Handle language switch while already on the chatbot page
+    window.addEventListener('mos-lang-change', function (e) {
+      applyWelcome(e.detail.lang);
+    });
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', start);
+    } else {
+      start();
+    }
+  }());
+}());

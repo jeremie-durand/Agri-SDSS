@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MOS-GIS — Spatial Decision Support System</title>
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin=""
+    />
+    <link rel="stylesheet" href="css/map.css" />
+</head>
+<body>
+
+<nav class="unified-nav" role="navigation">
+  <a class="unified-nav__brand" href="/">MOS<span>-GIS</span></a>
+  <div class="unified-nav__links">
+    <a class="unified-nav__link active" href="/" data-nav="map">Map</a>
+    <a class="unified-nav__link" href="/services" data-nav="services">Services</a>
+    <a class="unified-nav__link" href="/data" data-nav="data">Data</a>
+    <a class="unified-nav__link" href="/stac/" data-nav="stac">STAC</a>
+    <a class="unified-nav__link" href="/chatbot/" data-nav="chatbot">AI Assistant</a>
+  </div>
+  <button class="unified-nav__lang" id="langToggle" type="button">FR</button>
+</nav>
+
+<header>
+    <div class="title-wrap">
+        <h1 data-i18n="page-title">Spatial Decision Support System</h1>
+        <p data-i18n="header-desc">Interactive geospatial map for spatial analysis, data exploration, and evidence-based agricultural decision support.</p>
+    </div>
+    <div class="toolbar">
+        <button id="btnHome" class="btn btn-primary" type="button" data-i18n="btn-initial-view">Quebec view</button>
+    </div>
+</header>
+
+<main>
+    <aside class="panel">
+
+        <section class="panel-control">
+            <label for="basemap" data-i18n="lbl-basemap">Basemap</label>
+            <select id="basemap" name="basemap">
+                <option value="osm">OpenStreetMap</option>
+                <option value="esri">Satellite (Esri)</option>
+                <option value="hot">OSM Humanitarian</option>
+            </select>
+        </section>
+
+        <section class="tool-box">
+            <h2 data-i18n="bdppad-title">Parcelles agricoles (BDPPAD)</h2>
+            <p class="legend" id="bdppadStatus"></p>
+            <div class="vector-list" id="bdppadList"></div>
+        </section>
+
+        <section class="tool-box">
+            <h2 data-i18n="aac-title">Inventaire annuel des cultures (AAC)</h2>
+            <p class="legend" id="aacStatus"></p>
+            <p class="legend aac-not-live-notice" id="aacNotLiveNotice" hidden></p>
+            <div class="vector-list" id="aacList"></div>
+        </section>
+
+        <section class="tool-box">
+            <h2 data-i18n="background-title">Background data</h2>
+            <p class="legend" id="grhqStatus"></p>
+            <div class="vector-list" id="grhqList"></div>
+        </section>
+
+        <section class="tool-box">
+            <h2 data-i18n="som-layer-title">SOM Field Boundaries</h2>
+            <label class="som-layer-toggle">
+                <input type="checkbox" id="somBoundaryToggle" />
+                <span data-i18n="som-layer-label">Show trained fields</span>
+            </label>
+            <div class="som-layer-legend">
+                <span class="som-legend-dot som-legend-dot--gee"></span>
+                <span data-i18n="som-layer-has-gee">GEE training data</span>
+                <span class="som-legend-dot som-legend-dot--no-gee"></span>
+                <span data-i18n="som-layer-no-gee">Boundary only</span>
+            </div>
+        </section>
+    </aside>
+
+    <section class="map-wrap">
+        <div id="map" aria-label="Leaflet map"></div>
+        <div id="coords" class="coord-readout">Lat: --, Lon: --, Zoom: --</div>
+        <div class="map-controls" id="mapControls">
+            <button class="map-control-btn" id="mapZoomIn" title="Zoom in">+</button>
+            <button class="map-control-btn" id="mapZoomOut" title="Zoom out">−</button>
+            <button class="map-control-btn" id="mapLocate" title="Me localiser">⊙</button>
+        </div>
+    </section>
+</main>
+
+<!-- ── SOM Calculator Modal ── -->
+<div id="somModal" class="som-modal" hidden>
+  <div class="som-modal__backdrop" id="somBackdrop"></div>
+  <div class="som-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="somTitle">
+    <div class="som-modal__header">
+      <h2 id="somTitle" data-i18n="som-title">SOM Calculator</h2>
+      <button class="som-modal__close" id="somClose" aria-label="Close">&#x2715;</button>
+    </div>
+    <div class="som-tabs" role="tablist">
+      <button class="som-tab som-tab--active" id="somTabPoc" role="tab" aria-selected="true" aria-controls="somPanelPoc" data-i18n="som-tab-poc">Proof of Concept</button>
+      <button class="som-tab" id="somTabPredict" role="tab" aria-selected="false" aria-controls="somPanelPredict" data-i18n="som-tab-predict">SOM Predict</button>
+    </div>
+    <div class="som-modal__body">
+    <div id="somPanelPoc" role="tabpanel">
+
+      <p class="som-aac-notice" id="somAacNotice" hidden data-i18n="som-aac-notice">
+        Note: Auto-generation may be less accurate than with BDPPAD data.
+      </p>
+
+      <!-- Hidden technical field used by JS only — not shown to the user -->
+      <div class="som-field" hidden aria-hidden="true">
+        <label data-i18n="som-extent">Farm extent (bbox)</label>
+        <input id="somExtent" type="text" readonly class="som-input" tabindex="-1" />
+      </div>
+
+      <!-- Parcel -->
+      <div class="som-section">
+        <p class="som-section__title" data-i18n="som-section-parcel">Parcel</p>
+
+        <div class="som-field">
+          <label for="somArea" data-i18n="som-area">Parcel area (ha)</label>
+          <input id="somArea" type="number" step="0.1" class="som-input" />
+          <span class="som-field__status" id="somAreaStatus" aria-live="polite"></span>
+        </div>
+
+        <div class="som-field">
+          <label for="somCulture" data-i18n="som-culture">Culture type</label>
+          <select id="somCulture" class="som-input">
+            <!-- populated dynamically from BDPPAD feature on modal open -->
+          </select>
+          <span class="som-field__status" id="somCultureStatus" aria-live="polite"></span>
+        </div>
+      </div>
+
+      <!-- Soil properties -->
+      <div class="som-section">
+        <p class="som-section__title" data-i18n="som-section-soil">Soil properties</p>
+
+        <div class="som-field">
+          <label for="somCorg" data-i18n="som-corg">Soil organic carbon (%)</label>
+          <div class="som-field__row">
+            <input id="somCorg" type="number" step="0.01" class="som-input" />
+            <button class="btn som-autogen-btn" id="somCorgGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somCorgStatus" aria-live="polite"></span>
+        </div>
+
+        <div class="som-field">
+          <label for="somPh" data-i18n="som-ph">Soil pH</label>
+          <div class="som-field__row">
+            <input id="somPh" type="number" step="0.01" class="som-input" />
+            <button class="btn som-autogen-btn" id="somPhGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somPhStatus" aria-live="polite"></span>
+        </div>
+
+        <div class="som-field">
+          <label for="somSable" data-i18n="som-sable">Sand content (%)</label>
+          <div class="som-field__row">
+            <input id="somSable" type="number" step="0.01" class="som-input" />
+            <button class="btn som-autogen-btn" id="somSableGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somSableStatus" aria-live="polite"></span>
+        </div>
+
+        <div class="som-field">
+          <label for="somLimon" data-i18n="som-limon">Silt content (%)</label>
+          <div class="som-field__row">
+            <input id="somLimon" type="number" step="0.01" class="som-input" />
+            <button class="btn som-autogen-btn" id="somLimonGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somLimonStatus" aria-live="polite"></span>
+        </div>
+
+        <div class="som-field">
+          <label for="somArgile" data-i18n="som-argile">Clay content (%)</label>
+          <div class="som-field__row">
+            <input id="somArgile" type="number" step="0.01" class="som-input" />
+            <button class="btn som-autogen-btn" id="somArgileGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somArgileStatus" aria-live="polite"></span>
+        </div>
+
+        <div class="som-field">
+          <label for="somCec" data-i18n="som-cec">CEC - Cation exchange capacity (cmolc/kg)</label>
+          <div class="som-field__row">
+            <input id="somCec" type="number" step="0.01" class="som-input" />
+            <button class="btn som-autogen-btn" id="somCecGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somCecStatus" aria-live="polite"></span>
+        </div>
+      </div>
+
+      <!-- Environmental context -->
+      <div class="som-section">
+        <p class="som-section__title" data-i18n="som-section-env">Environmental context</p>
+
+        <div class="som-field">
+          <label for="somPedo" data-i18n="som-pedo">Pedological coverage 2026</label>
+          <div class="som-field__row">
+            <input id="somPedo" type="text" class="som-input" />
+            <button class="btn som-autogen-btn" id="somPedoGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somPedoStatus" aria-live="polite"></span>
+        </div>
+
+        <div class="som-field">
+          <label for="somWater" data-i18n="som-water">Distance from water (km)</label>
+          <div class="som-field__row">
+            <input id="somWater" type="number" step="0.01" class="som-input" />
+            <button class="btn som-autogen-btn" id="somWaterGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somWaterStatus" aria-live="polite"></span>
+        </div>
+
+        <div class="som-field">
+          <label for="somScenes" data-i18n="som-scenes">Mean summer NDVI (Sentinel-2)</label>
+          <div class="som-field__row">
+            <input id="somScenes" type="number" step="0.001" class="som-input" />
+            <button class="btn som-autogen-btn" id="somScenesGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somScenesStatus" aria-live="polite"></span>
+        </div>
+
+        <div class="som-field">
+          <label for="somElevation" data-i18n="som-elevation">Mean Elevation (LiDAR DTM, m)</label>
+          <div class="som-field__row">
+            <input id="somElevation" type="number" step="0.1" class="som-input" />
+            <button class="btn som-autogen-btn" id="somElevationGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somElevationStatus" aria-live="polite"></span>
+        </div>
+
+        <div class="som-field">
+          <label for="somPrecip" data-i18n="som-precip">Total precipitation, past 7 days (mm)</label>
+          <div class="som-field__row">
+            <input id="somPrecip" type="number" step="0.1" class="som-input" />
+            <button class="btn som-autogen-btn" id="somPrecipGen" data-i18n="som-autogen">Auto-generate</button>
+          </div>
+          <span class="som-field__status" id="somPrecipStatus" aria-live="polite"></span>
+        </div>
+      </div>
+
+      <div class="som-results" id="somResults" hidden>
+        <h3 class="som-results__title" data-i18n="som-results-title">Projected SOM</h3>
+        <div class="som-chart-wrap">
+          <canvas id="somChart"></canvas>
+        </div>
+      </div>
+
+    </div><!-- end somPanelPoc -->
+
+    <div id="somPanelPredict" role="tabpanel" hidden>
+
+      <!-- Field matching status -->
+      <div class="som-section">
+        <p class="som-section__title" data-i18n="som-predict-field-section">Field</p>
+        <div class="som-field">
+          <label data-i18n="som-predict-field-label">Matched field (GEE training data)</label>
+          <div id="somPredictFieldInfo" class="som-predict-field-info">—</div>
+          <span class="som-field__status" id="somPredictFieldStatus" aria-live="polite"></span>
+        </div>
+      </div>
+
+      <!-- Run button + status -->
+      <div class="som-run">
+        <button class="btn btn--primary" id="somPredictRun" disabled data-i18n="som-predict-run">Run SOM Prediction</button>
+        <span class="som-run__status" id="somPredictRunStatus" aria-live="polite"></span>
+      </div>
+      <div id="somPredictProgress" class="som-progress" hidden>
+        <div class="som-progress__bar-wrap">
+          <div class="som-progress__bar" id="somProgressBar"></div>
+        </div>
+        <span class="som-progress__stage" id="somProgressStage" aria-live="polite"></span>
+      </div>
+
+      <!-- Help collapsible -->
+      <details class="som-help" id="somHelp">
+        <summary class="som-help__toggle" data-i18n="som-help-open">ℹ️ How does this work?</summary>
+        <div class="som-help__body">
+          <p class="som-help__section-title" data-i18n="som-help-farmer-title">For farmers</p>
+          <p data-i18n="som-help-farmer-what">This tool estimates the organic matter in your soil (SOM = Soil Organic Matter) using satellite images. The model was trained on Quebec farm measurements and links satellite-observed bare-soil colour signals to lab SOM values.</p>
+          <p data-i18n="som-help-farmer-r2"><strong>R²</strong> (R-squared) measures how well the model fits — 1.0 is perfect. Above 0.75: excellent. 0.50–0.75: good. Below 0.25: use with caution. It tells you how confident the model is in its prediction for this field.</p>
+          <p data-i18n="som-help-farmer-rmse"><strong>RMSE</strong> and <strong>MAE</strong> show the average prediction error in the same units as SOM (g/kg or %). Lower is better. An RMSE below 3 g/kg (0.3%) is generally acceptable for field-scale SOM.</p>
+          <p data-i18n="som-help-farmer-images"><strong>Images used</strong>: the number of cloud-free satellite images from autumn and early spring included in the model. More images = more reliable result. At least 5 is recommended.</p>
+          <p class="som-help__section-title" data-i18n="som-help-scientist-title">For scientists</p>
+          <p data-i18n="som-help-scientist-model">RandomForestRegressor on Sentinel-2 spectral indices (BSI, NDVI, EVI, SAVI, OMI, CAI, RI, SI, BI, CI, NDMI + stdDev) with one-hot soil type encoding. Scenarios: S1 (spectral+soil), S2 (+topo), S3 (+topo+climate). Feature selection via LassoCV on inner train set (GroupShuffleSplit 80/20 by FIELD_ID). Image ranking via GroupKFold(3) RMSE. Optimal image count: argmax R² on inner validation. Back-transform: Duan smearing (log₁₀).</p>
+          <p data-i18n="som-help-scientist-metrics">R² and RMSE are computed on field-level aggregated predictions (mean over images per field). When the test set contains only 1 field, field-level R² is undefined; inner-validation R² is shown instead (*).</p>
+          <p data-i18n="som-help-scientist-gee">Training data from GEE: Sentinel-2 L2A, bare-soil masked (BSI &gt; 0), cloud filter &lt; 1% at tile level. Low image counts may reflect strict cloud filtering in high-cloud years or limited bare-soil exposure windows.</p>
+        </div>
+      </details>
+
+      <!-- Results (hidden until process returns) -->
+      <div id="somPredictResults" hidden>
+
+        <!-- error state: shown when n_images_used <= 1 -->
+        <div id="somPredictError" class="som-predict-error" hidden>
+          <p class="som-predict-error__title" data-i18n="som-warn-images-title">Insufficient training data — results cannot be displayed</p>
+          <p class="som-predict-error__body" data-i18n="som-warn-images-body">Only 1 satellite image was available for this field. A minimum of 2 images is required to fit a regression model and compute R². Results based on a single observation are statistically unreliable and are not shown.</p>
+        </div>
+
+        <!-- unit toggle (shown together with chart/metrics) -->
+        <div class="som-unit-toggle" id="somUnitToggle">
+          <span data-i18n="som-unit-label">Unit:</span>
+          <button class="som-unit-btn som-unit-btn--active" id="somUnitGkg" data-i18n="som-unit-gkg">g/kg</button>
+          <button class="som-unit-btn" id="somUnitPct" data-i18n="som-unit-pct">%</button>
+        </div>
+
+        <div id="somPredictChartSection" class="som-section">
+          <p class="som-section__title" data-i18n="som-predict-results-title">SOM Trend Over Time</p>
+          <div class="som-chart-wrap" style="height:220px">
+            <canvas id="somPredictChart"></canvas>
+          </div>
+        </div>
+        <div id="somPredictMetricsSection" class="som-section">
+          <p class="som-section__title" data-i18n="som-predict-metrics-title">Model metrics (Spec + Soil + Topo + Climate)</p>
+          <table id="somPredictMetrics" class="som-metrics-table">
+            <thead><tr>
+              <th>R²</th>
+              <th>RMSE</th>
+              <th>MAE</th>
+              <th data-i18n="som-predict-col-images">Images used</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+          <div id="somPredictInterpretation" class="som-interpretation" hidden></div>
+        </div>
+      </div>
+
+    </div><!-- end somPanelPredict -->
+
+    </div>
+    <div class="som-modal__footer">
+      <p class="som-run__status" id="somRunStatus"></p>
+      <button class="btn" id="somCancel" data-i18n="som-cancel">Cancel</button>
+      <button class="btn btn-primary" id="somRun" data-i18n="som-run">Run SOM Analysis</button>
+      <button class="btn" id="somExportPdf" data-i18n="som-export-pdf" hidden>Export PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── SOM Report Preview Modal ── -->
+<div id="somReportModal" class="som-report-modal" hidden>
+  <div class="som-report-modal__backdrop" id="somReportBackdrop"></div>
+  <div class="som-report-modal__dialog" role="dialog" aria-modal="true">
+    <div class="som-report-modal__header">
+      <span data-i18n="som-preview-title">Aperçu du rapport</span>
+      <button class="som-modal__close" id="somReportClose" aria-label="Close">&#x2715;</button>
+    </div>
+    <div class="som-report-modal__body" id="somReportBody">
+      <!-- populated by somShowPreview() -->
+    </div>
+    <div class="som-report-modal__footer">
+      <button class="btn" id="somReportCancel" data-i18n="som-preview-cancel">Fermer</button>
+      <button class="btn btn-primary" id="somReportSave" data-i18n="som-preview-save">Enregistrer PDF</button>
+    </div>
+  </div>
+</div>
+
+<button class="chat-toggle" id="chatToggle" aria-label="Open chatbot">💬</button>
+
+<div class="chat-panel" id="chatPanel" hidden>
+  <div class="chat-panel__header">
+    <span>MOS Assistant</span>
+    <button class="chat-panel__close" id="chatClose" aria-label="Close">&#x2715;</button>
+  </div>
+  <div class="chat-messages" id="chatMessages"></div>
+  <form class="chat-input-row" id="chatForm">
+    <textarea id="chatInput" rows="2" placeholder="Ask about the map… (Ctrl+Enter to send)"></textarea>
+    <button type="submit" class="chat-send-btn" id="chatSend">&#x2191;</button>
+  </form>
+</div>
+
+<script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+></script>
+<script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.min.js"></script>
+<script src="/js/turf.min.js"></script>
+<script src="/js/chart.umd.min.js"></script>
+<script src="/js/gropro-labels.js"></script>
+<script src="/js/aac-crop-codes.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script type="module" src="js/app.js"></script>
+<script>
+(function() {
+  var path = window.location.pathname;
+  document.querySelectorAll('.unified-nav__link').forEach(function(a) {
+    var nav = a.getAttribute('data-nav');
+    var isActive =
+      (nav === 'map'      && (path === '/' || path === '/map.html')) ||
+      (nav === 'services' && (path === '/services' || path === '/index.html')) ||
+      (nav === 'stac'     && path.startsWith('/stac/')) ||
+      (nav === 'chatbot'  && path.startsWith('/chatbot/'));
+    if (isActive) a.classList.add('active');
+  });
+
+  var T = {
+    en: {
+      'page-title':        'Spatial Decision Support System - Map',
+      'header-desc':       'Interactive geospatial map for spatial analysis, data exploration, and evidence-based agricultural decision support.',
+      'btn-back':          'Back to services',
+      'btn-initial-view':  'Quebec view',
+      'h-tools':           'Tools',
+      'lbl-basemap':       'Basemap',
+      'btn-locate':        'Locate me',
+      'btn-world':         'World',
+      'status-map':        'Map loaded.',
+      'lbl-stac-endpoint': 'STAC Catalog endpoint',
+      'btn-connect':       'Connect',
+      'btn-catalog':       'Catalog',
+      'btn-back-stac':     'Back',
+      'btn-clear-view':    'Clear view',
+      'stac-status':       'STAC: not connected.',
+      'lbl-vector-endpoint': 'Vector API collections endpoint',
+      'btn-load':          'Load',
+      'btn-hide-all':      'Hide all',
+      'vector-status':     'Vector: not loaded.',
+      'lbl-raster-url':    'Raster API base URL',
+      'lbl-known-cogs':    'Known COGs',
+      'lbl-raster-mode':   'Raster mode',
+      'opt-single':        'Pseudo-color (1 band)',
+      'opt-rgb':           'RGB composite (3 bands)',
+      'lbl-band':          'Band',
+      'lbl-colormap':      'Colormap',
+      'lbl-auto-stretch':  'Auto-stretch values',
+      'btn-add-layer':     'Add layer',
+      'btn-hide-all-raster': 'Hide all',
+      'btn-prefetch':      'Prefetch (offline)',
+      'raster-status':     'Raster: no layer loaded.',
+      'h-metadata':        'Item metadata',
+      'metadata-status':   'No item selected.',
+      'metadata-hint':     'Select a STAC item to display its metadata.',
+      'aria-chat-toggle':  'Open chatbot',
+      'placeholder-chat':  'Ask about the map… (Ctrl+Enter to send)',
+      'som-aac-notice': 'Note: Auto-generation may be less accurate than with BDPPAD data.',
+      'som-title':    'SOM Calculator',
+      'som-extent':   'Farm extent (bbox)',
+      'som-culture':  'Culture type',
+      'som-corg':     'Soil organic carbon (%)',
+      'som-ph':       'Soil pH',
+      'som-sable':    'Sand content (%)',
+      'som-limon':    'Silt content (%)',
+      'som-argile':   'Clay content (%)',
+      'som-cec':      'CEC - Cation exchange capacity (cmolc/kg)',
+      'som-scenes':   'Mean summer NDVI (Sentinel-2, Jun–Aug)',
+      'som-elevation': 'Mean Elevation (LiDAR DTM, m)',
+      'som-precip':            'Total precipitation, past 7 days (mm)',
+      'som-precip-none':       'No weather station found nearby',
+      'som-precip-nodata':     'No precipitation data for this area',
+      'som-precip-days':       'days',
+      'som-pdf-precip':        'Total precipitation (7d, mm)',
+      'som-autogen':  'Auto-generate',
+      'som-cancel':   'Cancel',
+      'som-loading':  'Loading…',
+      'som-error':    'Error',
+      'som-area':              'Parcel area (ha)',
+      'som-pedo':              'Pedological coverage 2026',
+      'som-pedo-none':         'No coverage found for this area',
+      'som-pedo-multi':        'Dominant coverage used',
+      'som-water':             'Distance from water (km)',
+      'som-tab-poc':        'Proof of Concept',
+      'som-tab-predict':    'SOM Predict',
+      'som-predict-field-section': 'Field',
+      'som-predict-field-label':   'Matched field (GEE training data)',
+      'som-predict-run':           'Run SOM Prediction',
+      'som-predict-results-title': 'SOM Trend Over Time',
+      'som-predict-metrics-title': 'Model metrics (Spec + Soil + Topo + Climate)',
+      'som-predict-col-images':    'Images',
+      'som-predict-no-field':           'No GEE training data found for this farm',
+      'som-predict-field-gee':          'Field #',
+      'som-predict-field-gee-suffix':   ' — GEE training data available',
+      'som-predict-field-gee-multi':    ' GEE fields found',
+      'som-predict-field-no-gee':       'Field #',
+      'som-predict-field-no-gee-suffix': ' — No GEE training data',
+      'som-run':           'Run SOM Analysis',
+      'som-running':       'Running analysis…',
+      'som-run-ok':        'Analysis complete',
+      'som-run-error':     'PyGeoAPI unreachable',
+      'som-results-title': 'Projected SOM (%)',
+      'som-export-pdf':        'Export PDF',
+      'som-fields-required':   'Some required fields are missing',
+      'som-pdf-title':         'MOS-GIS — SOM Analysis Report',
+      'som-pdf-farm-section':  'Farm parcel information',
+      'som-pdf-farm-id':       'Parcel ID',
+      'som-pdf-culture':       'Culture type',
+      'som-pdf-corg':          'Organic carbon (%)',
+      'som-pdf-ph':            'Soil pH',
+      'som-pdf-sable':         'Sand (%)',
+      'som-pdf-limon':         'Silt (%)',
+      'som-pdf-argile':        'Clay (%)',
+      'som-pdf-cec':           'CEC (cmolc/kg)',
+      'som-pdf-ndvi':          'Mean summer NDVI (Jun–Aug)',
+      'som-pdf-area':          'Area (ha)',
+      'som-pdf-pedo':          'Pedological coverage',
+      'som-pdf-projection':    'Projected soil organic matter',
+      'som-pdf-disclaimer':    'Results are indicative and based on projection models. They do not replace a professional agronomic analysis.',
+      'som-pdf-footer':        'Generated by MOS-GIS',
+      'som-section-parcel':    'Parcel',
+      'som-section-soil':      'Soil properties',
+      'som-section-env':       'Environmental context',
+      'som-preview-title':     'Report Preview',
+      'som-preview-save':      'Save PDF',
+      'som-preview-cancel':    'Close',
+      'bdppad-title':          'Agricultural parcels (BDPPAD)',
+      'bdppad-loading':        'Loading…',
+      'bdppad-available':      'dataset(s) available',
+      'bdppad-none':           'No BDPPAD dataset found.',
+      'bdppad-error':          'Error: ',
+      'aac-title':             'Annual Crop Inventory (AAC)',
+      'aac-active':            'Layer active',
+      'aac-inactive':          'Layer inactive',
+      'background-title':      'Background data',
+      'grhq-title':            'GRHQ Water Network',
+      'grhq-active':           'Active',
+      'grhq-inactive':         'Inactive',
+      'som-layer-title':       'SOM Field Boundaries',
+      'som-layer-label':       'Show trained fields',
+      'som-layer-has-gee':     'GEE training data',
+      'som-layer-no-gee':      'Boundary only',
+      'som-pdf-water':         'Distance from water',
+      'aac-identify-loading':  'Identifying…',
+      'aac-identify-error':    'No data at this location.',
+      'som-stage-loading':     'Loading training data…',
+      'som-stage-lasso':       'Selecting spectral features (LassoCV)…',
+      'som-stage-ranking':     'Ranking satellite images…',
+      'som-stage-rf':          'Fitting Random Forest…',
+      'som-stage-building':    'Building results…',
+      'som-unit-label':        'Unit:',
+      'som-unit-gkg':          'g/kg',
+      'som-unit-pct':          '%',
+      'som-warn-images-title': 'Insufficient training data — results cannot be displayed',
+      'som-warn-images-body':  'Only 1 satellite image was available for this field. A minimum of 2 images is required to fit a regression model and compute R². Results based on a single observation are statistically unreliable and are not shown.',
+      'som-interp-excellent':  'Excellent model fit',
+      'som-interp-good':       'Good model fit',
+      'som-interp-moderate':   'Moderate model fit',
+      'som-interp-weak':       'Weak model fit',
+      'som-interp-body':       ' — the model explains {r2pct}% of the measured SOM variability in the training data.',
+      'som-interp-val-note':   '(R² estimated on validation data — only one field in the test set)',
+      'som-help-open':              'ℹ️ How does this work?',
+      'som-help-farmer-title':      'For farmers',
+      'som-help-farmer-what':       'This tool estimates the organic matter in your soil (SOM = Soil Organic Matter) using satellite images. The model was trained on Quebec farm measurements and links satellite-observed bare-soil colour signals to lab SOM values.',
+      'som-help-farmer-r2':         '<strong>R²</strong> (R-squared) measures how well the model fits — 1.0 is perfect. Above 0.75: excellent. 0.50–0.75: good. Below 0.25: use with caution. It tells you how confident the model is in its prediction for this field.',
+      'som-help-farmer-rmse':       '<strong>RMSE</strong> and <strong>MAE</strong> show the average prediction error in the same units as SOM (g/kg or %). Lower is better. An RMSE below 3 g/kg (0.3%) is generally acceptable for field-scale SOM.',
+      'som-help-farmer-images':     '<strong>Images used</strong>: the number of cloud-free satellite images from autumn and early spring included in the model. More images = more reliable result. At least 5 is recommended.',
+      'som-help-scientist-title':   'For scientists',
+      'som-help-scientist-model':   'RandomForestRegressor on Sentinel-2 spectral indices (BSI, NDVI, EVI, SAVI, OMI, CAI, RI, SI, BI, CI, NDMI + stdDev) with one-hot soil type encoding. Scenarios: S1 (spectral+soil), S2 (+topo), S3 (+topo+climate). Feature selection via LassoCV on inner train set (GroupShuffleSplit 80/20 by FIELD_ID). Image ranking via GroupKFold(3) RMSE. Optimal image count: argmax R² on inner validation. Back-transform: Duan smearing (log₁₀).',
+      'som-help-scientist-metrics': 'R² and RMSE are computed on field-level aggregated predictions (mean over images per field). When the test set contains only 1 field, field-level R² is undefined; inner-validation R² is shown instead (*).',
+      'som-help-scientist-gee':     'Training data from GEE: Sentinel-2 L2A, bare-soil masked (BSI &gt; 0), cloud filter &lt; 1% at tile level. Low image counts may reflect strict cloud filtering in high-cloud years or limited bare-soil exposure windows.',
+      'aac-not-live':          'Note: The 2025 layer is not yet available from Agriculture Canada.',
+      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant'
+    },
+    fr: {
+      'page-title':        'Système d\'aide à la décision spatiale - Carte',
+      'header-desc':       'Carte géospatiale interactive pour l\'analyse spatiale, l\'exploration de données et l\'aide à la décision agricole basée sur les données probantes.',
+      'btn-back':          'Retour aux services',
+      'btn-initial-view':  'Vue du Québec',
+      'h-tools':           'Outils',
+      'lbl-basemap':       'Fond de carte',
+      'btn-locate':        'Me localiser',
+      'btn-world':         'Monde',
+      'status-map':        'Carte chargée.',
+      'lbl-stac-endpoint': 'Endpoint du catalogue STAC',
+      'btn-connect':       'Connecter',
+      'btn-catalog':       'Catalogue',
+      'btn-back-stac':     'Retour',
+      'btn-clear-view':    'Effacer vue',
+      'stac-status':       'STAC : non connecté.',
+      'lbl-vector-endpoint': 'Endpoint des collections Vector API',
+      'btn-load':          'Charger',
+      'btn-hide-all':      'Tout cacher',
+      'vector-status':     'Vector : non chargé.',
+      'lbl-raster-url':    'URL de base Raster API',
+      'lbl-known-cogs':    'COGs connus',
+      'lbl-raster-mode':   'Mode raster',
+      'opt-single':        'Pseudo-couleur (1 bande)',
+      'opt-rgb':           'Composite RGB (3 bandes)',
+      'lbl-band':          'Bande',
+      'lbl-colormap':      'Palette',
+      'lbl-auto-stretch':  'Étirement auto des valeurs',
+      'btn-add-layer':     'Ajouter couche',
+      'btn-hide-all-raster': 'Tout cacher',
+      'btn-prefetch':      'Préchargement (hors-ligne)',
+      'raster-status':     'Raster : aucune couche chargée.',
+      'h-metadata':        'Métadonnées item',
+      'metadata-status':   'Aucun item sélectionné.',
+      'metadata-hint':     'Sélectionnez un item STAC pour afficher ses métadonnées.',
+      'aria-chat-toggle':  'Ouvrir le chatbot',
+      'placeholder-chat':  'Posez une question sur la carte… (Ctrl+Entrée pour envoyer)',
+      'som-aac-notice': 'Note : La génération automatique peut être moins précise qu\'avec les données BDPPAD.',
+      'som-title':    'Calculateur MOS',
+      'som-extent':   'Étendue de la parcelle (bbox)',
+      'som-culture':  'Type de culture',
+      'som-corg':     'Carbone organique du sol (%)',
+      'som-ph':       'pH du sol',
+      'som-sable':    'Teneur en sable (%)',
+      'som-limon':    'Teneur en limon (%)',
+      'som-argile':   'Teneur en argile (%)',
+      'som-cec':      'CEC - Capacité d\'échange cationique (cmolc/kg)',
+      'som-scenes':   'NDVI moyen estival (Sentinel-2, juin–août)',
+      'som-elevation': 'Élévation moyenne (LiDAR DTM, m)',
+      'som-precip':            'Précipitations totales, 7 derniers jours (mm)',
+      'som-precip-none':       'Aucune station météo trouvée à proximité',
+      'som-precip-nodata':     'Aucune donnée de précipitation pour cette zone',
+      'som-precip-days':       'jours',
+      'som-pdf-precip':        'Précipitations totales (7j, mm)',
+      'som-autogen':  'Générer automatiquement',
+      'som-cancel':   'Annuler',
+      'som-loading':  'Chargement…',
+      'som-error':    'Erreur',
+      'som-area':              'Superficie de la parcelle (ha)',
+      'som-pedo':              'Couverture pédologique 2026',
+      'som-pedo-none':         'Aucune couverture pédologique pour cette zone',
+      'som-pedo-multi':        'Couverture dominante utilisée',
+      'som-water':             'Distance de l\'eau (km)',
+      'som-tab-poc':        'Preuve de concept',
+      'som-tab-predict':    'Prédiction MOS',
+      'som-predict-field-section': 'Parcelle',
+      'som-predict-field-label':   'Parcelle correspondante (données GEE)',
+      'som-predict-run':           'Lancer la prédiction MOS',
+      'som-predict-results-title': 'Tendance du MOS au fil du temps',
+      'som-predict-metrics-title': 'Métriques du modèle (Spec + Sol + Topo + Climat)',
+      'som-predict-col-images':    'Images',
+      'som-predict-no-field':           'Aucune donnée d\'entraînement GEE pour cette parcelle',
+      'som-predict-field-gee':          'Parcelle #',
+      'som-predict-field-gee-suffix':   ' — Données GEE disponibles',
+      'som-predict-field-gee-multi':    ' parcelles GEE trouvées',
+      'som-predict-field-no-gee':       'Parcelle #',
+      'som-predict-field-no-gee-suffix': ' — Aucune donnée GEE',
+      'som-run':           'Lancer le calcul MOS',
+      'som-running':       'Analyse en cours…',
+      'som-run-ok':        'Analyse terminée',
+      'som-run-error':     'PyGeoAPI inaccessible',
+      'som-results-title': 'MOS projeté (%)',
+      'som-export-pdf':        'Exporter PDF',
+      'som-fields-required':   'Certains champs requis sont manquants',
+      'som-pdf-title':         'MOS-GIS — Rapport d’analyse SOM',
+      'som-pdf-farm-section':  'Informations sur la parcelle',
+      'som-pdf-farm-id':       'ID parcelle',
+      'som-pdf-culture':       'Type de culture',
+      'som-pdf-corg':          'Carbone org. (%)',
+      'som-pdf-ph':            'pH du sol',
+      'som-pdf-sable':         'Sable (%)',
+      'som-pdf-limon':         'Limon (%)',
+      'som-pdf-argile':        'Argile (%)',
+      'som-pdf-cec':           'CEC (cmolc/kg)',
+      'som-pdf-ndvi':          'NDVI moyen estival (juin–août)',
+      'som-pdf-area':          'Superficie (ha)',
+      'som-pdf-pedo':          'Couverture pédologique',
+      'som-pdf-projection':    'Projection de la matière organique du sol',
+      'som-pdf-disclaimer':    'Les résultats présentés sont indicatifs et basés sur des modèles de projection. Ils ne remplacent pas une analyse agronomique professionnelle.',
+      'som-pdf-footer':        'Généré par MOS-GIS',
+      'som-section-parcel':    'Parcelle',
+      'som-section-soil':      'Propriétés du sol',
+      'som-section-env':       'Contexte environnemental',
+      'som-preview-title':     'Aperçu du rapport',
+      'som-preview-save':      'Enregistrer PDF',
+      'som-preview-cancel':    'Fermer',
+      'bdppad-title':          'Parcelles agricoles (BDPPAD)',
+      'bdppad-loading':        'Chargement…',
+      'bdppad-available':      'jeu(x) disponible(s)',
+      'bdppad-none':           'Aucun jeu BDPPAD trouvé.',
+      'bdppad-error':          'Erreur : ',
+      'aac-title':             'Inventaire annuel des cultures (AAC)',
+      'aac-active':            'Couche active',
+      'aac-inactive':          'Couche inactive',
+      'aac-identify-loading':  'Identification…',
+      'aac-identify-error':    'Aucune donnée à cet emplacement.',
+      'som-stage-loading':     'Chargement des données d\'entraînement…',
+      'som-stage-lasso':       'Sélection des variables spectrales (LassoCV)…',
+      'som-stage-ranking':     'Classement des images satellites…',
+      'som-stage-rf':          'Ajustement du Random Forest…',
+      'som-stage-building':    'Construction des résultats…',
+      'som-unit-label':        'Unité :',
+      'som-unit-gkg':          'g/kg',
+      'som-unit-pct':          '%',
+      'som-warn-images-title': 'Données d\'entraînement insuffisantes — résultats non disponibles',
+      'som-warn-images-body':  'Une seule image satellite était disponible pour cette parcelle. Un minimum de 2 images est nécessaire pour ajuster un modèle de régression et calculer le R². Les résultats basés sur une seule observation sont statistiquement non fiables et ne sont pas affichés.',
+      'som-interp-excellent':  'Très bon ajustement du modèle',
+      'som-interp-good':       'Bon ajustement du modèle',
+      'som-interp-moderate':   'Ajustement modéré du modèle',
+      'som-interp-weak':       'Faible ajustement du modèle',
+      'som-interp-body':       ' — le modèle explique {r2pct}% de la variabilité du MOS mesuré dans les données d\'entraînement.',
+      'som-interp-val-note':   '(R² estimé sur les données de validation — une seule parcelle dans le jeu de test)',
+      'som-help-open':              'ℹ️ Comment ça fonctionne ?',
+      'som-help-farmer-title':      'Pour les agriculteurs',
+      'som-help-farmer-what':       'Cet outil estime la matière organique de votre sol (MOS = Matière Organique du Sol) à partir d\'images satellites. Le modèle a été entraîné sur des mesures de fermes québécoises et relie les signaux de couleur du sol nu observés par satellite aux valeurs de MOS mesurées en laboratoire.',
+      'som-help-farmer-r2':         '<strong>R²</strong> (R au carré) mesure la qualité d\'ajustement du modèle — 1,0 est parfait. Au-dessus de 0,75 : excellent. 0,50–0,75 : bon. En dessous de 0,25 : utiliser avec prudence. Il indique dans quelle mesure le modèle est fiable pour cette parcelle.',
+      'som-help-farmer-rmse':       '<strong>RMSE</strong> et <strong>MAE</strong> représentent l\'erreur de prédiction moyenne dans les mêmes unités que le MOS (g/kg ou %). Plus la valeur est basse, mieux c\'est. Un RMSE inférieur à 3 g/kg (0,3 %) est généralement acceptable à l\'échelle de la parcelle.',
+      'som-help-farmer-images':     '<strong>Images utilisées</strong> : le nombre d\'images satellites sans nuages du printemps et de l\'automne incluses dans le modèle. Plus il y a d\'images, plus le résultat est fiable. Au moins 5 images sont recommandées.',
+      'som-help-scientist-title':   'Pour les scientifiques',
+      'som-help-scientist-model':   'Régression RandomForest sur indices spectraux Sentinel-2 (BSI, NDVI, EVI, SAVI, OMI, CAI, RI, SI, BI, CI, NDMI + écart-type) avec encodage one-hot du type de sol. Scénarios : S1 (spectral+sol), S2 (+topo), S3 (+topo+climat). Sélection de variables via LassoCV sur jeu d\'entraînement interne (GroupShuffleSplit 80/20 par FIELD_ID). Classement des images via RMSE GroupKFold(3). Nombre optimal d\'images : argmax R² sur la validation interne. Rétrotransformation : estimateur de Duan (espace log₁₀).',
+      'som-help-scientist-metrics': 'R² et RMSE sont calculés sur les prédictions agrégées à l\'échelle de la parcelle (moyenne sur les images par parcelle). Lorsque le jeu de test ne contient qu\'une seule parcelle, le R² au niveau parcellaire est indéfini ; le R² de validation interne est alors affiché (*).',
+      'som-help-scientist-gee':     'Données d\'entraînement via GEE : Sentinel-2 L2A, masque sol nu (BSI &gt; 0), filtre nuage &lt; 1 % au niveau de la tuile. Un faible nombre d\'images peut refléter un filtrage nuageux strict ou une exposition limitée au sol nu.',
+      'aac-not-live':          'Note : La couche 2025 n\'est pas encore disponible sur Agriculture Canada.',
+      'background-title':      'Données de fond',
+      'grhq-title':            'Réseau hydrographique (GRHQ)',
+      'grhq-active':           'Actif',
+      'grhq-inactive':         'Inactif',
+      'som-layer-title':       'Parcelles SOM',
+      'som-layer-label':       'Afficher les parcelles d\'entraînement',
+      'som-layer-has-gee':     'Données d\'entraînement GEE',
+      'som-layer-no-gee':      'Limite seulement',
+      'som-pdf-water':         'Distance de l\'eau',
+      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA'
+    }
+  };
+
+  var lang = localStorage.getItem('mos-lang') || 'en';
+  window.T = T;
+  window.lang = lang;
+
+  function applyLang(l) {
+    lang = l;
+    window.lang = l;
+    document.documentElement.lang = l;
+    document.querySelectorAll('[data-i18n]').forEach(function(el) {
+      var k = el.getAttribute('data-i18n');
+      if (T[l][k] !== undefined) el.innerHTML = T[l][k];
+    });
+    document.querySelectorAll('[data-nav]').forEach(function(el) {
+      var k = 'nav-' + el.getAttribute('data-nav');
+      if (T[l][k] !== undefined) el.textContent = T[l][k];
+    });
+    var chatToggle = document.getElementById('chatToggle');
+    if (chatToggle) chatToggle.setAttribute('aria-label', T[l]['aria-chat-toggle']);
+    var chatInput = document.getElementById('chatInput');
+    if (chatInput) chatInput.setAttribute('placeholder', T[l]['placeholder-chat']);
+    document.getElementById('langToggle').textContent = l === 'en' ? 'FR' : 'EN';
+    localStorage.setItem('mos-lang', l);
+  }
+
+  document.getElementById('langToggle').addEventListener('click', function() {
+    applyLang(lang === 'en' ? 'fr' : 'en');
+  });
+
+  if (lang !== 'en') applyLang(lang);
+})();
+</script>
+</body>
+</html>

@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -6,6 +7,7 @@ import pytest
 from gis_pipeline.modules.io_tools.input_data import (
     detect_non_spatial_csv,
     discover_geodata,
+    extract_gpkg_fk_schema,
     read_csv_file,
 )
 
@@ -406,3 +408,173 @@ def test_detect_non_spatial_csv_empty_input(tmp_path):
     ):
         result = detect_non_spatial_csv([])
         assert result == []
+
+
+@pytest.mark.unit
+def test_read_csv_file_nonexistent_path_raises():
+    """read_csv_file with a path that does not exist propagates an exception."""
+    with pytest.raises(Exception):
+        read_csv_file(Path("/nonexistent/path/missing.csv"))
+
+
+@pytest.mark.unit
+def test_detect_non_spatial_csv_all_known_spatial_returns_empty(tmp_path):
+    """When all CSV files match the spatial registry, detect_non_spatial_csv returns []."""
+    with patch(
+        "gis_pipeline.modules.io_tools.input_data.CSVDataRegistryForSourceCRS",
+        new=[
+            SimpleNamespace(value=["farm_data"]),
+            SimpleNamespace(value=["parcel_data"]),
+        ],
+    ):
+        f1 = tmp_path / "farm_data.csv"
+        f2 = tmp_path / "parcel_data.csv"
+        f1.write_text("a,b\n1,2")
+        f2.write_text("x,y\n3,4")
+        result = detect_non_spatial_csv([f1, f2])
+        assert result == []
+
+
+@pytest.mark.unit
+def test_read_csv_file_utf8_bom_readable(tmp_path):
+    """read_csv_file must not raise on a UTF-8 BOM file and return the correct data."""
+    csv_path = tmp_path / "bom.csv"
+    # Write UTF-8 BOM + CSV content as bytes
+    csv_path.write_bytes("name,value\nalice,1\nbob,2\n".encode("utf-8-sig"))
+
+    df = read_csv_file(csv_path)
+
+    assert df is not None
+    assert len(df) == 2
+    assert df.shape[1] == 2
+    # Data values are accessible regardless of how the BOM affects the column name
+    assert "alice" in df.iloc[:, 0].values
+    assert 1 in df.iloc[:, 1].values
+
+
+@pytest.mark.unit
+def test_detect_non_spatial_csv_single_row_treated_as_non_spatial(tmp_path):
+    """A CSV with only one data row and no lat/lon columns is classified as non-spatial."""
+    csv_path = tmp_path / "one_row.csv"
+    csv_path.write_text("name,category\nforest,vegetation")
+
+    with patch(
+        "gis_pipeline.modules.io_tools.input_data.CSVDataRegistryForSourceCRS",
+        new=[SimpleNamespace(value=["known_spatial"])],
+    ):
+        result = detect_non_spatial_csv([csv_path])
+
+    assert csv_path in result
+
+
+# ------------------------------------------
+# Test cases for extract_gpkg_fk_schema()
+# ------------------------------------------
+
+
+def _make_gpkg_with_fks(path: Path) -> None:
+    """Create a minimal SQLite file mimicking a .gpkg with FK relationships."""
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute(
+            "CREATE TABLE Couverture_pedologique "
+            "(Code_polygone TEXT PRIMARY KEY, Description TEXT)"
+        )
+        conn.execute(
+            "CREATE TABLE Couverture_pps "
+            "(id INTEGER, Code_polygone TEXT, "
+            "FOREIGN KEY (Code_polygone) REFERENCES Couverture_pedologique (Code_polygone))"
+        )
+
+
+@pytest.mark.unit
+def test_extract_gpkg_fk_schema_returns_harmonized_defs(tmp_path):
+    """FK definitions are extracted and column/table names harmonized correctly."""
+    gpkg = tmp_path / "soil.gpkg"
+    _make_gpkg_with_fks(gpkg)
+
+    layer_map = {
+        "Couverture_pedologique": "soil_couverture_pedologique",
+        "Couverture_pps": "soil_couverture_pps",
+    }
+    result = extract_gpkg_fk_schema(gpkg, layer_map)
+
+    assert len(result) == 1
+    assert result[0] == {
+        "from_table": "soil_couverture_pps",
+        "from_col": "code_polygone",
+        "to_table": "soil_couverture_pedologique",
+        "to_col": "code_polygone",
+    }
+
+
+@pytest.mark.unit
+def test_extract_gpkg_fk_schema_no_fks_returns_empty(tmp_path):
+    """Returns empty list when no FK relationships are defined."""
+    gpkg = tmp_path / "no_fk.gpkg"
+    with sqlite3.connect(str(gpkg)) as conn:
+        conn.execute("CREATE TABLE StandaloneTable (id INTEGER, name TEXT)")
+
+    result = extract_gpkg_fk_schema(gpkg, {"StandaloneTable": "standalone_table"})
+
+    assert result == []
+
+
+@pytest.mark.unit
+def test_extract_gpkg_fk_schema_unknown_ref_table_skipped(tmp_path):
+    """FK referencing a table absent from layer_name_map is silently skipped."""
+    gpkg = tmp_path / "partial.gpkg"
+    with sqlite3.connect(str(gpkg)) as conn:
+        conn.execute("CREATE TABLE Parent (code TEXT PRIMARY KEY)")
+        conn.execute(
+            "CREATE TABLE Child (id INTEGER, code TEXT, "
+            "FOREIGN KEY (code) REFERENCES Parent (code))"
+        )
+
+    # Parent is NOT in the map — FK should be skipped
+    result = extract_gpkg_fk_schema(gpkg, {"Child": "child"})
+
+    assert result == []
+
+
+@pytest.mark.unit
+def test_extract_gpkg_fk_schema_bad_file_returns_empty(tmp_path):
+    """Returns empty list (no raise) when the file is not a valid SQLite database."""
+    bad_file = tmp_path / "not_a_db.gpkg"
+    bad_file.write_bytes(b"this is not sqlite")
+
+    result = extract_gpkg_fk_schema(bad_file, {"SomeLayer": "some_layer"})
+
+    assert result == []
+
+
+@pytest.mark.unit
+def test_extract_gpkg_fk_schema_nonexistent_file_returns_empty(tmp_path):
+    """Returns empty list (no raise) when the file does not exist."""
+    result = extract_gpkg_fk_schema(tmp_path / "missing.gpkg", {"Layer": "layer"})
+
+    assert result == []
+
+
+@pytest.mark.unit
+def test_extract_gpkg_fk_schema_multiple_fks(tmp_path):
+    """All FK relationships across multiple tables are returned."""
+    gpkg = tmp_path / "multi.gpkg"
+    with sqlite3.connect(str(gpkg)) as conn:
+        conn.execute("CREATE TABLE TypeSol (Code_sol TEXT PRIMARY KEY)")
+        conn.execute("CREATE TABLE Composante (Composante TEXT PRIMARY KEY)")
+        conn.execute(
+            "CREATE TABLE DetailSol (id INTEGER, Code_sol TEXT, Composante TEXT, "
+            "FOREIGN KEY (Code_sol) REFERENCES TypeSol (Code_sol), "
+            "FOREIGN KEY (Composante) REFERENCES Composante (Composante))"
+        )
+
+    layer_map = {
+        "TypeSol": "type_sol",
+        "Composante": "composante",
+        "DetailSol": "detail_sol",
+    }
+    result = extract_gpkg_fk_schema(gpkg, layer_map)
+
+    assert len(result) == 2
+    from_cols = {r["from_col"] for r in result}
+    assert from_cols == {"code_sol", "composante"}

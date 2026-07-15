@@ -116,6 +116,22 @@ class CSVDataRegistryForSourceCRS(Enum):
 
 
 # ---------------------------------------------------------------
+# Layers to skip during data ingestion
+# ---------------------------------------------------------------
+class QGISInternalLayers(Enum):
+    """QGIS internal layer names to skip during ingestion."""
+
+    LAYER_STYLES = "layer_styles"
+    QGIS_PROJECTS = "qgis_projects"
+
+
+# ---------------------------------------------------------------
+# Pipeline processing limits
+# ---------------------------------------------------------------
+CHUNK_SIZE = 50_000
+
+
+# ---------------------------------------------------------------
 # Database and data storage harmonization
 # ---------------------------------------------------------------
 

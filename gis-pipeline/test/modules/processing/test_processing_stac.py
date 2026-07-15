@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -206,6 +207,12 @@ def sample_items():
         )
         items.append(item)
     return items
+
+
+@pytest.fixture
+def stac_api_url_fixture():
+    """Base URL for the STAC API used in tests."""
+    return os.getenv("STAC_API_URL", "http://localhost:8081")
 
 
 @pytest.fixture
@@ -1562,3 +1569,124 @@ def test_stac_api_client_upsert_items_payload_validation(stac_api_client):
     for i, call in enumerate(calls):
         expected_payload = stac_api_client.stac_items[i].to_dict()
         assert call[1]["payload"] == expected_payload
+
+
+# ------------------------------------------
+# Exception narrowing in datetime parsing
+# ------------------------------------------
+
+
+@pytest.mark.unit
+def test_extract_datetime_from_filename_invalid_month_returns_none():
+    """YYYYMMDD with invalid month (month=13) causes ValueError in datetime() and returns None.
+
+    Documents that except ValueError is intentional (format-parse errors only).
+    The YEAR_PATTERN negative lookahead (?!\\d) prevents "2024" from matching
+    inside "20241332" because it is followed by "1332", so the year fallback
+    also yields nothing and the function returns None.
+    """
+    from gis_pipeline.modules.processing.processing_stac import (
+        _extract_datetime_from_filename,
+    )
+
+    # "20241332" → month=13, day=32 → ValueError → caught → no standalone year match → None
+    result = _extract_datetime_from_filename("satellite_20241332_data.tif")
+    assert result is None
+
+
+@pytest.mark.unit
+def test_extract_datetime_from_filename_no_date_returns_none():
+    """A filename with no recognizable date pattern returns None, not raise."""
+    from gis_pipeline.modules.processing.processing_stac import (
+        _extract_datetime_from_filename,
+    )
+
+    assert _extract_datetime_from_filename("ndvi_output.tif") is None
+    assert _extract_datetime_from_filename(None) is None
+
+
+@pytest.mark.unit
+def test_extract_datetime_from_filename_year_only_returns_jan_1():
+    """Year-only pattern (e.g. 2023) yields January 1st of that year."""
+    from gis_pipeline.modules.processing.processing_stac import (
+        _extract_datetime_from_filename,
+    )
+
+    result = _extract_datetime_from_filename("ndvi_2023.tif")
+    assert result is not None
+    assert result.year == 2023
+    assert result.month == 1
+    assert result.day == 1
+
+
+@pytest.mark.unit
+def test_extract_datetime_from_filename_yyyymmddthhmmss_pattern():
+    """YYYYMMDDTHHMMSS pattern returns a full datetime."""
+    from gis_pipeline.modules.processing.processing_stac import (
+        _extract_datetime_from_filename,
+    )
+
+    result = _extract_datetime_from_filename("sentinel_20240615T120000_ndvi.tif")
+    assert result is not None
+    assert result.year == 2024
+    assert result.month == 6
+    assert result.day == 15
+
+
+@pytest.mark.unit
+class TestEnsureDatetimeWithTz:
+    def test_naive_datetime_gets_utc(self) -> None:
+        from gis_pipeline.modules.processing.processing_stac import (
+            _ensure_datetime_with_tz,
+        )
+
+        result = _ensure_datetime_with_tz(datetime(2024, 1, 1))
+        assert result is not None
+        assert result.tzinfo is not None
+
+    def test_tz_aware_datetime_unchanged(self) -> None:
+        from gis_pipeline.modules.processing.processing_stac import (
+            _ensure_datetime_with_tz,
+        )
+
+        aware = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        result = _ensure_datetime_with_tz(aware)
+        assert result is not None
+        assert result.year == 2024
+
+    def test_invalid_string_returns_none(self) -> None:
+        from gis_pipeline.modules.processing.processing_stac import (
+            _ensure_datetime_with_tz,
+        )
+
+        result = _ensure_datetime_with_tz("not-a-date")
+        assert result is None
+
+    def test_valid_date_string_converted(self) -> None:
+        from gis_pipeline.modules.processing.processing_stac import (
+            _ensure_datetime_with_tz,
+        )
+
+        result = _ensure_datetime_with_tz("2024-06-15")
+        assert result is not None
+        assert result.year == 2024
+        assert result.month == 6
+
+
+@pytest.mark.unit
+class TestCleanMetadataEdgeCases:
+    def test_inf_value_becomes_none(self) -> None:
+        result = _clean_metadata({"v": float("inf")})
+        assert result["v"] is None
+
+    def test_neg_inf_becomes_none(self) -> None:
+        result = _clean_metadata({"v": float("-inf")})
+        assert result["v"] is None
+
+    def test_nested_list_with_numpy_scalar(self) -> None:
+        result = _clean_metadata([np.float32(1.5)])
+        assert result == [1.5]
+
+    def test_empty_dict_unchanged(self) -> None:
+        result = _clean_metadata({})
+        assert result == {}

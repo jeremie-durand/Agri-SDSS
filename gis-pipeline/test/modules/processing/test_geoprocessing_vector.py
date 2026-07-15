@@ -1,15 +1,19 @@
-import hashlib
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import fiona
 import geopandas as gpd
 import pandas as pd
 import pytest
 from gis_pipeline.core.config import Config
+from gis_pipeline.core.utils import harmonize_name
 from gis_pipeline.modules.processing.geoprocessing import GeoprocessingVector
+from gis_pipeline.services.mapping import NamingPatterns
 from shapely.geometry import MultiPolygon, Point, Polygon
+
+_GDF_PATTERN = NamingPatterns.PATTERN_GDF_NAME.value
+_MAX = Config.POSTGRES_MAX_NAME_LENGTH
 
 
 # ------------------------------------------
@@ -609,277 +613,6 @@ def test_find_overlapping_polygons_different_overlap_types(overlap_type):
 
 
 # ------------------------------------------
-# Test cases for GeoprocessingVector._reduce_name_length()
-# ------------------------------------------
-def test_reduce_name_length_truncates_and_appends_hash_default_max_len():
-    """Long names are truncated to Config.POSTGRES_MAX_NAME_LENGTH and end with _<hexhash>."""
-    long_name = "x" * (Config.POSTGRES_MAX_NAME_LENGTH + 20)
-    reduced = GeoprocessingVector._reduce_name_length(long_name)
-    assert len(reduced) == Config.POSTGRES_MAX_NAME_LENGTH
-
-    # hash suffix check
-    expected_hash = hashlib.md5(long_name.encode()).hexdigest()[
-        : Config.HASH_HEX_LENGTH
-    ]
-    assert reduced.endswith("_" + expected_hash)
-
-
-def test_reduce_name_length_is_deterministic():
-    """Same input produces same reduced name (hash deterministic)."""
-    name = "some_really_long_table_name_for_testing_purposes"
-    r1 = GeoprocessingVector._reduce_name_length(name, max_len=40)
-    r2 = GeoprocessingVector._reduce_name_length(name, max_len=40)
-    assert r1 == r2
-
-
-def test_reduce_name_length_short_name_appends_hash_consistently():
-    """Short names are kept (within slice) and still receive the hash suffix as implemented."""
-    short_name = "short_name"
-    reduced = GeoprocessingVector._reduce_name_length(
-        short_name, max_len=Config.POSTGRES_MAX_NAME_LENGTH
-    )
-    expected_hash = hashlib.md5(short_name.encode()).hexdigest()[
-        : Config.HASH_HEX_LENGTH
-    ]
-    expected = f"{short_name[: Config.POSTGRES_MAX_NAME_LENGTH - Config.HASH_SUFFIX_LENGTH]}_{expected_hash}"
-    assert reduced == expected
-
-
-def test_reduce_name_length_respects_custom_max_len():
-    """Custom max_len parameter is respected (result length == max_len)."""
-    name = "y" * 100
-    custom_len = 24
-    reduced = GeoprocessingVector._reduce_name_length(name, max_len=custom_len)
-    assert len(reduced) == custom_len
-    expected_hash = hashlib.md5(name.encode()).hexdigest()[: Config.HASH_HEX_LENGTH]
-    assert reduced.endswith("_" + expected_hash)
-
-
-# ------------------------------------------
-# Test cases for GeoprocessingVector._harmonize_name_gdf()
-# ------------------------------------------
-def test_harmonize_name_gdf_simple_name():
-    """Test harmonize_name_gdf with a simple valid name."""
-    result = GeoprocessingVector._harmonize_name_gdf("simple_name")
-    assert result == "simple_name"
-
-
-def test_harmonize_name_gdf_uppercase_conversion():
-    """Test that uppercase letters are converted to lowercase."""
-    result = GeoprocessingVector._harmonize_name_gdf("UPPERCASE_NAME")
-    assert result == "uppercase_name"
-
-
-def test_harmonize_name_gdf_mixed_case_conversion():
-    """Test that mixed case is converted to lowercase."""
-    result = GeoprocessingVector._harmonize_name_gdf("MixedCase_Name")
-    assert result == "mixedcase_name"
-
-
-def test_harmonize_name_gdf_special_characters_replacement():
-    """Test that special characters are replaced with underscores."""
-    result = GeoprocessingVector._harmonize_name_gdf("name-with.special@chars!")
-    assert result == "name_with_special_chars"
-
-
-def test_harmonize_name_gdf_spaces_replacement():
-    """Test that spaces are replaced with underscores."""
-    result = GeoprocessingVector._harmonize_name_gdf("name with spaces")
-    assert result == "name_with_spaces"
-
-
-def test_harmonize_name_gdf_multiple_consecutive_specials():
-    """Test that multiple consecutive special characters become single underscore."""
-    result = GeoprocessingVector._harmonize_name_gdf(
-        "name---with...multiple@@@specials"
-    )
-    assert result == "name_with_multiple_specials"
-
-
-def test_harmonize_name_gdf_leading_trailing_underscores_stripped():
-    """Test that leading and trailing underscores are stripped."""
-    result = GeoprocessingVector._harmonize_name_gdf("___name_with_underscores___")
-    assert result == "name_with_underscores"
-
-
-def test_harmonize_name_gdf_numbers_preserved():
-    """Test that numbers are preserved in the name."""
-    result = GeoprocessingVector._harmonize_name_gdf("table123_with_numbers456")
-    assert result == "table123_with_numbers456"
-
-
-def test_harmonize_name_gdf_only_numbers():
-    """Test harmonization with only numbers."""
-    result = GeoprocessingVector._harmonize_name_gdf("123456")
-    assert result == "123456"
-
-
-def test_harmonize_name_gdf_only_underscores():
-    """Test harmonization with only underscores and special chars."""
-    result = GeoprocessingVector._harmonize_name_gdf("___---...")
-    assert result == ""
-
-
-def test_harmonize_name_gdf_empty_string_after_cleaning():
-    """Test behavior when name becomes empty after cleaning special characters."""
-    result = GeoprocessingVector._harmonize_name_gdf("!@#$%^&*()")
-    assert result == ""
-
-
-def test_harmonize_name_gdf_whitespace_only_name_raises_error():
-    """Test that whitespace-only name raises ValueError."""
-    with pytest.raises(ValueError, match="Name must not be empty or whitespace."):
-        GeoprocessingVector._harmonize_name_gdf("   ")
-
-
-def test_harmonize_name_gdf_long_name_truncation():
-    """Test that long names are truncated with hash."""
-    long_name = "a" * 70  # Create a name longer than limit
-    result = GeoprocessingVector._harmonize_name_gdf(long_name)
-
-    # Should be truncated to max_len with hash
-    assert len(result) <= Config.POSTGRES_MAX_NAME_LENGTH
-    assert result.endswith("_" + result[-6:])  # Should end with _hash
-    assert result.startswith(
-        "a" * (Config.POSTGRES_MAX_NAME_LENGTH - 7)
-    )  # Should start with truncated original
-
-
-def test_harmonize_name_gdf_long_name_with_custom_max_len():
-    """Test truncation with custom max_len parameter."""
-    long_name = "very_long_table_name_that_exceeds_limit"
-    max_len = 20
-    result = GeoprocessingVector._harmonize_name_gdf(long_name, max_len=max_len)
-
-    assert len(result) <= max_len
-    assert "_" in result  # Should contain hash separator
-    assert len(result.split("_")[-1]) == 6  # Hash should be 6 characters
-
-
-def test_harmonize_name_gdf_exactly_max_length():
-    """Test name that is exactly at max length."""
-    max_len = 10
-    exact_name = "a" * max_len
-    result = GeoprocessingVector._harmonize_name_gdf(exact_name, max_len=max_len)
-
-    assert result == exact_name
-    assert len(result) == max_len
-
-
-def test_harmonize_name_gdf_one_char_over_max():
-    """Test name that is one character over max length."""
-    max_len = 10
-    over_name = "a" * (max_len + 1)
-    result = GeoprocessingVector._harmonize_name_gdf(over_name, max_len=max_len)
-
-    assert len(result) <= max_len
-    assert result != over_name  # Should be modified
-
-
-def test_harmonize_name_gdf_unicode_characters():
-    """Test that unicode characters are replaced."""
-    result = GeoprocessingVector._harmonize_name_gdf("table_with_éñ_chars")
-    assert result == "table_with___chars"
-
-
-def test_harmonize_name_gdf_complex_real_world_example():
-    """Test with complex real-world table name."""
-    complex_name = "My Data Table (2023) - Version 1.0.xlsx"
-    result = GeoprocessingVector._harmonize_name_gdf(complex_name)
-    assert result == "my_data_table_2023_version_1_0_xlsx"
-
-
-def test_harmonize_name_gdf_sql_injection_attempt():
-    """Test that potential SQL injection strings are cleaned."""
-    malicious_name = "table'; DROP TABLE users; --"
-    result = GeoprocessingVector._harmonize_name_gdf(malicious_name)
-    assert result == "table_drop_table_users"
-
-
-def test_harmonize_name_gdf_hash_consistency():
-    """Test that the same long name always produces the same hash."""
-    long_name = (
-        "very_long_table_name_that_will_definitely_exceed_the_maximum_length_limit"
-    )
-    result1 = GeoprocessingVector._harmonize_name_gdf(long_name, max_len=20)
-    result2 = GeoprocessingVector._harmonize_name_gdf(long_name, max_len=20)
-
-    assert result1 == result2
-    assert len(result1) == 20
-
-
-def test_harmonize_name_gdf_different_long_names_different_hashes():
-    """Test that different long names produce different hashes."""
-    long_name1 = (
-        "very_long_table_name_that_will_definitely_exceed_the_maximum_length_limit_1"
-    )
-    long_name2 = (
-        "very_long_table_name_that_will_definitely_exceed_the_maximum_length_limit_2"
-    )
-
-    result1 = GeoprocessingVector._harmonize_name_gdf(long_name1, max_len=20)
-    result2 = GeoprocessingVector._harmonize_name_gdf(long_name2, max_len=20)
-
-    assert result1 != result2
-    assert result1[-6:] != result2[-6:]  # Different hashes
-
-
-def test_harmonize_name_gdf_preserves_valid_database_names():
-    """Test that already valid database names are preserved."""
-    valid_names = [
-        "users",
-        "user_data",
-        "table_123",
-        "my_table_name",
-        "data2023",
-        "a_very_long_but_valid_name_under_limit",
-    ]
-
-    for name in valid_names:
-        if len(name) <= Config.POSTGRES_MAX_NAME_LENGTH:
-            result = GeoprocessingVector._harmonize_name_gdf(name)
-            assert result == name
-
-
-@pytest.mark.parametrize(
-    "input_name,expected",
-    [
-        ("simple", "simple"),
-        ("UPPER", "upper"),
-        ("With Spaces", "with_spaces"),
-        ("with-dashes", "with_dashes"),
-        ("with.dots", "with_dots"),
-        ("123numbers", "123numbers"),
-        ("_underscore_", "underscore"),
-        ("mix3d_Ch4rs!", "mix3d_ch4rs"),
-    ],
-)
-def test_harmonize_name_gdf_parametrized_cases(input_name, expected):
-    """Parametrized test for various input cases."""
-    result = GeoprocessingVector._harmonize_name_gdf(input_name)
-    assert result == expected
-
-
-def test_harmonize_name_gdf_hash_format():
-    """Test that hash is in correct format (6 hex characters)."""
-    long_name = "a" * 100
-    result = GeoprocessingVector._harmonize_name_gdf(long_name, max_len=20)
-
-    # Extract hash part
-    hash_part = result.split("_")[-1]
-    assert len(hash_part) == 6
-
-    # Verify it's valid hex
-    try:
-        int(hash_part, 16)
-        is_hex = True
-    except ValueError:
-        is_hex = False
-
-    assert is_hex, f"Hash '{hash_part}' is not valid hexadecimal"
-
-
-# ------------------------------------------
 # Test cases for GeoprocessingVector._read_csv_as_gdf()
 # ------------------------------------------
 def test_read_csv_as_gdf_success_lon_lat(tmp_path):
@@ -1277,6 +1010,25 @@ def test_harmonize_gdf_renames_columns(gdf_points_harmonization_fixture):
         assert " " not in c
 
 
+def test_harmonize_gdf_strips_accented_column_names():
+    """Column names with accented characters must be reduced to ASCII equivalents."""
+    gdf = gpd.GeoDataFrame(
+        {"année": [2023], "région": ["QC"], "geometry": [Point(0, 0)]},
+        crs="EPSG:4326",
+    )
+    gv = GeoprocessingVector(
+        gdf=gdf,
+        target_crs=Config.GLOBAL_CRS,
+        collection_id=Config.STAC_COLLECTION_ID,
+    )
+    gv.harmonize_gdf(rename_columns=True)
+    cols = list(gv.gdf.columns)
+    assert "année" not in cols
+    assert "région" not in cols
+    assert "annee" in cols
+    assert "region" in cols
+
+
 def test_harmonize_gdf_drops_null_geometries(gdf_points_harmonization_fixture):
     """
     Test if the harmonize_gdf method drops rows with null geometries.
@@ -1481,12 +1233,13 @@ def test_convert_vector_files_to_gdf_empty_list():
 
 
 def test_convert_vector_files_to_gdf_nonexistent_file(tmp_path):
-    """Test with non-existent file."""
+    """Test with non-existent file raises VectorProcessingError."""
+    from gis_pipeline.core.exceptions import VectorProcessingError
+
     nonexistent_file = tmp_path / "does_not_exist.shp"
     vector_files = [nonexistent_file]
 
-    # Should raise value error
-    with pytest.raises(ValueError):
+    with pytest.raises(VectorProcessingError):
         GeoprocessingVector.convert_vector_files_to_gdf(vector_files=vector_files)
 
 
@@ -1572,7 +1325,7 @@ def test_convert_vector_files_to_gdf_layer_name_harmonization(temp_multilayer_gp
     else:
         expected_name = f"{file_stem}_{layer_name.strip()}"
 
-    expected_harmonized = GeoprocessingVector._harmonize_name_gdf(name=expected_name)
+    expected_harmonized = harmonize_name(expected_name, _GDF_PATTERN, _MAX)
 
     assert name == expected_harmonized
     assert isinstance(gdf_result, gpd.GeoDataFrame)
@@ -1666,3 +1419,91 @@ def test_convert_vector_files_to_gdf_large_file_list(temp_vector_files):
     for name, gdf in result:
         assert len(gdf) == 2
         assert isinstance(gdf, gpd.GeoDataFrame)
+
+
+# ------------------------------------------
+# GEE flag functions
+# ------------------------------------------
+
+
+@pytest.mark.unit
+class TestGetGeeFieldIds:
+    def test_returns_set_of_ints_from_parquet(self):
+        from gis_pipeline.modules.processing.geoprocessing import get_gee_field_ids
+
+        mock_con = MagicMock()
+        mock_con.execute.return_value.fetchall.return_value = [(1,), (2,), (3,)]
+
+        with patch(
+            "glob.glob", return_value=["/data/duckdb/BareSoil_TOPCLI_2023.parquet"]
+        ):
+            with patch("duckdb.connect", return_value=mock_con):
+                result = get_gee_field_ids("/data/duckdb")
+
+        assert result == {1, 2, 3}
+        mock_con.close.assert_called_once()
+
+    def test_returns_empty_set_when_no_parquet_files(self):
+        from gis_pipeline.modules.processing.geoprocessing import get_gee_field_ids
+
+        with patch("glob.glob", return_value=[]):
+            result = get_gee_field_ids("/data/duckdb")
+
+        assert result == set()
+
+    def test_returns_empty_set_on_duckdb_error(self):
+        from gis_pipeline.modules.processing.geoprocessing import get_gee_field_ids
+
+        with patch(
+            "glob.glob", return_value=["/data/duckdb/BareSoil_TOPCLI_2023.parquet"]
+        ):
+            with patch("duckdb.connect", side_effect=Exception("DuckDB error")):
+                result = get_gee_field_ids("/data/duckdb")
+
+        assert result == set()
+
+
+@pytest.mark.unit
+class TestStampGeeFlagsOnFieldBoundaries:
+    def test_happy_path_calls_stamp_and_refresh(self):
+        from gis_pipeline.modules.processing.geoprocessing import (
+            stamp_gee_flags_on_field_boundaries,
+        )
+
+        mock_pg = MagicMock()
+
+        with patch(
+            "gis_pipeline.modules.processing.geoprocessing.get_gee_field_ids",
+            return_value={1, 2},
+        ):
+            with patch(
+                "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+            ) as mock_pg_cls:
+                mock_pg_cls.return_value.__enter__.return_value = mock_pg
+                with patch(
+                    "gis_pipeline.modules.processing.geoprocessing._refresh_gee_geoparquet"
+                ) as mock_refresh:
+                    stamp_gee_flags_on_field_boundaries()
+
+        mock_pg.stamp_gee_flags.assert_called_once_with("som_field_boundaries", {1, 2})
+        mock_refresh.assert_called_once()
+
+    def test_postgis_failure_skips_refresh(self):
+        from gis_pipeline.modules.processing.geoprocessing import (
+            stamp_gee_flags_on_field_boundaries,
+        )
+
+        with patch(
+            "gis_pipeline.modules.processing.geoprocessing.get_gee_field_ids",
+            return_value={1},
+        ):
+            with patch(
+                "gis_pipeline.modules.processing.geoprocessing.PostGISManager",
+                side_effect=Exception("PG down"),
+            ):
+                with patch(
+                    "gis_pipeline.modules.processing.geoprocessing._refresh_gee_geoparquet"
+                ) as mock_refresh:
+                    stamp_gee_flags_on_field_boundaries()  # must not raise
+
+        mock_refresh.assert_not_called()

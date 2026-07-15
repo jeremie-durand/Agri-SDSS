@@ -4,22 +4,6 @@ import pytest
 import requests
 import responses
 
-# ------------------------------------------
-# List of processes to test
-# ------------------------------------------
-processes = [
-    {
-        "id": "hello-world-pygeoapi",
-        "valid_input": {"name": {"value": "Jérémie"}},
-        "invalid_input": None,  # No invalid input for this process
-    },
-    {
-        "id": "mycool-process",
-        "valid_input": {},  # No input required
-        "invalid_input": None,  # No invalid input for this process
-    },
-]
-
 
 # ------------------------------------------
 # Fixtures
@@ -29,12 +13,14 @@ def processes_test_data():
     """Test data for processes."""
     return [
         {
-            "id": "hello-world-pygeoapi",
-            "valid_input": {"name": {"value": "Jérémie"}},
-            "invalid_input": {"name": {"value": 123}},  # Wrong type
+            "id": "sentinel-fetch",
+            "valid_input": {
+                "geometry": {"value": {"type": "Point", "coordinates": [-72.0, 45.5]}}
+            },
+            "invalid_input": {"geometry": {"value": "not-a-geometry"}},
             "empty_input": {},
             "supports_async": True,
-            "expected_output_keys": ["greeting"],
+            "expected_output_keys": ["result"],
         },
         {
             "id": "mycool-process",
@@ -65,17 +51,17 @@ def sample_processes_response(pygeoapi_api_url_fixture):
     return {
         "processes": [
             {
-                "id": "hello-world-pygeoapi",
-                "title": "Hello World Process",
-                "description": "Simple greeting process",
+                "id": "sentinel-fetch",
+                "title": "Sentinel-2 Earth Observation Data Fetch",
+                "description": "Fetches Sentinel-2 data and computes vegetation indices",
                 "version": "1.0.0",
                 "jobControlOptions": ["sync-execute", "async-execute"],
                 "outputTransmission": ["value", "reference"],
             },
             {
-                "id": "mycool-process",
-                "title": "My Cool Process",
-                "description": "Demonstration process",
+                "id": "weather-timeseries",
+                "title": "Weather Timeseries",
+                "description": "Retrieves gridded climate timeseries from Ouranos PAVICS",
                 "version": "1.0.0",
                 "jobControlOptions": ["sync-execute"],
                 "outputTransmission": ["value"],
@@ -95,26 +81,26 @@ def sample_processes_response(pygeoapi_api_url_fixture):
 def sample_process_detail():
     """Detailed process description."""
     return {
-        "id": "hello-world-pygeoapi",
-        "title": "Hello World Process",
-        "description": "Returns personalized greeting message",
+        "id": "sentinel-fetch",
+        "title": "Sentinel-2 Earth Observation Data Fetch",
+        "description": "Fetches Sentinel-2 data from openEO backends for a farm polygon",
         "version": "1.0.0",
         "jobControlOptions": ["sync-execute", "async-execute"],
         "outputTransmission": ["value", "reference"],
         "inputs": {
-            "name": {
-                "title": "Name",
-                "description": "Your name for greeting",
-                "schema": {"type": "string"},
-                "minOccurs": 0,
+            "geometry": {
+                "title": "Farm Geometry",
+                "description": "Farm polygon or point geometry",
+                "schema": {"type": "object"},
+                "minOccurs": 1,
                 "maxOccurs": 1,
             }
         },
         "outputs": {
-            "greeting": {
-                "title": "Greeting Message",
-                "description": "Personalized message",
-                "schema": {"type": "string"},
+            "result": {
+                "title": "Result",
+                "description": "Vegetation index raster",
+                "schema": {"type": "object"},
             }
         },
     }
@@ -152,7 +138,7 @@ def test_mocked_processes_list(pygeoapi_api_url_fixture, sample_processes_respon
 @responses.activate
 def test_mocked_process_description(pygeoapi_api_url_fixture, sample_process_detail):
     """Test individual process description."""
-    process_id = "hello-world-pygeoapi"
+    process_id = "sentinel-fetch"
     responses.add(
         responses.GET,
         f"{pygeoapi_api_url_fixture}/processes/{process_id}",
@@ -174,8 +160,10 @@ def test_mocked_process_description(pygeoapi_api_url_fixture, sample_process_det
 @responses.activate
 def test_mocked_sync_execution(pygeoapi_api_url_fixture):
     """Test synchronous process execution."""
-    process_id = "hello-world-pygeoapi"
-    execution_response = {"outputs": {"greeting": {"value": "Hello, Jérémie!"}}}
+    process_id = "sentinel-fetch"
+    execution_response = {
+        "outputs": {"result": {"value": {"type": "FeatureCollection", "features": []}}}
+    }
 
     responses.add(
         responses.POST,
@@ -184,7 +172,12 @@ def test_mocked_sync_execution(pygeoapi_api_url_fixture):
         status=200,
     )
 
-    payload = {"inputs": {"name": {"value": "Jérémie"}}, "mode": "sync"}
+    payload = {
+        "inputs": {
+            "geometry": {"value": {"type": "Point", "coordinates": [-72.0, 45.5]}}
+        },
+        "mode": "sync",
+    }
 
     response = requests.post(
         f"{pygeoapi_api_url_fixture}/processes/{process_id}/execution", json=payload
@@ -193,14 +186,14 @@ def test_mocked_sync_execution(pygeoapi_api_url_fixture):
     assert response.status_code == 200
     data = response.json()
     assert "outputs" in data
-    assert "greeting" in data["outputs"]
+    assert "result" in data["outputs"]
 
 
 @pytest.mark.mocked
 @responses.activate
 def test_mocked_async_execution(pygeoapi_api_url_fixture):
     """Test asynchronous process execution."""
-    process_id = "hello-world-pygeoapi"
+    process_id = "sentinel-fetch"
     job_response = {
         "jobID": "job-abc123",
         "status": "accepted",
@@ -216,7 +209,12 @@ def test_mocked_async_execution(pygeoapi_api_url_fixture):
         headers={"Location": f"{pygeoapi_api_url_fixture}/jobs/job-abc123"},
     )
 
-    payload = {"inputs": {"name": {"value": "Jérémie"}}, "mode": "async"}
+    payload = {
+        "inputs": {
+            "geometry": {"value": {"type": "Point", "coordinates": [-72.0, 45.5]}}
+        },
+        "mode": "async",
+    }
 
     response = requests.post(
         f"{pygeoapi_api_url_fixture}/processes/{process_id}/execution",
@@ -234,10 +232,16 @@ def test_mocked_async_execution(pygeoapi_api_url_fixture):
 # ------------------------------------------
 # Parameterized Tests
 # ------------------------------------------
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "process_data",
     [
-        {"id": "hello-world-pygeoapi", "valid_input": {"name": {"value": "Test"}}},
+        {
+            "id": "sentinel-fetch",
+            "valid_input": {
+                "geometry": {"value": {"type": "Point", "coordinates": [-72.0, 45.5]}}
+            },
+        },
         {"id": "mycool-process", "valid_input": {}},
     ],
 )
@@ -271,7 +275,7 @@ def test_mocked_nonexistent_process_404(pygeoapi_api_url_fixture):
 @responses.activate
 def test_mocked_invalid_execution_400(pygeoapi_api_url_fixture):
     """Test 400 for invalid process execution."""
-    process_id = "hello-world-pygeoapi"
+    process_id = "sentinel-fetch"
     responses.add(
         responses.POST,
         f"{pygeoapi_api_url_fixture}/processes/{process_id}/execution",
@@ -346,7 +350,9 @@ def test_mocked_job_status_check(pygeoapi_api_url_fixture):
 def test_mocked_job_results(pygeoapi_api_url_fixture):
     """Test job results retrieval."""
     job_id = "job-abc123"
-    job_results = {"outputs": {"greeting": {"value": "Hello, World!"}}}
+    job_results = {
+        "outputs": {"result": {"value": {"type": "FeatureCollection", "features": []}}}
+    }
 
     responses.add(
         responses.GET,

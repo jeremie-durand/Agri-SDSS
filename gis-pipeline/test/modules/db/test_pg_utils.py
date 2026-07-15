@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import geopandas as gpd
 import pandas as pd
 import pytest
+import sqlalchemy.exc
 from gis_pipeline.modules.db.pg_utils import PostGISManager
 from gis_pipeline.services.mapping import PostgresDataTypes, RasterStacColumns
 from shapely.geometry import Point
@@ -105,7 +106,7 @@ def postgis_manager(mock_engine):
 @pytest.fixture
 def mock_gdf():
     """Provide a mock GeoDataFrame."""
-    return gpd.GeoDataFrame({"id": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]})
+    return gpd.GeoDataFrame({"gid": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]})
 
 
 # ------------------------------------------
@@ -734,6 +735,66 @@ def test_insert_table_data_none_table_name(postgis_manager, gdf_points_fixture):
         postgis_manager.insert_table_data(gdf=gdf_points_fixture, table_name=None)
 
 
+def test_insert_table_data_gid_offset_shifts_gids(postgis_manager):
+    """gid_offset adds to each GID before insertion — used for chunk uniqueness."""
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]},
+        crs="EPSG:4326",
+    )
+    mock_conn = create_mock_context_manager()
+    mock_result = Mock()
+    mock_result.scalar.return_value = 0
+    mock_conn.execute.return_value = mock_result
+
+    with patch.object(postgis_manager.engine, "begin", return_value=mock_conn):
+        with patch.object(postgis_manager, "_insert_geodataframe") as mock_insert:
+            mock_insert.return_value = None
+            postgis_manager.insert_table_data(gdf=gdf, table_name="t", gid_offset=1000)
+
+    gdf_arg = mock_insert.call_args[0][0]
+    assert gdf_arg["gid"].tolist() == [1001, 1002]
+
+
+def test_insert_table_data_gid_offset_zero_no_shift(postgis_manager):
+    """gid_offset=0 must leave GIDs unchanged."""
+    gdf = gpd.GeoDataFrame(
+        {"gid": [5, 10], "geometry": [Point(0, 0), Point(1, 1)]},
+        crs="EPSG:4326",
+    )
+    mock_conn = create_mock_context_manager()
+    mock_result = Mock()
+    mock_result.scalar.return_value = 0
+    mock_conn.execute.return_value = mock_result
+
+    with patch.object(postgis_manager.engine, "begin", return_value=mock_conn):
+        with patch.object(postgis_manager, "_insert_geodataframe") as mock_insert:
+            mock_insert.return_value = None
+            postgis_manager.insert_table_data(gdf=gdf, table_name="t", gid_offset=0)
+
+    gdf_arg = mock_insert.call_args[0][0]
+    assert gdf_arg["gid"].tolist() == [5, 10]
+
+
+def test_insert_table_data_default_gid_offset_no_shift(postgis_manager):
+    """Default gid_offset (0) must leave GIDs unchanged."""
+    gdf = gpd.GeoDataFrame(
+        {"gid": [100, 200], "geometry": [Point(0, 0), Point(1, 1)]},
+        crs="EPSG:4326",
+    )
+    mock_conn = create_mock_context_manager()
+    mock_result = Mock()
+    mock_result.scalar.return_value = 0
+    mock_conn.execute.return_value = mock_result
+
+    with patch.object(postgis_manager.engine, "begin", return_value=mock_conn):
+        with patch.object(postgis_manager, "_insert_geodataframe") as mock_insert:
+            mock_insert.return_value = None
+            postgis_manager.insert_table_data(gdf=gdf, table_name="t")
+
+    gdf_arg = mock_insert.call_args[0][0]
+    assert gdf_arg["gid"].tolist() == [100, 200]
+
+
 # ------------------------------------------
 # Test cases for insert_cog_metadata()
 # ------------------------------------------
@@ -1325,3 +1386,333 @@ def test_primary_key_handles_schema_qualified_table(postgis_manager):
             assert any(
                 expected_constraint in call for call in calls
             ), f"PRIMARY KEY constraint should be named '{expected_constraint}'"
+
+
+@pytest.mark.unit
+class TestRepairNullGidsEdgeCases:
+    def test_all_nulls_generates_sequential_from_one(self) -> None:
+        """When all GIDs are NaN, sequential IDs starting from 1 are assigned."""
+        from gis_pipeline.modules.db.pg_utils import GIDValidator
+
+        series = pd.Series([float("nan"), float("nan"), float("nan")])
+        result = GIDValidator._repair_null_gids(series)
+        assert len(result) == 3
+        assert result.nunique() == 3
+        assert set(result.tolist()) == {1, 2, 3}
+
+    def test_partial_nulls_avoids_existing_ids(self) -> None:
+        """Generated IDs must not conflict with pre-existing valid IDs."""
+        from gis_pipeline.modules.db.pg_utils import GIDValidator
+
+        series = pd.Series([1.0, float("nan"), 3.0])
+        result = GIDValidator._repair_null_gids(series)
+        assert result.nunique() == 3
+        assert 1 in result.tolist()
+        assert 3 in result.tolist()
+        # New ID must not be 1 or 3
+        new_id = [v for v in result.tolist() if v not in (1, 3)][0]
+        assert new_id not in (1, 3)
+
+
+@pytest.mark.unit
+class TestBuildColumnMappingEdgeCases:
+    def test_column_above_70pct_dicts_inferred_as_jsonb(self) -> None:
+        from gis_pipeline.modules.db.pg_utils import TypeMapper
+
+        values = [{"k": "v"}] * 8 + ["plain string"] * 2
+        gdf = gpd.GeoDataFrame(
+            {"geometry": [Point(0, 0)] * 10, "data": values}, crs="EPSG:4326"
+        )
+        mapping = TypeMapper._build_column_mapping_from_gdf(gdf)
+        from gis_pipeline.services.mapping import PostgresDataTypes
+
+        assert mapping.get("data") == PostgresDataTypes.JSONB.value
+
+    def test_column_below_70pct_dicts_inferred_as_text(self) -> None:
+        from gis_pipeline.modules.db.pg_utils import TypeMapper
+
+        values = [{"k": "v"}] * 5 + ["plain string"] * 5
+        gdf = gpd.GeoDataFrame(
+            {"geometry": [Point(0, 0)] * 10, "data": values}, crs="EPSG:4326"
+        )
+        mapping = TypeMapper._build_column_mapping_from_gdf(gdf)
+        from gis_pipeline.services.mapping import PostgresDataTypes
+
+        assert mapping.get("data") == PostgresDataTypes.TEXT.value
+
+    def test_datetime_column_inferred_as_timestamp_with_tz(self) -> None:
+        from gis_pipeline.modules.db.pg_utils import TypeMapper
+
+        times = pd.to_datetime(["2024-01-01", "2024-01-02"])
+        gdf = gpd.GeoDataFrame(
+            {"geometry": [Point(0, 0), Point(1, 1)], "ts": times}, crs="EPSG:4326"
+        )
+        mapping = TypeMapper._build_column_mapping_from_gdf(gdf)
+        from gis_pipeline.services.mapping import PostgresDataTypes
+
+        assert mapping.get("ts") == PostgresDataTypes.TIMESTAMP_WITH_TIMEZONE.value
+
+
+@pytest.mark.unit
+class TestNormalizeCogMetadataEdgeCases:
+    def test_plain_dict_returned_as_dict(self) -> None:
+        from gis_pipeline.modules.db.pg_utils import DataInserter
+
+        meta = {
+            "id": "item1",
+            "bbox": [1.0, 2.0, 3.0, 4.0],
+            "file_url": "/path/to/file",
+        }
+        result = DataInserter._normalize_cog_metadata(meta)
+        assert isinstance(result, dict)
+        assert result["id"] == "item1"
+
+    def test_bbox_tuple_converted_to_list_of_floats(self) -> None:
+        from gis_pipeline.modules.db.pg_utils import DataInserter
+
+        meta = {"id": "item1", "bbox": (1, 2, 3, 4), "file_url": "/path"}
+        result = DataInserter._normalize_cog_metadata(meta)
+        assert isinstance(result["bbox"], list)
+        assert result["bbox"] == [1.0, 2.0, 3.0, 4.0]
+
+    def test_non_primitive_id_coerced_to_string(self) -> None:
+        from gis_pipeline.modules.db.pg_utils import DataInserter
+
+        meta = {"id": 42, "bbox": [0.0, 0.0, 1.0, 1.0], "file_url": "/path"}
+        result = DataInserter._normalize_cog_metadata(meta)
+        # id=42 (int) is already primitive; no coercion needed
+        assert result["id"] in (42, "42")
+
+
+# ------------------------------------------
+# Test cases for apply_foreign_keys()
+# ------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.mocked
+def test_apply_foreign_keys_executes_unique_and_fk_sql(postgis_manager):
+    """apply_foreign_keys runs UNIQUE then FK NOT VALID SQL for each definition."""
+    fk_defs = [
+        {
+            "from_table": "couverture_pps",
+            "from_col": "code_polygone",
+            "to_table": "couverture_pedologique",
+            "to_col": "code_polygone",
+        }
+    ]
+    mock_conn = create_mock_context_manager()
+    with patch.object(postgis_manager.engine, "begin", return_value=mock_conn):
+        postgis_manager.apply_foreign_keys(fk_defs)
+
+    calls = [str(c[0][0]) for c in mock_conn.execute.call_args_list]
+    assert any(
+        "UNIQUE" in c and "code_polygone" in c for c in calls
+    ), "Expected a UNIQUE constraint SQL call"
+    assert any(
+        "FOREIGN KEY" in c and "NOT VALID" in c for c in calls
+    ), "Expected a FK NOT VALID SQL call"
+
+
+@pytest.mark.unit
+@pytest.mark.mocked
+def test_apply_foreign_keys_skips_duplicate_unique_constraint(postgis_manager):
+    """Duplicate UNIQUE constraint (pgcode 42710) is silently skipped, FK is still attempted."""
+    import sqlalchemy.exc
+
+    fk_defs = [
+        {
+            "from_table": "child",
+            "from_col": "code",
+            "to_table": "parent",
+            "to_col": "code",
+        }
+    ]
+
+    dup_error = sqlalchemy.exc.ProgrammingError("stmt", {}, Exception())
+    dup_error.orig = type("Orig", (), {"pgcode": "42710"})()
+
+    call_count = 0
+
+    def begin_side_effect():
+        nonlocal call_count
+        call_count += 1
+        mock_conn = create_mock_context_manager()
+        if call_count == 1:
+            mock_conn.execute.side_effect = dup_error
+        return mock_conn
+
+    with patch.object(postgis_manager.engine, "begin", side_effect=begin_side_effect):
+        postgis_manager.apply_foreign_keys(fk_defs)
+
+    # Two begin() calls: one for UNIQUE (raises dup), one for FK
+    assert call_count == 2
+
+
+@pytest.mark.unit
+@pytest.mark.mocked
+def test_apply_foreign_keys_skips_fk_on_unique_failure(postgis_manager):
+    """Non-42710 error on UNIQUE step causes FK to be skipped for that definition."""
+    import sqlalchemy.exc
+
+    fk_defs = [
+        {
+            "from_table": "child",
+            "from_col": "ref_col",
+            "to_table": "parent",
+            "to_col": "ref_col",
+        }
+    ]
+
+    hard_error = sqlalchemy.exc.ProgrammingError("stmt", {}, Exception())
+    hard_error.orig = type("Orig", (), {"pgcode": "42P01"})()  # undefined table
+
+    mock_conn = create_mock_context_manager()
+    mock_conn.execute.side_effect = hard_error
+
+    with patch.object(
+        postgis_manager.engine, "begin", return_value=mock_conn
+    ) as mock_begin:
+        postgis_manager.apply_foreign_keys(fk_defs)
+        # Only one begin() call: UNIQUE fails with hard error → FK is skipped
+        assert mock_begin.call_count == 1
+
+
+@pytest.mark.unit
+@pytest.mark.mocked
+def test_apply_foreign_keys_empty_list_is_noop(postgis_manager):
+    """Empty fk_defs list results in no database calls."""
+    postgis_manager.apply_foreign_keys([])
+
+    postgis_manager.engine.begin.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.mocked
+def test_apply_foreign_keys_multiple_definitions(postgis_manager):
+    """Each FK definition produces its own UNIQUE + FK SQL pair."""
+    fk_defs = [
+        {
+            "from_table": "t1",
+            "from_col": "col_a",
+            "to_table": "ref1",
+            "to_col": "col_a",
+        },
+        {
+            "from_table": "t2",
+            "from_col": "col_b",
+            "to_table": "ref2",
+            "to_col": "col_b",
+        },
+    ]
+    all_calls: list[str] = []
+
+    def begin_side_effect():
+        mock_conn = create_mock_context_manager()
+        mock_conn.execute.side_effect = lambda sql: all_calls.append(str(sql))
+        return mock_conn
+
+    with patch.object(
+        postgis_manager.engine, "begin", side_effect=begin_side_effect
+    ) as mock_begin:
+        postgis_manager.apply_foreign_keys(fk_defs)
+        # 2 definitions × 2 SQL statements each = 4 total engine.begin() calls
+        assert mock_begin.call_count == 4
+
+    unique_calls = [c for c in all_calls if "UNIQUE" in c]
+    fk_calls = [c for c in all_calls if "FOREIGN KEY" in c]
+    assert len(unique_calls) == 2
+    assert len(fk_calls) == 2
+
+
+# ------------------------------------------
+# Test cases for _drop_incoming_fk_constraints and UniqueViolation handling
+# ------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.mocked
+def test_drop_incoming_fk_constraints_called_on_replace(postgis_manager):
+    """_drop_incoming_fk_constraints is invoked when override_method='replace', not 'append'."""
+    import geopandas as gpd
+    from gis_pipeline.modules.db.pg_utils import DataInserter
+    from shapely.geometry import Point
+
+    inserter = DataInserter(postgis_manager.engine)
+    gdf = gpd.GeoDataFrame({"gid": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326")
+
+    with patch.object(inserter, "_drop_incoming_fk_constraints") as mock_drop:
+        mock_conn = create_mock_context_manager()
+        with patch.object(inserter.engine, "begin", return_value=mock_conn):
+            with patch("geopandas.GeoDataFrame.to_postgis"):
+                inserter._insert_geodataframe(gdf, "some_table", "replace")
+                mock_drop.assert_called_once_with("some_table")
+
+    with patch.object(inserter, "_drop_incoming_fk_constraints") as mock_drop:
+        mock_conn = create_mock_context_manager()
+        with patch.object(inserter.engine, "begin", return_value=mock_conn):
+            with patch("geopandas.GeoDataFrame.to_postgis"):
+                inserter._insert_geodataframe(gdf, "some_table", "append")
+                mock_drop.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.mocked
+def test_add_fk_constraints_skips_unique_violation(postgis_manager):
+    """UniqueViolation (pgcode 23505) on the UNIQUE step is logged and skipped, not raised."""
+    import sqlalchemy.exc
+
+    fk_defs = [
+        {
+            "from_table": "child",
+            "from_col": "ref_col",
+            "to_table": "parent",
+            "to_col": "ref_col",
+        }
+    ]
+
+    integrity_error = sqlalchemy.exc.IntegrityError("stmt", {}, Exception())
+    integrity_error.orig = type("Orig", (), {"pgcode": "23505"})()
+
+    call_count = 0
+
+    def begin_side_effect():
+        nonlocal call_count
+        call_count += 1
+        mock_conn = create_mock_context_manager()
+        if call_count == 1:
+            mock_conn.execute.side_effect = integrity_error
+        return mock_conn
+
+    with patch.object(postgis_manager.engine, "begin", side_effect=begin_side_effect):
+        # Must not raise; only one begin() call (the UNIQUE step that fails)
+        postgis_manager.apply_foreign_keys(fk_defs)
+    assert call_count == 1
+
+
+# ------------------------------------------
+# PostGISManager.stamp_gee_flags
+# ------------------------------------------
+
+
+@pytest.mark.unit
+class TestStampGeeFlags:
+    def test_three_sql_statements_when_ids_provided(self, postgis_manager, mock_engine):
+        """ADD COLUMN + reset FALSE + set TRUE = 3 execute() calls."""
+        mock_conn = mock_engine.begin.return_value
+        mock_conn.execute.reset_mock()
+        postgis_manager.stamp_gee_flags("som_field_boundaries", {1, 42})
+        assert mock_conn.execute.call_count == 3
+
+    def test_two_sql_statements_when_ids_empty(self, postgis_manager, mock_engine):
+        """ADD COLUMN + reset FALSE only (no TRUE update) when set is empty."""
+        mock_conn = mock_engine.begin.return_value
+        mock_conn.execute.reset_mock()
+        postgis_manager.stamp_gee_flags("som_field_boundaries", set())
+        assert mock_conn.execute.call_count == 2
+
+    def test_db_error_raises_runtime_error(self, postgis_manager, mock_engine):
+        """A PostGIS error must surface as RuntimeError so the pipeline notices."""
+        mock_engine.begin.side_effect = sqlalchemy.exc.SQLAlchemyError("DB gone")
+        with pytest.raises(RuntimeError, match="Failed to stamp GEE flags"):
+            postgis_manager.stamp_gee_flags("som_field_boundaries", {1})

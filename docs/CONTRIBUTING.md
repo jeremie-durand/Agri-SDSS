@@ -1,146 +1,170 @@
-# Contributing to mos-gis
+# Contributing to MOS-GIS
 
-Thank you for your interest in contributing to mos-gis! We welcome contributions from the community.
+Thank you for your interest in contributing! MOS-GIS welcomes contributions from researchers, agronomists, data providers, and developers. Issues and pull requests are welcome in **English or French**.
 
-## How to Contribute
+## Ways to Contribute
 
-### Reporting Issues
+You don't need to write code to contribute:
 
-If you find a bug or have a feature request:
+| Contribution | Where to start |
+| --- | --- |
+| Report a bug or request a feature | [Open an issue](https://github.com/Mon-Systeme-Fourrager/mos-gis/issues) |
+| Integrate a new dataset | [Adding new data guide](data/adding_new_data.md) — step-by-step, from source doc to pipeline ingestion |
+| Add or improve an OGC process | [Adding a new OGC process](#adding-a-new-ogc-process) below |
+| Improve documentation or FR/EN translations | Edit and open a PR — docs live in `docs/` and each service's folder |
+| Improve the map, chatbot, or UI | [frontend/home/README.md](../frontend/home/README.md) and [mos-chatbot/docs/ARCHITECTURE.md](../mos-chatbot/docs/ARCHITECTURE.md) |
 
-1. **Search existing issues** to avoid duplicates
-2. **Create a new issue** with a clear title and description
-3. **Include relevant details**:
-   - Steps to reproduce (for bugs)
-   - Expected vs actual behavior
-   - Environment details (OS, Docker version, etc.)
-   - Sample data or error messages
-
-### Submitting Changes
-
-#### 1. Fork and Clone
+## Development Setup
 
 ```bash
 # Fork the repository on GitHub, then:
 git clone https://github.com/YOUR_USERNAME/mos-gis.git
 cd mos-gis
 git remote add upstream https://github.com/Mon-Systeme-Fourrager/mos-gis.git
+
+# Configure and start the stack
+cp .env.example .env
+docker compose up -d
+
+# Verify everything works
+make test-all
 ```
 
-#### 2. Create a Branch
+To get oriented: [ARCHITECTURE.md](ARCHITECTURE.md) has the system diagram and service table, and the [documentation index](README.md) links every guide.
 
-We follow **Git Flow** branching:
+## Reporting Issues
 
-- **`develop`** - Main development branch
-- **`main`** - Production releases
-- **`feature/*`** - New features (from `develop`)
-- **`bugfix/*`** - Bug fixes (from `develop`)
+1. **Search existing issues** to avoid duplicates
+2. **Create a new issue** with a clear title and description
+3. **Include relevant details**: steps to reproduce, expected vs actual behavior, environment (OS, Docker version), sample data or error messages
+
+## Submitting Changes
+
+### 1. Create a Branch
+
+We follow **Git Flow**:
+
+- **`develop`** — main development branch (PRs target here)
+- **`main`** — production releases
+- **`feature/*`** — new features (from `develop`)
+- **`bugfix/*`** — bug fixes (from `develop`)
 
 ```bash
-# Update your fork
 git checkout develop
 git pull upstream develop
-
-# Create your branch
 git checkout -b feature/your-feature-name
-# or
-git checkout -b bugfix/issue-description
 ```
 
-#### 3. Make Your Changes
+### 2. Make Your Changes
 
-- Write clear, documented code
-- Follow existing code style and conventions
-- Add tests for new functionality
-- Update documentation as needed
+- Follow the [code style](#code-style) below
+- Add tests for new functionality (see [testing guidelines](#testing-guidelines))
+- Update documentation touched by your change
 
-#### 4. Test Your Changes
+### 3. Test Your Changes
 
 ```bash
-# Run tests
-docker compose run --rm tests
+# Run all tests
+make test-all
 
-# Run specific tests
-docker compose run --rm tests pytest gis-pipeline/test/
+# Run a specific service's tests
+make test-gis-pipeline
+make test-stac-api
+make test-vector-api
+make test-raster-api
+make test-mos-pygeoapi
+make test-mos-chatbot
 
-# Check code coverage
-docker compose run --rm tests pytest --cov=gis_pipeline
+# Single test file (inside container)
+docker compose run --rm stac-api pytest stac_api/test/test_foo.py::test_bar -v
 ```
 
-#### 5. Commit and Push
+### 4. Commit
+
+Use conventional-style prefixes:
 
 ```bash
-# Stage your changes
-git add .
-
-# Commit with a clear message
 git commit -m "feat: add new processing feature"
-# or
 git commit -m "fix: resolve projection issue in pipeline"
-
-# Push to your fork
-git push origin feature/your-feature-name
 ```
 
-**Commit message format:**
-- `feat:` New feature
-- `fix:` Bug fix
-- `docs:` Documentation changes
-- `test:` Test additions/changes
-- `refactor:` Code refactoring
-- `chore:` Maintenance tasks
+| Prefix | Use for |
+| --- | --- |
+| `feat:` | New feature |
+| `fix:` | Bug fix |
+| `docs:` | Documentation changes |
+| `test:` | Test additions/changes |
+| `refacto:` | Code refactoring |
+| `chore:` | Maintenance tasks |
 
-#### 6. Open a Pull Request
+### 5. Open a Pull Request
 
-1. Go to the [mos-gis repository](https://github.com/Mon-Systeme-Fourrager/mos-gis)
-2. Click **"New Pull Request"**
-3. Select `develop` as the base branch
-4. Provide a clear title and description:
-   - What changes were made
-   - Why they were necessary
-   - Any breaking changes or migration notes
-5. Link related issues (e.g., "Closes #123")
+1. Push your branch and open a PR against **`develop`**
+2. Describe what changed, why, and any breaking changes
+3. Link related issues (e.g., "Closes #123")
+
+**Before requesting review, check:**
+
+- [ ] `make test-all` passes
+- [ ] New logic is covered by tests
+- [ ] Documentation updated (READMEs, guides, catalog)
+- [ ] If you changed CLI arguments: `make generate-args` was run (CI fails if `ARGS.md` is out of sync)
+
+CI will build the service images, verify `ARGS.md` sync, run the full test suite, and run a security scan.
 
 ### Code Review Process
 
-- Maintainers will review your PR
-- Address any feedback or requested changes
-- Once approved, your PR will be merged into `develop`
+- Maintainers review your PR and may request changes
+- Once approved, your PR is merged into `develop`
 
-## Development Setup
+## Adding a New Data Source
 
-See the main [README](../README.md) for:
-- Installation instructions
-- Docker setup
-- Running services locally
-- Pipeline usage
+The most common contribution — fully documented in the [adding new data guide](data/adding_new_data.md). In short:
 
-For technical details, see:
-- **[Technical Documentation](../gis-pipeline/docs/TECHNICAL_DOCUMENTATION.md)**
-- **[CLI Arguments](../gis-pipeline/docs/ARGS.md)**
+1. Document the source in `docs/data/sources/SOURCENAME.md` (template in the guide)
+2. Add a row to the [data catalog](data/CATALOG.md) — including its license
+3. Drop the files in `data/input/` and run the pipeline
+4. Verify PostGIS/STAC/API outputs and add tests
+
+Data must be under an open license (OGL-Q, OGL-Canada, CC-BY, …) — note it in the source doc.
+
+## Adding a New OGC Process
+
+Follow the pattern of the seven existing processes in `mos-pygeoapi/processes/`:
+
+1. `processes/<name>.py` (processor class) + `processes/<name>_metadata.py` (PROCESS_METADATA)
+2. Register it in `mos-pygeoapi/config/pygeoapi-config.yaml`
+3. Write a spec doc in `mos-pygeoapi/docs/` (see [SOM_PREDICT_SOIL_SPECS.md](../mos-pygeoapi/docs/SOM_PREDICT_SOIL_SPECS.md) for the format)
+4. Add the process to the [mos-pygeoapi README](../mos-pygeoapi/README.md) table
+5. Add tests with the appropriate markers
 
 ## Code Style
 
-- Follow PEP 8 for Python code
-- Use type hints where appropriate
-- Write docstrings for functions and classes
-- Keep functions focused and modular
+- Follow PEP 8; line length 88 characters maximum
+- Type hints required for all code
+- Document with docstrings; avoid comments
+- Use f-strings for formatting
+- Keep functions focused and small
 
 ## Testing Guidelines
 
-- Write unit tests for new features
-- Ensure tests pass before submitting PR
-- Aim for good code coverage
-- Test edge cases and error handling
+- Tests are marked `@pytest.mark.unit`, `@pytest.mark.mocked`, or `@pytest.mark.integration`
+- Unit tests for pure logic; **prefer mocked tests** when external services are involved
+- Cover the normal path, an edge case, and the error path
+- Ensure tests pass before submitting a PR
+
+## License
+
+MOS-GIS is [MIT-licensed](../LICENSE). By contributing, you agree that your contributions are licensed under the same terms.
 
 ## Getting Help
 
-- Check existing [documentation](../docs/)
-- Review [issues](https://github.com/Mon-Systeme-Fourrager/mos-gis/issues)
-- Ask questions in issue discussions
+- Check the [documentation index](README.md)
+- Review [existing issues](https://github.com/Mon-Systeme-Fourrager/mos-gis/issues)
+- Ask questions in issue discussions — in English or French
 
 ## Recognition
 
-Contributors will be recognized in release notes and project documentation.
+Contributors are recognized in release notes and project documentation.
 
-Thank you for helping improve mos-gis!
+Thank you for helping improve MOS-GIS!

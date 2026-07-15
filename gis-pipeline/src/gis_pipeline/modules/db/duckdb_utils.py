@@ -5,11 +5,16 @@ from typing import Dict, List, Tuple, Union
 import duckdb
 import geopandas as gpd
 import pandas as pd
+import structlog
 from gis_pipeline.core.config import Config
-from gis_pipeline.core.logging_setup import handle_error, setup_logging
-from gis_pipeline.services.mapping import AttributeNullValues, NamingPatterns
+from gis_pipeline.core.logging_setup import handle_error
+from gis_pipeline.services.mapping import (
+    AttributeNullValues,
+    ColumnMappings,
+    NamingPatterns,
+)
 
-logger = setup_logging()
+logger = structlog.get_logger()
 
 
 class DuckDBSpatialExtensionError(duckdb.Error):
@@ -77,7 +82,7 @@ class DuckDBManager:
             try:
                 # Try tuple fallback for unhashable types (e.g., lists)
                 return mapping.get(tuple(x), None)
-            except Exception:
+            except TypeError:
                 logger.exception(f"Failed to normalize value: {x}")
                 return None
 
@@ -253,6 +258,50 @@ class DuckDBManager:
             )
 
     @staticmethod
+    def _resolve_column_alias_gdf(
+        gdf_copy: gpd.GeoDataFrame, col: str
+    ) -> gpd.GeoDataFrame:
+        """Apply column alias resolution for one non-geometry column of a GeoDataFrame.
+
+        Args:
+            gdf_copy: Working copy of the GeoDataFrame (modified in place).
+            col: Column name to check against ColumnMappings.
+
+        Returns:
+            The (possibly modified) GeoDataFrame copy.
+
+        Raises:
+            ValueError: If the alias and canonical columns contain conflicting values.
+        """
+        mapping = ColumnMappings.find(col.lower().strip())
+        if not (mapping and mapping.value.canonical != col):
+            return gdf_copy
+
+        canonical_name = mapping.value.canonical
+        # Only rename if canonical name doesn't already exist (avoid duplicates)
+        if canonical_name not in gdf_copy.columns:
+            gdf_copy.rename(columns={col: canonical_name}, inplace=True)
+            logger.info(
+                f"Renamed column '{col}' to '{canonical_name}' during Parquet export"
+            )
+        else:
+            # Both alias and canonical exist — compare values to decide
+            alias_vals = gdf_copy[col].reset_index(drop=True)
+            canonical_vals = gdf_copy[canonical_name].reset_index(drop=True)
+            if alias_vals.equals(canonical_vals):
+                gdf_copy.drop(columns=[col], inplace=True)
+                logger.info(
+                    f"Dropped redundant alias column '{col}' — identical to canonical '{canonical_name}'"
+                )
+            else:
+                error_msg = (
+                    f"Column conflict: alias '{col}' and canonical '{canonical_name}' "
+                    f"contain different values. Cannot determine authoritative source."
+                )
+                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+        return gdf_copy
+
+    @staticmethod
     def save_gdf_to_geoparquet(
         gdf: gpd.GeoDataFrame,
         output_file_name: str,
@@ -272,7 +321,8 @@ class DuckDBManager:
             handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
         if gdf.empty:
-            logger.warning("GeoDataFrame is empty. Proceeding to save empty dataset.")
+            error_msg = "Cannot save empty GeoDataFrame"
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
         parquet_path = Path(Config.DUCKDB_DATA_DIR) / f"{output_file_name}.parquet"
         tmp_path = parquet_path.with_suffix(".tmp")
@@ -289,6 +339,13 @@ class DuckDBManager:
                 tmp_path.unlink()
 
             gdf_copy = gdf.copy()
+
+            # Apply column normalization to rename ID column aliases to canonical names
+            for col in gdf_copy.columns:
+                # Skip geometry column
+                if col == gdf_copy.geometry.name:
+                    continue
+                gdf_copy = DuckDBManager._resolve_column_alias_gdf(gdf_copy, col)
 
             for col in gdf.columns:
                 # Skip geometry column (keep original geometry)
@@ -329,7 +386,8 @@ class DuckDBManager:
             file_size = parquet_path.stat().st_size
             logger.info(
                 f"GeoDataFrame saved to GeoParquet '{parquet_path}' successfully. "
-                f"Size: {file_size:,} bytes, Rows: {len(gdf):,}"
+                f"Size: {file_size:,} bytes, Rows: {len(gdf):,}",
+                table=output_file_name,
             )
 
         except (OSError, IOError) as e:
@@ -340,6 +398,75 @@ class DuckDBManager:
             error_msg = f"Unexpected error saving GeoDataFrame to GeoParquet: {e}"
             DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+
+    def _build_select_with_aliases(
+        self, column_names: list[str], table_name: str
+    ) -> list[str]:
+        """Build a SELECT column list with alias-to-canonical renaming for DuckDB export.
+
+        Args:
+            column_names: Ordered column names from the DuckDB table.
+            table_name: Unescaped table name (used in queries and log messages).
+
+        Returns:
+            List of SELECT column expressions, each either a bare escaped name or
+            ``escaped_alias AS escaped_canonical``.
+
+        Raises:
+            ValueError: If an alias and canonical column contain conflicting values.
+        """
+        escaped_table = self.escape_duckdb(table_name)
+        # Build SELECT clause with column renaming.
+        # assigned_canonicals tracks canonical names already committed to the SELECT
+        # so that a second alias mapping to the same canonical is treated as a conflict.
+        select_columns: list[str] = []
+        assigned_canonicals: dict[str, str] = (
+            {}
+        )  # canonical -> original col already in SELECT
+        for col in column_names:
+            norm = col.lower().strip()
+            mapping = ColumnMappings.find(norm)
+            if mapping and mapping.value.canonical != col:
+                canonical_name = mapping.value.canonical
+                # Determine the column to compare against: either an explicit canonical
+                # column in the table, or a previously-assigned alias.
+                existing_col = (
+                    canonical_name
+                    if canonical_name in column_names
+                    else assigned_canonicals.get(canonical_name)
+                )
+                if existing_col is not None:
+                    # A column already occupies this canonical slot — compare values
+                    count_diff = self.conn.execute(
+                        f"SELECT COUNT(*) FROM {escaped_table} "
+                        f"WHERE {self.escape_duckdb(col)} IS DISTINCT FROM {self.escape_duckdb(existing_col)}"
+                    ).fetchone()[0]
+                    if count_diff == 0:
+                        # Alias is redundant — skip it
+                        logger.info(
+                            f"Dropped redundant alias column '{col}' in table '{table_name}' "
+                            f"— identical to canonical '{canonical_name}'"
+                        )
+                    else:
+                        error_msg = (
+                            f"Column conflict in table '{table_name}': alias '{col}' and "
+                            f"canonical '{canonical_name}' (held by '{existing_col}') "
+                            f"contain {count_diff} differing row(s). Cannot determine authoritative source."
+                        )
+                        handle_error(
+                            logger=logger, error_msg=error_msg, exc_class=ValueError
+                        )
+                else:
+                    select_columns.append(
+                        f"{self.escape_duckdb(col)} AS {self.escape_duckdb(canonical_name)}"
+                    )
+                    assigned_canonicals[canonical_name] = col
+                    logger.info(
+                        f"Renaming column '{col}' to '{canonical_name}' during table export from '{table_name}'"
+                    )
+            else:
+                select_columns.append(self.escape_duckdb(col))
+        return select_columns
 
     def save_table_to_geoparquet(self, table_name: str, overwrite: bool = True) -> str:
         """Save a DuckDB table to a Parquet file.
@@ -370,11 +497,21 @@ class DuckDBManager:
 
             escaped_table_name = self.escape_duckdb(table_name)
 
+            # Get column list and build SELECT with column renaming for ID aliases
+            columns_result = self.conn.execute(
+                f"DESCRIBE {escaped_table_name}"
+            ).fetchall()
+            column_names = [row[0] for row in columns_result]
+
+            select_clause = ", ".join(
+                self._build_select_with_aliases(column_names, table_name)
+            )
+
             logger.debug(
                 f"Exporting table '{table_name}' to temporary file: {tmp_path}"
             )
             self.conn.execute(
-                f"COPY (SELECT * FROM {escaped_table_name}) TO '{str(tmp_path)}' (FORMAT 'parquet')"
+                f"COPY (SELECT {select_clause} FROM {escaped_table_name}) TO '{str(tmp_path)}' (FORMAT 'parquet')"
             )
 
             if not tmp_path.exists():
@@ -394,6 +531,9 @@ class DuckDBManager:
             )
             return str(output_path)
 
+        except ValueError:
+            self._cleanup_temp_file(tmp_path)
+            raise
         except duckdb.CatalogException:
             error_msg = f"Table '{table_name}' does not exist in database"
             self._cleanup_temp_file(tmp_path)

@@ -1,5 +1,31 @@
 #!/bin/bash
 set -e
+# Security check: Verify refresh-tokens.json is in .gitignore
+GITIGNORE_PATH=".gitignore"
+TOKEN_FILE_PATTERN="mos-pygeoapi/config/openeo-config/refresh-tokens.json"
+#
+if [ -f "$GITIGNORE_PATH" ]; then
+    if ! grep -F -q -x "$TOKEN_FILE_PATTERN" "$GITIGNORE_PATH"; then
+        echo "============================================================"
+        echo "⚠️  SECURITY WARNING"
+        echo "============================================================"
+        echo ""
+        echo "The token file path is NOT in .gitignore!"
+        echo "This could lead to accidental token commits."
+        echo ""
+        echo "Please add this line to your .gitignore:"
+        echo "  $TOKEN_FILE_PATTERN"
+        echo ""
+        echo "============================================================"
+        read -p "Continue anyway? (y/N): " CONTINUE
+        if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+            echo "Aborted. Please update .gitignore first."
+            exit 1
+        fi
+    fi
+else
+    echo "Warning: .gitignore not found. Ensure token files are not committed."
+fi
 #
 echo "============================================================"
 echo "OpenEO Refresh Token Setup (Docker)"
@@ -142,26 +168,31 @@ echo "============================================================"
 echo "SUCCESS! Token extracted (length: ${#TOKEN})"
 echo "============================================================"
 echo ""
-echo "The refresh token is now stored in: ./pygeoapi/config/openeo-config/refresh-tokens.json"
-echo "This token will be automatically loaded by the openEO Python client."
-echo ""
-echo "OPTIONAL: For fallback support, copy this line to your .env file:"
+echo "IMPORTANT: Copy this line to your .env file (RECOMMENDED for production):"
 echo ""
 echo "OPENEO_REFRESH_TOKEN=$TOKEN"
 echo ""
 echo "============================================================"
 echo ""
+echo "NOTE: Refresh tokens expire after approximately 30 days."
+echo "      Re-run this script when your token expires."
+echo ""
+echo "The token is also stored in: ./mos-pygeoapi/config/openeo-config/refresh-tokens.json"
+echo "(This JSON file is used as a fallback for local development)"
+echo ""
+echo "============================================================"
+echo ""
 echo "Next steps:"
 echo ""
-echo "  1. The token is already stored and will persist across restarts"
+echo "  1. Copy the OPENEO_REFRESH_TOKEN line above to your .env file"
 echo ""
-echo "  2. (Optional) Copy the line above to .env for fallback support"
+echo "  2. (For local dev only) The JSON file fallback is already configured"
 echo ""
 echo "  3. Reload pygeoapi to apply changes:"
 echo "     docker compose down && docker compose up -d"
 echo ""
 echo "  4. Test the sentinel-fetch process:"
-echo "     curl -X POST http://localhost:5000/processes/sentinel-fetch/execution \\"
+echo "     curl -X POST ${HOST_PROTOCOL:-http}://${HOST_URL:-localhost}:${PYGEOAPI_API_PORT:-5000}/processes/sentinel-fetch/execution \\"
 echo "       -H 'Content-Type: application/json' \\"
 echo "       -d '{\"inputs\": {"
 echo "         \"farm_id\": 75,"

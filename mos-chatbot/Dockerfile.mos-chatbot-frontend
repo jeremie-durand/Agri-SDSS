@@ -1,0 +1,37 @@
+# ── Stage 1: Clone OpenGeo-AI-Assistant at pinned version ────────────────────
+FROM alpine/git:2.43.0 AS source
+ARG CHATBOT_VERSION=v0.1.1-alpha
+RUN git clone --depth 1 --branch ${CHATBOT_VERSION} \
+    https://github.com/jeremie-durand/OpenGeo-AI-Assistant.git /src
+
+# ── Stage 2: Build with Vite ──────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+COPY --from=source /src/opengeo-ai-assistant/web-ui/package*.json .
+RUN npm ci
+
+COPY --from=source /src/opengeo-ai-assistant/web-ui .
+
+# Layer mos-gis overrides on top of upstream
+COPY mos-chatbot/overrides/frontend/ .
+
+ARG VITE_API_URL=http://localhost:8005
+ENV VITE_API_URL=${VITE_API_URL}
+RUN npm run build
+
+# ── Stage 3: Serve with nginx (matching upstream) ─────────────────────────────
+FROM nginx:alpine AS runtime
+
+RUN apk upgrade --no-cache
+
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY mos-chatbot/overrides/frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=source /src/opengeo-ai-assistant/web-ui/docker-entrypoint.sh /docker-entrypoint.sh
+
+RUN chmod +x /docker-entrypoint.sh
+
+EXPOSE 3001
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

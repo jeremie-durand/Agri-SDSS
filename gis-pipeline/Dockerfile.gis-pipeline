@@ -1,4 +1,10 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS runtime
+
+# Set build arguments for versions of key dependencies
+ARG NUMPY_VERSION=2.4.2  # Must match the version specified in requirements-gis-pipeline.txt
+ARG CYTHON_VERSION=3.2.4
+ARG USER_GID=1000
+ARG USER_UID=1000
 
 # Set non-interactive mode for apt-get
 ENV DEBIAN_FRONTEND=noninteractive
@@ -13,16 +19,14 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 RUN mkdir -p /app/scripts
 
-# Copy scripts and make them executable
-COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
-RUN chmod +x /usr/local/bin/wait-for-it.sh
+# Copy canonical wait-for-it script and entrypoint
+COPY --chmod=755 scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
 
 # Install build dependencies (GIS-focused)
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     ninja-build \
-    git \
     g++ \
     make \
     python3-dev \
@@ -45,10 +49,13 @@ ENV CPLUS_INCLUDE_PATH=/usr/local/include
 ENV C_INCLUDE_PATH=/usr/local/include
 ENV PROJ_DIR=/usr
 
-# Clone GDAL and build using CMake
-RUN git clone https://github.com/OSGeo/gdal.git \
-    && cd gdal \
-    && git checkout v${GDAL_VERSION} \
+# Download GDAL release tarball, verify integrity, and build using CMake
+ENV GDAL_SHA256=54638f6990f84c16142d93c9daaafaf1eab0a6a61538162095c334de086ef91f
+RUN wget -q https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz \
+    && echo "${GDAL_SHA256}  gdal-${GDAL_VERSION}.tar.gz" | sha256sum --check --strict \
+    && tar -xzf gdal-${GDAL_VERSION}.tar.gz \
+    && rm gdal-${GDAL_VERSION}.tar.gz \
+    && cd gdal-${GDAL_VERSION} \
     && mkdir build \
     && cd build \
     && cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
@@ -56,24 +63,41 @@ RUN git clone https://github.com/OSGeo/gdal.git \
     && ninja install \
     && ldconfig \
     && cd /app \
-    && rm -rf gdal
-
-# Copy pipeline requirements
-COPY gis-pipeline/requirements-gis-pipeline.txt ./requirements-gis-pipeline.txt
+    && rm -rf gdal-${GDAL_VERSION}
 
 # Install Python dependencies
-RUN pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir numpy>=2.0 cython \
-    && pip install --no-cache-dir -r requirements-gis-pipeline.txt \
-    && rm requirements-gis-pipeline.txt \
+# numpy and cython must be pre-installed before requirements.txt because rasterio,
+# fiona and geopandas compile C extensions at build time and need numpy headers.
+# numpy version here must match requirements-gis-pipeline.txt.
+RUN --mount=type=bind,source=gis-pipeline/requirements-gis-pipeline.txt,target=/tmp/requirements-gis-pipeline.txt \
+    pip install --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir numpy==${NUMPY_VERSION} cython==${CYTHON_VERSION} \
+    && pip install --no-cache-dir -r /tmp/requirements-gis-pipeline.txt \
     && mkdir -p /app/data
 
+# Create non-root user and set ownership
+# Note: bind-mounted volumes (./data, ./gis-pipeline/logs) must be accessible
+# to uid 1000 on the host (e.g. chown -R 1000:1000 ./data ./gis-pipeline/logs).
+RUN groupadd --gid ${USER_GID} appuser \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} --create-home --shell /bin/bash appuser \
+    && mkdir -p /data /gis-pipeline/logs \
+    && chown -R appuser:appuser /app /data /gis-pipeline/logs
+
 # Copy pipeline code
-COPY gis-pipeline/src/gis_pipeline /app/gis_pipeline
+COPY --chown=appuser:appuser gis-pipeline/src/gis_pipeline /app/gis_pipeline
 
 # Copy entrypoint script
-COPY gis-pipeline/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY --chmod=755 gis-pipeline/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+USER appuser
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+FROM runtime AS test
+USER root
+RUN --mount=type=bind,source=gis-pipeline/requirements-gis-pipeline-test.txt,target=/tmp/requirements-gis-pipeline-test.txt \
+    pip install --no-cache-dir -r /tmp/requirements-gis-pipeline-test.txt
+USER appuser
+COPY --chown=appuser:appuser gis-pipeline/test /app/gis_pipeline/test
+COPY --chown=appuser:appuser gis-pipeline/pytest.ini /app/pytest.ini
 CMD ["sleep", "infinity"]

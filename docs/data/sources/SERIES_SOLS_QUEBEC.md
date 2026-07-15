@@ -29,22 +29,30 @@ There are two datasets:
 - Propriétés pédologiques du sol dominant (PPSD)
 - Propriétés physico-chimique par couche (PPC)
 
-These datasets are linked with [CARTE PEDOLOGIQUE](/docs/data/sources/CARTE_PEDOLOGIQUE_QUEBEC.md)
+These datasets are linked with [CARTE PEDOLOGIQUE](CARTE_PEDOLOGIQUE_QUEBEC.md)
 
-## Using SERIES_SOLS_QUEBEC Data
+## Integration Status
 
-**Note**: The following examples require services to be running (`docker compose up`).
+Backend: ingested ✓ — Frontend: not yet surfaced
 
-## Integration Example - Proof of Concept
+The PPC tables are in PostGIS under the `pgstac` schema:
 
-A proof of concept demonstrates the integration in a Leaflet playground: https://jsfiddle.net/glenn/8rgpo3q8/
+| Table                                              | Content                                                |
+| -------------------------------------------------- | ------------------------------------------------------ |
+| `couverture_pedologique_2026_01_ppc_eessaq`        | Physico-chemical properties per horizon (EESSAQ study) |
+| `couverture_pedologique_2026_01_ppc_inventaire_1990` | Physico-chemical properties per horizon (1990 inventory) |
 
-The example shows:
-- Hardcoded GeoJSON example simulating the API collection endpoint structure (`fieldsGeoJSON`)
-- An adapter function to read nested "properties" and display them in Leaflet popups
-- Styling based on soil properties (e.g., organic matter content)
+Key columns: `codesiscan`, `serie`, `hzn` (horizon), `ph_eau`, `cec_calculee`, `carbonetotal`, plus nutrient concentrations (P, K, Ca, Mg, Al, B, Cu, Fe, Mn, Zn, Na).
 
-This minimalist example can be extended with more complete data and advanced visualization tools.
+PPSD (Propriétés pédologiques du sol dominant) is not yet ingested.
+
+The data is not yet exposed in the frontend map or accessible via the vector API. A Leaflet proof of concept showing the intended popup/styling approach exists at [jsfiddle.net/glenn/8rgpo3q8](https://jsfiddle.net/glenn/8rgpo3q8/).
+
+## Frontend Implementation Reference
+
+The backend data is available — what remains is wiring it into `frontend/home/html/js/`. The code below defines the intended UX pattern: a popup showing per-horizon soil series data in a table, with parcel fill colour driven by organic matter content. Replace the hardcoded `fieldsGeoJSON` with a real fetch from the vector API once the tables are exposed there.
+
+Live demo: [jsfiddle.net/glenn/8rgpo3q8](https://jsfiddle.net/glenn/8rgpo3q8/)
 
 ### HTML
 ```HTML
@@ -177,8 +185,6 @@ L.geoJSON(fieldsGeoJSON, {
   }
 }).addTo(map);
 ```
-
-**Live Demo**: [Leaflet Playground - Soil Series Integration](https://jsfiddle.net/glenn/8rgpo3q8/)
 
 ## Metadata
 

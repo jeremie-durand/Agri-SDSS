@@ -1,24 +1,56 @@
-module.exports = {
-    catalogUrl: `http://localhost:${process.env.STAC_API_PORT}/`,
-    catalogTitle: "eoAPI STAC Browser",
+window.STAC_BROWSER_CONFIG = {
+    catalogUrl: "https://${HOST_URL}/mos-stac/",
+    catalogTitle: (localStorage.getItem('mos-lang') || 'fr') === 'fr' ? 'Catalogue STAC' : 'STAC Catalog',
     allowExternalAccess: true,
     allowedDomains: [],
     detectLocaleFromBrowser: true,
     storeLocale: true,
-    locale: "en",
+    locale: "fr",
     fallbackLocale: "en",
     supportedLocales: ["de", "es", "en", "fr", "it", "ro"],
     apiCatalogPriority: null,
     useTileLayerAsFallback: true,
-    displayGeoTiffByDefault: false,
-    buildTileUrlTemplate: ({ href, asset }) =>
-        `http://localhost:${process.env.RASTER_API_PORT}/cog/tiles/{z}/{x}/{y}@2x?url=` +
-        encodeURIComponent(asset.href.startsWith("/vsi") ? asset.href : href),
+    displayGeoTiffByDefault: true,
+    buildTileUrlTemplate: function(opts) {
+        var href = opts.href, asset = opts.asset;
+        return "https://${HOST_URL}/mos-raster/cog/tiles/{z}/{x}/{y}@2x?url=" +
+            encodeURIComponent(asset.href.indexOf("/vsi") === 0 ? asset.href : href);
+    },
+    preprocessSTAC: function(stac) {
+        var lang = localStorage.getItem('mos-lang') || 'fr';
+        var fr = lang === 'fr';
+
+        // Catalog root: translate title and description
+        if (stac.type === 'Catalog' || !stac.type) {
+            stac.title = fr ? 'Catalogue STAC' : 'STAC Catalog';
+            stac.description = fr
+                ? 'Données géospatiales agricoles et environnementales pour la recherche en agriculture durable au Québec. ' +
+                  'Collections incluant l\'imagerie satellitaire (MODIS, Sentinel-2), LiDAR, cartes des sols et données climatiques.'
+                : 'Agricultural and environmental geospatial data for Quebec sustainable agriculture research. ' +
+                  'Collections include satellite imagery (MODIS, Sentinel-2), LiDAR, soil maps, and climate datasets.';
+        }
+
+        // Collections: translate description only (titles are technical names, kept as-is)
+        if (stac.type === 'Collection' && fr) {
+            var descFr = {
+                'sentinel2_eo_products':
+                    'Produits Sentinel-2 traités (NDVI, EVI, SAVI, vraie couleur) générés via le backend openEO ' +
+                    'à partir des données Copernicus Data Space.',
+                'lidar_quebec':
+                    'Produits raster dérivés du LiDAR (MNA, MHC, ombrage, pente) issus du portail de données ' +
+                    'ouvertes du MRNF du Québec, découpés par parcelles agricoles.'
+            };
+            stac.description = descFr[stac.id] ||
+                'Données géospatiales générées par le pipeline MOS-GIS.';
+        }
+
+        return stac;
+    },
     stacProxyUrl: null,
-    pathPrefix: "/",
-    historyMode: "history",
+    pathPrefix: "/stac/",
+    historyMode: "hash",
     cardViewMode: "cards",
-    cardViewSort: "asc",
+    cardViewSort: "desc",
     showThumbnailsAsAssets: false,
     stacLint: true,
     geoTiffResolution: 128,
@@ -29,6 +61,19 @@ module.exports = {
     crossOriginMedia: null,
     requestHeaders: {},
     requestQueryParameters: {},
-    preprocessSTAC: null,
-    authConfig: null
+    authConfig: null,
+    footerLinks: [
+        {
+            label: "Raster API — COG Tiles",
+            url: "https://${HOST_URL}/mos-raster/"
+        },
+        {
+            label: "Vector API — OGC Features",
+            url: "https://${HOST_URL}/mos-vector/"
+        },
+        {
+            label: "OGC Processes — PyGeoAPI",
+            url: "https://${HOST_URL}/mos-pygeoapi/"
+        }
+    ]
 };

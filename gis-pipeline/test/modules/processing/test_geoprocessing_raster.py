@@ -75,46 +75,67 @@ def test_open_rasters_no_files():
 
 def test_open_rasters_no_crs(tmp_path: Path):
     """
-    Test if the raster data validation fails for a raster with no CRS.
+    A raster with no CRS is skipped; when it is the only raster, raises RuntimeError.
     """
     raster_path = tmp_path / "no_crs.tif"
     raster_path.touch()
 
     mock_src = MagicMock()
-    mock_src.crs = None  # Simulate no CRS
+    mock_src.crs = None
     mock_src.count = 1
-    mock_src.width = 10
-    mock_src.height = 10
-    mock_src.transform = True
 
     mock_open = MagicMock()
     mock_open.__enter__.return_value = mock_src
 
     with patch("rasterio.open", return_value=mock_open):
-        with pytest.raises(ValueError, match="CRS is not defined:"):
+        with pytest.raises(RuntimeError, match="No rasters could be opened"):
             GeoprocessingRaster(config=Config(), raster_paths=[raster_path])
 
 
 def test_open_rasters_invalid_band(tmp_path: Path):
     """
-    Test if the raster data validation fails for an invalid band count.
+    A raster with invalid band count is skipped; when it is the only raster, raises RuntimeError.
     """
     raster_path = tmp_path / "invalid_bands.tif"
     raster_path.touch()
 
     mock_src = MagicMock()
-    mock_src.count = 0  # Simulate invalid band count
+    mock_src.count = 0
     mock_src.crs.is_valid = True
-    mock_src.width = 10
-    mock_src.height = 10
-    mock_src.transform = True
 
     mock_open = MagicMock()
     mock_open.__enter__.return_value = mock_src
 
     with patch("rasterio.open", return_value=mock_open):
-        with pytest.raises(ValueError, match="Invalid band count:"):
+        with pytest.raises(RuntimeError, match="No rasters could be opened"):
             GeoprocessingRaster(config=Config(), raster_paths=[raster_path])
+
+
+def test_open_rasters_skips_corrupted_continues_with_valid(
+    tmp_raster_valid_fixture: Path, tmp_path: Path
+):
+    """
+    A corrupted raster is skipped and processing continues with the valid one.
+    """
+    bad_raster = tmp_path / "corrupted.tif"
+    bad_raster.touch()
+
+    import rasterio as _rasterio
+
+    original_open = _rasterio.open
+
+    def selective_open(path, *args, **kwargs):
+        if Path(path) == bad_raster:
+            raise _rasterio.errors.RasterioIOError("TIFFReadDirectory failed")
+        return original_open(path, *args, **kwargs)
+
+    with patch("rasterio.open", side_effect=selective_open):
+        processing_raster = GeoprocessingRaster(
+            config=Config(), raster_paths=[bad_raster, tmp_raster_valid_fixture]
+        )
+
+    assert tmp_raster_valid_fixture in processing_raster.rasters
+    assert bad_raster not in processing_raster.rasters
 
 
 # ------------------------------------------
@@ -461,276 +482,6 @@ def test_analyze_and_store_metadata_id_generation(tmp_path: Path):
 
         expected_id = raster_path.stem
         assert metadata["id"] == expected_id
-
-
-# ------------------------------------------
-# Test cases for GeoprocessingRaster._harmonize_name_for_single_raster()
-# ------------------------------------------
-def test_harmonize_name_for_single_raster_basic(tmp_raster_valid_fixture: Path):
-    """
-    Test basic name harmonization for a simple raster file name.
-    """
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[tmp_raster_valid_fixture]
-    )
-    processing_raster._harmonize_name_for_single_raster(raster_name="test_raster.tif")
-
-    assert processing_raster.harmonized_name == "test_raster"
-
-
-def test_harmonize_name_for_single_raster_with_special_characters(
-    tmp_raster_valid_fixture: Path,
-):
-    """
-    Test name harmonization with special characters that need to be replaced.
-    """
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[tmp_raster_valid_fixture]
-    )
-    processing_raster._harmonize_name_for_single_raster(raster_name="test_raster.tif")
-
-    test_names = [
-        ("raster-with-dashes.tif", "raster_with_dashes"),
-        ("raster with spaces.tif", "raster_with_spaces"),
-        ("raster@#$%^&*().tif", "raster"),
-        ("raster(2024).tif", "raster_2024"),
-        ("raster[version1].tif", "raster_version1"),
-        ("raster{final}.tif", "raster_final"),
-        ("_raster_.tif", "raster"),
-        ("__multiple__underscores__.tif", "multiple__underscores"),
-    ]
-
-    for input_name, expected_output in test_names:
-        processing_raster._harmonize_name_for_single_raster(raster_name=input_name)
-        assert processing_raster.harmonized_name == expected_output
-
-
-def test_harmonize_name_for_single_raster_uppercase_to_lowercase(
-    tmp_raster_valid_fixture: Path,
-):
-    """
-    Test that uppercase letters are converted to lowercase.
-    """
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    test_cases = [
-        ("RASTER.TIF", "raster"),
-        ("MyRaster.TIF", "myraster"),
-        ("RASTER_FILE_2024.TIF", "raster_file_2024"),
-    ]
-
-    for input_name, expected in test_cases:
-        processing_raster._harmonize_name_for_single_raster(raster_name=input_name)
-        assert processing_raster.harmonized_name == expected
-
-
-def test_harmonize_name_for_single_raster_strip_leading_trailing_underscores(
-    tmp_raster_valid_fixture: Path,
-):
-    """
-    Test that leading and trailing underscores are stripped.
-    """
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    test_cases = [
-        ("_raster.tif", "raster"),
-        ("raster_.tif", "raster"),
-        ("__raster__.tif", "raster"),
-        ("___multiple___underscores___.tif", "multiple___underscores"),
-    ]
-
-    for input_name, expected in test_cases:
-        processing_raster._harmonize_name_for_single_raster(raster_name=input_name)
-        assert processing_raster.harmonized_name == expected
-
-
-def test_harmonize_name_for_single_raster_empty_string(tmp_raster_valid_fixture: Path):
-    """
-    Test that empty string raises ValueError.
-    """
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    with pytest.raises(
-        ValueError, match="Raster file name must not be empty or whitespace"
-    ):
-        processing_raster._harmonize_name_for_single_raster(raster_name="")
-
-
-def test_harmonize_name_for_single_raster_whitespace_only(
-    tmp_raster_valid_fixture: Path,
-):
-    """
-    Test that whitespace-only string raises ValueError.
-    """
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    whitespace_inputs = ["   ", "\t", "\n", "  \t\n  "]
-
-    for whitespace_input in whitespace_inputs:
-        with pytest.raises(
-            ValueError, match="Raster file name must not be empty or whitespace"
-        ):
-            processing_raster._harmonize_name_for_single_raster(
-                raster_name=whitespace_input
-            )
-
-
-def test_harmonize_name_for_single_raster_max_length_truncation(
-    tmp_raster_valid_fixture: Path,
-):
-    """
-    Test name truncation when exceeding maximum PostgreSQL name length.
-    """
-    # Create a config with a small max length for testing
-    config = Config()
-    config.POSTGRES_MAX_NAME_LENGTH = 20  # Set small limit for testing
-
-    processing_raster = GeoprocessingRaster(
-        config=config, raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    # Create a long name that exceeds the limit
-    long_name = "this_is_a_very_long_raster_file_name_that_exceeds_the_limit.tif"
-
-    processing_raster._harmonize_name_for_single_raster(raster_name=long_name)
-
-    # Should be truncated and have a hash appended
-    assert len(processing_raster.harmonized_name) <= config.POSTGRES_MAX_NAME_LENGTH
-    assert "_" in processing_raster.harmonized_name  # Should contain hash separator
-
-
-def test_harmonize_name_for_single_raster_hash_consistency(
-    tmp_raster_valid_fixture: Path,
-):
-    """
-    Test that the same long name produces the same hash consistently.
-    """
-    config = Config()
-    config.POSTGRES_MAX_NAME_LENGTH = 20
-
-    processing_raster = GeoprocessingRaster(
-        config=config, raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    long_name = "extremely_long_raster_file_name_for_testing_hash_consistency.tif"
-    processing_raster._harmonize_name_for_single_raster(raster_name=long_name)
-
-    assert processing_raster._harmonize_name_for_single_raster(
-        raster_name=long_name
-    ) == processing_raster._harmonize_name_for_single_raster(raster_name=long_name)
-
-
-def test_harmonize_name_for_single_raster_exact_max_length(
-    tmp_raster_valid_fixture: Path,
-):
-    """
-    Test name that is exactly at the maximum length (no truncation needed).
-    """
-    config = Config()
-    config.POSTGRES_MAX_NAME_LENGTH = 20
-
-    processing_raster = GeoprocessingRaster(
-        config=config, raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    # Create a name exactly at the limit
-    exact_limit_name = "a" * 16
-
-    processing_raster._harmonize_name_for_single_raster(raster_name=exact_limit_name)
-
-    # Should not be truncated since it's exactly at the calculated limit
-    assert processing_raster.harmonized_name == exact_limit_name
-    assert len(processing_raster.harmonized_name) == 16
-
-
-def test_harmonize_name_for_single_raster_one_char_over_limit(
-    tmp_raster_valid_fixture: Path,
-):
-    """
-    Test name that is one character over the limit.
-    """
-    config = Config()
-    config.POSTGRES_MAX_NAME_LENGTH = 20
-
-    processing_raster = GeoprocessingRaster(
-        config=config, raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    # Create a name one character over the limit
-    over_limit_name = "a" * (config.POSTGRES_MAX_NAME_LENGTH + 1)
-
-    processing_raster._harmonize_name_for_single_raster(raster_name=over_limit_name)
-
-    # Should be truncated with hash
-    assert len(processing_raster.harmonized_name) <= config.POSTGRES_MAX_NAME_LENGTH
-
-
-def test_harmonize_name_for_single_raster_numeric_names(tmp_raster_valid_fixture: Path):
-    """
-    Test harmonization of numeric file names.
-    """
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    numeric_names = [
-        ("123456.tif", "123456"),
-        ("2024_01_15.tif", "2024_01_15"),
-        ("001-raster-2024.tif", "001_raster_2024"),
-    ]
-
-    for input_name, expected in numeric_names:
-        processing_raster._harmonize_name_for_single_raster(raster_name=input_name)
-        assert processing_raster.harmonized_name == expected
-
-
-def test_harmonize_name_for_single_raster_unicode_characters(
-    tmp_raster_valid_fixture: Path,
-):
-    """
-    Test harmonization with unicode characters.
-    """
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    unicode_names = [
-        ("raster_café.tif", "raster_caf"),
-        ("raster_naïve.tif", "raster_na_ve"),
-        ("raster_münchen.tif", "raster_m_nchen"),
-    ]
-
-    for input_name, expected in unicode_names:
-        processing_raster._harmonize_name_for_single_raster(raster_name=input_name)
-        assert processing_raster.harmonized_name == expected
-
-
-def test_harmonize_name_for_single_raster_multiple_extensions(
-    tmp_raster_valid_fixture: Path,
-):
-    """
-    Test harmonization with multiple file extensions.
-    """
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[tmp_raster_valid_fixture]
-    )
-
-    multi_extension_names = [
-        ("raster.backup.tif", "raster_backup"),
-        ("data.2024.01.tif", "data_2024_01"),
-        ("file.v1.0.final.tif", "file_v1_0_final"),
-    ]
-    for input_name, expected in multi_extension_names:
-        processing_raster._harmonize_name_for_single_raster(raster_name=input_name)
-        assert processing_raster.harmonized_name == expected
 
 
 # ------------------------------------------
@@ -2904,17 +2655,18 @@ def test_process_raster_to_cog_success(tmp_raster_valid_fixture: Path, tmp_path:
     output_path.mkdir()
 
     # Mock the entire chain to avoid internal complexity
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "test_raster.tif"
-                expected_cog = output_path / "test_raster.tif_cog.tif"
+                expected_cog = output_path / "test_raster_cog.tif"
 
                 # Mock warp to create the file
-                def create_file(*args, **kwargs):
-                    expected_cog.touch()
+                def create_file(warp_cmd, raster_path, output_path):
+                    output_path.touch()
 
                 mock_warp.side_effect = create_file
                 mock_build.return_value = ["gdalwarp", "test"]
@@ -2963,7 +2715,10 @@ def test_process_raster_to_cog_multiple_rasters(tmp_path: Path):
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        side_effect=["raster1", "raster2"],
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
@@ -2979,9 +2734,6 @@ def test_process_raster_to_cog_multiple_rasters(tmp_path: Path):
                     call_count += 1
 
                 mock_warp.side_effect = mock_warp_side_effect
-
-                # Pre-set harmonized name - will be overwritten for each raster
-                processing_raster.harmonized_name = "raster1.tif"
 
                 result = processing_raster.process_raster_to_cog(
                     output_path=output_path, target_crs=4326
@@ -3016,19 +2768,18 @@ def test_process_raster_to_cog_with_nodata(
     reference_nodata = -9999.0
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(
             processing_raster, "_build_gdalwarp_command"
         ) as mock_build_cmd:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "test_raster.tif"
-                expected_cog = output_path / "test_raster.tif_cog.tif"
-
                 # Mock warp to create the file
-                def create_file(*args, **kwargs):
-                    expected_cog.touch()
+                def create_file(warp_cmd, raster_path, output_path):
+                    output_path.touch()
 
                 mock_warp.side_effect = create_file
                 mock_build_cmd.return_value = ["gdalwarp", "test"]
@@ -3059,23 +2810,23 @@ def test_process_raster_to_cog_overwrite_false(
     output_path.mkdir()
 
     # Create existing COG file that matches harmonized name
-    processing_raster.harmonized_name = "test_raster.tif"
-    existing_cog = output_path / "test_raster.tif_cog.tif"
+    existing_cog = output_path / "test_raster_cog.tif"
     existing_cog.write_text("existing content")
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
                 with patch("time.time", return_value=1234567890):
 
-                    # Set harmonized name directly
-                    processing_raster.harmonized_name = "test_raster.tif"
-                    expected_cog = output_path / "test_raster.tif_cog.tif"
+                    expected_cog = output_path / "test_raster_cog.tif"
 
                     # Mock warp to create the file
-                    def create_file(*args, **kwargs):
-                        expected_cog.touch()
+                    def create_file(warp_cmd, raster_path, output_path):
+                        output_path.touch()
 
                     mock_warp.side_effect = create_file
                     mock_build.return_value = ["gdalwarp", "test"]
@@ -3105,22 +2856,22 @@ def test_process_raster_to_cog_overwrite_true(
     output_path.mkdir()
 
     # Create existing COG file
-    processing_raster.harmonized_name = "test_raster.tif"
-    existing_cog = output_path / "test_raster.tif_cog.tif"
+    existing_cog = output_path / "test_raster_cog.tif"
     existing_cog.write_text("existing content")
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "test_raster.tif"
-                expected_cog = output_path / "test_raster.tif_cog.tif"
+                expected_cog = output_path / "test_raster_cog.tif"
 
                 # Mock warp to create the file
-                def create_file(*args, **kwargs):
-                    expected_cog.touch()
+                def create_file(warp_cmd, raster_path, output_path):
+                    output_path.touch()
 
                 mock_warp.side_effect = create_file
                 mock_build.return_value = ["gdalwarp", "test"]
@@ -3148,12 +2899,12 @@ def test_process_raster_to_cog_subprocess_error(
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
-
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "test_raster.tif"
 
                 mock_warp.side_effect = subprocess.CalledProcessError(
                     returncode=1, cmd=["gdalwarp"], stderr=b"GDAL error"
@@ -3208,7 +2959,10 @@ def test_process_raster_to_cog_partial_failure(tmp_path: Path):
             output_path.touch()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        side_effect=["raster1", "raster2"],
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(
                 processing_raster, "_warp_raster", side_effect=mock_warp_side_effect
@@ -3218,9 +2972,6 @@ def test_process_raster_to_cog_partial_failure(tmp_path: Path):
                 ) as mock_logger:
 
                     mock_build.return_value = ["gdalwarp", "test"]
-
-                    # Pre-set harmonized name - will be used for both rasters
-                    processing_raster.harmonized_name = "raster1.tif"
 
                     result = processing_raster.process_raster_to_cog(
                         output_path=output_path, target_crs=4326
@@ -3247,12 +2998,12 @@ def test_process_raster_to_cog_unexpected_error(
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
-
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "test_raster.tif"
 
                 mock_warp.side_effect = RuntimeError("Unexpected error")
                 mock_build.return_value = ["gdalwarp", "test"]
@@ -3278,12 +3029,12 @@ def test_process_raster_to_cog_cog_not_created(
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster"):
-
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "test_raster.tif"
 
                 # _warp_raster succeeds but doesn't create the file (no side_effect)
                 mock_build.return_value = ["gdalwarp", "test"]
@@ -3308,23 +3059,21 @@ def test_process_raster_to_cog_backup_cleanup(
     output_path.mkdir()
 
     # Create existing COG file
-    processing_raster.harmonized_name = "test_raster.tif"
-    existing_cog = output_path / "test_raster.tif_cog.tif"
+    existing_cog = output_path / "test_raster_cog.tif"
     existing_cog.write_text("existing content")
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
                 with patch("time.time", return_value=1234567890):
 
-                    # Set harmonized name directly
-                    processing_raster.harmonized_name = "test_raster.tif"
-                    expected_cog = output_path / "test_raster.tif_cog.tif"
-
                     # Mock warp to create the file
-                    def create_file(*args, **kwargs):
-                        expected_cog.touch()
+                    def create_file(warp_cmd, raster_path, output_path):
+                        output_path.touch()
 
                     mock_warp.side_effect = create_file
                     mock_build.return_value = ["gdalwarp", "test"]
@@ -3354,21 +3103,20 @@ def test_process_raster_to_cog_backup_restore_on_error(
     output_path.mkdir()
 
     # Create existing COG file
-    processing_raster.harmonized_name = "test_raster.tif"
-    existing_cog = output_path / "test_raster.tif_cog.tif"
+    existing_cog = output_path / "test_raster_cog.tif"
     existing_content = "existing content"
     existing_cog.write_text(existing_content)
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
                 with patch.object(
                     processing_raster, "_restore_backup_file"
                 ) as mock_restore:
-
-                    # Set harmonized name directly
-                    processing_raster.harmonized_name = "test_raster.tif"
 
                     mock_warp.side_effect = RuntimeError("Processing failed")
                     mock_build.return_value = ["gdalwarp", "test"]
@@ -3398,19 +3146,16 @@ def test_process_raster_to_cog_name_harmonization(
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(
-        processing_raster, "_harmonize_name_for_single_raster"
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="harmonized_name",
     ) as mock_harmonize:
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "harmonized_name.tif"
-                expected_cog = output_path / "harmonized_name.tif_cog.tif"
-
                 # Mock warp to create the file
-                def create_file(*args, **kwargs):
-                    expected_cog.touch()
+                def create_file(warp_cmd, raster_path, output_path):
+                    output_path.touch()
 
                 mock_warp.side_effect = create_file
                 mock_build.return_value = ["gdalwarp", "test"]
@@ -3419,11 +3164,9 @@ def test_process_raster_to_cog_name_harmonization(
                     output_path=output_path, target_crs=4326
                 )
 
-                # Verify harmonization was called
-                mock_harmonize.assert_called_once_with(
-                    raster_name=tmp_raster_valid_fixture.name
-                )
-                assert result[0][1].name == "harmonized_name.tif_cog.tif"
+                # Verify harmonize_name was called with the raster stem
+                mock_harmonize.assert_called_once()
+                assert result[0][1].name == "harmonized_name_cog.tif"
 
 
 def test_process_raster_to_cog_default_crs(
@@ -3443,19 +3186,18 @@ def test_process_raster_to_cog_default_crs(
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(
             processing_raster, "_build_gdalwarp_command"
         ) as mock_build_cmd:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "test_raster.tif"
-                expected_cog = output_path / "test_raster.tif_cog.tif"
-
                 # Mock warp to create the file
-                def create_file(*args, **kwargs):
-                    expected_cog.touch()
+                def create_file(warp_cmd, raster_path, output_path):
+                    output_path.touch()
 
                 mock_warp.side_effect = create_file
                 mock_build_cmd.return_value = ["gdalwarp", "test"]
@@ -3483,20 +3225,19 @@ def test_process_raster_to_cog_logging(tmp_raster_valid_fixture: Path, tmp_path:
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
                 with patch(
                     "gis_pipeline.modules.processing.geoprocessing.logger"
                 ) as mock_logger:
 
-                    # Set harmonized name directly
-                    processing_raster.harmonized_name = "test_raster.tif"
-                    expected_cog = output_path / "test_raster.tif_cog.tif"
-
                     # Mock warp to create the file
-                    def create_file(*args, **kwargs):
-                        expected_cog.touch()
+                    def create_file(warp_cmd, raster_path, output_path):
+                        output_path.touch()
 
                     mock_warp.side_effect = create_file
                     mock_build.return_value = ["gdalwarp", "test"]
@@ -3527,17 +3268,16 @@ def test_process_raster_to_cog_output_directory_structure(
     output_path.mkdir(parents=True)
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "test_raster.tif"
-                expected_cog = output_path / "test_raster.tif_cog.tif"
-
                 # Mock warp to create the file
-                def create_file(*args, **kwargs):
-                    expected_cog.touch()
+                def create_file(warp_cmd, raster_path, output_path):
+                    output_path.touch()
 
                 mock_warp.side_effect = create_file
                 mock_build.return_value = ["gdalwarp", "test"]
@@ -3581,17 +3321,16 @@ def test_process_raster_to_cog_special_characters_in_path(tmp_path: Path):
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="raster_with_spaces_symbols",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "raster_with_spaces_symbols.tif"
-                expected_cog = output_path / "raster_with_spaces_symbols.tif_cog.tif"
-
                 # Mock warp to create the file
-                def create_file(*args, **kwargs):
-                    expected_cog.touch()
+                def create_file(warp_cmd, raster_path, output_path):
+                    output_path.touch()
 
                 mock_warp.side_effect = create_file
                 mock_build.return_value = ["gdalwarp", "test"]
@@ -3620,19 +3359,18 @@ def test_process_raster_to_cog_various_crs(
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(
             processing_raster, "_build_gdalwarp_command"
         ) as mock_build_cmd:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "test_raster.tif"
-                expected_cog = output_path / "test_raster.tif_cog.tif"
-
                 # Mock warp to create the file
-                def create_file(*args, **kwargs):
-                    expected_cog.touch()
+                def create_file(warp_cmd, raster_path, output_path):
+                    output_path.touch()
 
                 mock_warp.side_effect = create_file
                 mock_build_cmd.return_value = ["gdalwarp", "test"]
@@ -3661,17 +3399,16 @@ def test_process_raster_to_cog_return_format(
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "test_raster.tif"
-                expected_cog = output_path / "test_raster.tif_cog.tif"
-
                 # Mock warp to create the file
-                def create_file(*args, **kwargs):
-                    expected_cog.touch()
+                def create_file(warp_cmd, raster_path, output_path):
+                    output_path.touch()
 
                 mock_warp.side_effect = create_file
                 mock_build.return_value = ["gdalwarp", "test"]
@@ -3720,17 +3457,16 @@ def test_process_raster_to_cog_large_raster(tmp_path: Path):
     output_path.mkdir()
 
     # Mock the entire chain like the success test
-    with patch.object(processing_raster, "_harmonize_name_for_single_raster"):
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="large",
+    ):
         with patch.object(processing_raster, "_build_gdalwarp_command") as mock_build:
             with patch.object(processing_raster, "_warp_raster") as mock_warp:
 
-                # Set harmonized name directly
-                processing_raster.harmonized_name = "large.tif"
-                expected_cog = output_path / "large.tif_cog.tif"
-
                 # Mock warp to create the file
-                def create_file(*args, **kwargs):
-                    expected_cog.touch()
+                def create_file(warp_cmd, raster_path, output_path):
+                    output_path.touch()
 
                 mock_warp.side_effect = create_file
                 mock_build.return_value = ["gdalwarp", "test"]

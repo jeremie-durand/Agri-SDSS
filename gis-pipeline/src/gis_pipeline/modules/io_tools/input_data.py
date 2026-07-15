@@ -1,17 +1,21 @@
+import sqlite3
 from difflib import get_close_matches
 from pathlib import Path
 from typing import Dict, List
 
 import pandas as pd
-from gis_pipeline.core.logging_setup import setup_logging
+import structlog
+from gis_pipeline.core.config import Config
+from gis_pipeline.core.utils import harmonize_name
 from gis_pipeline.services.mapping import (
     ColumnMappings,
     CSVDataRegistryForSourceCRS,
+    NamingPatterns,
     SupportedRasterFormats,
     SupportedVectorFormats,
 )
 
-logger = setup_logging()
+logger = structlog.get_logger()
 
 
 def discover_geodata(input_path: Path) -> Dict[str, List[Path]]:
@@ -85,6 +89,66 @@ def read_csv_file(
     if last_exc is None:
         raise ValueError(f"No encodings provided to read CSV {vector_file}")
     raise last_exc
+
+
+def extract_gpkg_fk_schema(
+    gpkg_path: Path,
+    layer_name_map: dict[str, str],
+) -> list[dict]:
+    """Extract foreign key relationships from a GeoPackage file.
+
+    Reads SQLite PRAGMA foreign_key_list for each layer in layer_name_map,
+    maps table and column names through harmonize_name(), and returns FK
+    definitions ready for PostGISManager.apply_foreign_keys().
+
+    Args:
+        gpkg_path: Path to the .gpkg file.
+        layer_name_map: {original SQLite layer name → harmonized PostgreSQL table name}.
+            Built by the caller using the same harmonization applied during ingestion.
+
+    Returns:
+        List of dicts with keys {from_table, from_col, to_table, to_col}, all pg-safe.
+        Returns an empty list on any failure — logged as warning, never raises.
+    """
+
+    def _h(name: str) -> str:
+        return harmonize_name(
+            name, NamingPatterns.PATTERN_GDF_NAME.value, Config.POSTGRES_MAX_NAME_LENGTH
+        )
+
+    fk_defs: list[dict] = []
+    try:
+        with sqlite3.connect(str(gpkg_path)) as conn:
+            cursor = conn.cursor()
+            for sqlite_table, pg_table in layer_name_map.items():
+                cursor.execute(f'PRAGMA foreign_key_list("{sqlite_table}")')
+                for row in cursor.fetchall():
+                    # PRAGMA columns: id, seq, table, from, to, on_update, on_delete, match
+                    _, _, ref_table, from_col, to_col = row[:5]
+                    pg_ref = layer_name_map.get(ref_table)
+                    if pg_ref is None:
+                        logger.warning(
+                            "gpkg_fk_unknown_ref_table",
+                            from_table=sqlite_table,
+                            ref_table=ref_table,
+                            path=str(gpkg_path),
+                        )
+                        continue
+                    fk_defs.append(
+                        {
+                            "from_table": pg_table,
+                            "from_col": _h(from_col),
+                            "to_table": pg_ref,
+                            "to_col": _h(to_col),
+                        }
+                    )
+    except Exception as exc:
+        logger.warning(
+            "gpkg_fk_extraction_failed",
+            path=str(gpkg_path),
+            error=str(exc),
+        )
+    return fk_defs
 
 
 def detect_non_spatial_csv(csv_files: list[Path]) -> list[Path]:

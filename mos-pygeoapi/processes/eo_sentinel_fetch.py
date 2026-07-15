@@ -6,6 +6,7 @@ calculates vegetation indices (NDVI, EVI, SAVI) and other products, converts to 
 and stores in STAC catalog.
 """
 
+import hashlib
 import json
 import logging
 import math
@@ -14,7 +15,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -22,13 +22,33 @@ import openeo
 import psycopg
 import rasterio
 import requests
+from openeo.rest import JobFailedException
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 from shapely.geometry import MultiPolygon, Polygon, shape
 
-from . import eo_vegetation_indices as veg_indices
+from .config import ApiConfig, DatabaseConfig, FarmConfig
+from .eo_backend import vegetation_indices as veg_indices
 from .eo_sentinel_fetch_metadata import PROCESS_METADATA
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_cog_stats(cog_path: str) -> Dict[int, Any]:
+    """Return per-band min/max/mean/std stats from a COG file."""
+    with rasterio.open(cog_path) as src:
+        stats: Dict[int, Any] = {}
+        for i in src.indexes:
+            band_data = src.read(i, masked=True)
+            if band_data.count() > 0:
+                stats[i] = {
+                    "min": float(band_data.min()),
+                    "max": float(band_data.max()),
+                    "mean": float(band_data.mean()),
+                    "std": float(band_data.std()),
+                }
+            else:
+                stats[i] = {"min": None, "max": None, "mean": None, "std": None}
+    return stats
 
 
 class SentinelFetchProcessor(BaseProcessor):
@@ -43,18 +63,37 @@ class SentinelFetchProcessor(BaseProcessor):
     # OpenEO configuration
     OPENEO_BACKEND_URL: str = "openeo.dataspace.copernicus.eu"
     SENTINEL2_COLLECTION: str = "SENTINEL2_L2A"
-    SENTINEL2_SCALE_FACTOR: float = 0.0001  # L2A uses 10000 scale
+    # Sentinel-2 L2A surface reflectance is stored as integer DN with QUANTIFICATION_VALUE=10000.
+    # Ref: ESA Sentinel-2 Product Specification Document (S2-PDGS-TAS-DI-PSD), §Field QUANTIFICATION_VALUE.
+    SENTINEL2_SCALE_FACTOR: float = 0.0001
+    TOKEN_EXPIRY_MSG: str = (
+        "Both the primary (OPENEO_REFRESH_TOKEN env var) and fallback (refresh-tokens.json config file) tokens expire after approximately 30 days."
+    )
+    TOKEN_SCRIPT_PATH: str = "./mos-pygeoapi/scripts/get_openeo_token.sh"
+    OPENEO_CONFIG_HOME_DEFAULT: str = "~/.local/share/openeo-python-client"
+    # Placeholder patterns to detect unconfigured tokens (case-insensitive)
+    TOKEN_PLACEHOLDER_PATTERNS: Tuple[str, ...] = (
+        "default_refresh_token_value_here",
+        "your_refresh_token_here",
+        "placeholder",
+        "changeme",
+    )
 
     # Spatial reference
     DEFAULT_CRS: str = "EPSG:4326"
 
-    # Vegetation index coefficients
-    EVI_COEFF_G: float = 2.5
-    EVI_COEFF_C1: float = 6.0
-    EVI_COEFF_C2: float = 7.5
-    EVI_COEFF_L: float = 1.0
-    SAVI_COEFF: float = 1.5
-    SAVI_L_FACTOR: float = 0.5  # Soil brightness correction
+    # EVI coefficients from Huete et al. (2002), doi:10.1016/S0034-4257(02)00096-2
+    # Formula: EVI = G * (NIR - Red) / (NIR + C1*Red - C2*Blue + L)
+    EVI_COEFF_G: float = 2.5  # Gain factor
+    EVI_COEFF_C1: float = 6.0  # Aerosol resistance coefficient (red)
+    EVI_COEFF_C2: float = 7.5  # Aerosol resistance coefficient (blue)
+    EVI_COEFF_L: float = 1.0  # Canopy background adjustment
+    # SAVI coefficients from Huete (1988), doi:10.1016/0034-4257(88)90106-X
+    # Formula: SAVI = ((NIR - Red) / (NIR + Red + L)) * (1 + L)
+    SAVI_COEFF: float = 1.5  # (1 + L) factor
+    SAVI_L_FACTOR: float = (
+        0.5  # Soil brightness correction (L=0.5 for intermediate cover)
+    )
 
     # Geographic calculations
     KM_PER_DEGREE: float = 111.32
@@ -98,6 +137,39 @@ class SentinelFetchProcessor(BaseProcessor):
         super().__init__(processor_def, PROCESS_METADATA)
         self.output_dir: str = self.DEFAULT_OUTPUT_DIR  # Mounted volume in Docker
 
+    @classmethod
+    def _is_valid_token(cls, token: str) -> bool:
+        """Check if a refresh token is valid (not a placeholder value).
+
+        Args:
+            token: The refresh token string to validate
+
+        Returns:
+            True if the token appears to be a real token, False if it matches
+            a known placeholder pattern
+        """
+        if not token:
+            return False
+
+        token_lower = token.lower().strip()
+
+        # Check against known placeholder patterns (case-insensitive)
+        for pattern in cls.TOKEN_PLACEHOLDER_PATTERNS:
+            if pattern.lower() in token_lower:
+                return False
+
+        # Reject suspiciously short tokens
+        if (
+            len(token) < 200
+        ):  # arbitrary threshold for token length - real tokens are typically much longer
+            logger.warning(
+                f"Refresh token appears too short ({len(token)} chars). "
+                "Valid tokens are typically 500+ characters."
+            )
+            return False
+
+        return True
+
     @staticmethod
     def _get_geometry_from_db(farm_id: int) -> Dict:
         """
@@ -110,22 +182,14 @@ class SentinelFetchProcessor(BaseProcessor):
             GeoJSON geometry dict
         """
         try:
-            conn_params = {
-                "host": os.getenv("POSTGRES_HOST", "database"),
-                "port": int(os.getenv("POSTGRES_PORT", "5432")),
-                "dbname": os.getenv("POSTGRES_DBNAME", "postgis"),
-                "user": os.getenv("POSTGRES_USER", "postgres"),
-                "password": os.getenv("POSTGRES_PASS", "postgres"),
-            }
+            conn_params = DatabaseConfig().to_conn_params()
+            farm = FarmConfig()
 
             with psycopg.connect(**conn_params) as conn:
                 with conn.cursor() as cur:
-                    # Query from demo agricultural parcels table by default
-                    table_name: str = os.getenv(
-                        "FARM_TABLE_NAME", "public.bdppad_2024_4326_sample_stac"
-                    )
-                    geom_column: str = os.getenv("FARM_GEOMETRY_COLUMN", "geom")
-                    id_column: str = os.getenv("FARM_ID_COLUMN", "gid")
+                    table_name: str = farm.FARM_TABLE_NAME
+                    geom_column: str = farm.FARM_GEOMETRY_COLUMN
+                    id_column: str = farm.FARM_ID_COLUMN
 
                     if not re.match(r"^[a-zA-Z0-9_.-]+$", table_name):
                         raise ProcessorExecuteError(
@@ -246,10 +310,8 @@ class SentinelFetchProcessor(BaseProcessor):
                 },
                 temporal_extent=temporal_extent,
                 bands=list(required_bands),
+                properties={"eo:cloud_cover": lambda cc: cc <= cloud_cover_max},
             )
-
-            # Filter by cloud cover
-            s2_cube = s2_cube.filter_metadata("eo:cloud_cover", "lte", cloud_cover_max)
 
             # Apply scale factor to convert DN to reflectance
             # Sentinel-2 L2A stores reflectance values as integers (0-10000)
@@ -261,7 +323,7 @@ class SentinelFetchProcessor(BaseProcessor):
         except Exception as e:
             logger.error(f"Failed to load Sentinel-2 data: {str(e)}", exc_info=True)
             raise ProcessorExecuteError(
-                f"Failed to load Sentinel-2 data from OpenEO: {str(e)}"
+                "Failed to load Sentinel-2 data from OpenEO. Check server logs for details."
             )
 
     def _generate_assets(
@@ -302,22 +364,36 @@ class SentinelFetchProcessor(BaseProcessor):
                     # Mask to farm geometry
                     product_cube = product_cube.mask_polygon(geometry)
 
+                    # Deterministic COG path — enables cache hit on repeat calls
+                    cog_filename = f"sentinel2_{farm_identifier}_{product}_{temporal_extent[0]}_{temporal_extent[1]}.tif"
+                    cog_path = os.path.join(self.output_dir, cog_filename)
+
+                    if os.path.exists(cog_path):
+                        logger.info(
+                            f"Cache hit: {cog_filename}, skipping OpenEO download"
+                        )
+                        stats = _extract_cog_stats(cog_path)
+                        assets[product] = {
+                            "href": cog_path,
+                            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+                            "roles": (
+                                ["data"] if product != "true_color" else ["visual"]
+                            ),
+                            "title": self._get_product_title(product),
+                            "raster:bands": self._get_raster_bands_metadata(product),
+                            "statistics": stats,
+                        }
+                        continue
+
                     # Download to temporary file
                     temp_file = os.path.join(temp_dir, f"{product}_temp.tif")
                     job = product_cube.execute_batch()
                     job.download_result(temp_file)
 
-                    # Convert to COG and store
-                    cog_filename = f"sentinel2_{farm_identifier}_{product}_{temporal_extent[0]}_{temporal_extent[1]}_{uuid.uuid4().hex[:8]}.tif"
-                    cog_path = os.path.join(self.output_dir, cog_filename)
-
                     self._convert_to_cog(temp_file, cog_path)
 
-                    # Extract metadata
-                    with rasterio.open(cog_path) as src:
-                        stats: Dict[int, Any] = {
-                            i: src.statistics(i) for i in src.indexes
-                        }
+                    # Extract metadata using masked arrays (rasterio has no .stats() method)
+                    stats = _extract_cog_stats(cog_path)
 
                     assets[product] = {
                         "href": cog_path,
@@ -348,15 +424,13 @@ class SentinelFetchProcessor(BaseProcessor):
                         f"GDAL conversion failed for {product}: {str(e)}", exc_info=True
                     )
                     continue
+                except JobFailedException as e:
+                    logger.error(
+                        "OpenEO job failed for %s: %s", product, e, exc_info=True
+                    )
+                    continue
                 except Exception as e:
-                    if "job" in str(e).lower() or "batch" in str(e).lower():
-                        logger.error(
-                            f"OpenEO job failed for {product}: {str(e)}", exc_info=True
-                        )
-                    else:
-                        logger.error(
-                            f"Error processing {product}: {str(e)}", exc_info=True
-                        )
+                    logger.error("Error processing %s: %s", product, e, exc_info=True)
                     continue
 
             if not assets:
@@ -366,6 +440,87 @@ class SentinelFetchProcessor(BaseProcessor):
         finally:
             # Clean up temporary files
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def _authenticate_with_env_token(self, connection: Any, refresh_token: str) -> None:
+        """Authenticate using the OPENEO_REFRESH_TOKEN environment variable.
+
+        Falls back to refresh-tokens.json config file if the env var token fails
+        (e.g. expired). Raises ProcessorExecuteError if both paths fail.
+
+        Args:
+            connection: Active openEO connection
+            refresh_token: Validated refresh token from the environment variable
+        """
+        logger.info(
+            "Authenticating to openEO using OPENEO_REFRESH_TOKEN environment variable"
+        )
+        try:
+            # Don't specify client_id - let openEO use the client that generated the token
+            connection.authenticate_oidc_refresh_token(refresh_token=refresh_token)
+            logger.info(
+                "Successfully authenticated using environment variable refresh token"
+            )
+        except Exception as env_auth_error:
+            logger.warning(
+                f"Authentication failed with OPENEO_REFRESH_TOKEN (token may be expired): "
+                f"{str(env_auth_error)}. Falling back to refresh-tokens.json config file.",
+                exc_info=True,
+            )
+            try:
+                connection.authenticate_oidc_refresh_token()
+                logger.info(
+                    "Successfully authenticated using stored refresh token from config file "
+                    "(fallback after expired env var token)"
+                )
+            except Exception as config_auth_error:
+                logger.error(
+                    f"Authentication failed with config file fallback: {str(config_auth_error)}",
+                    exc_info=True,
+                )
+                error_msg = (
+                    f"OpenEO authentication failed. The OPENEO_REFRESH_TOKEN env var token is "
+                    f"expired or invalid, and the config file fallback also failed. "
+                    f"{self.TOKEN_EXPIRY_MSG} "
+                    f"Please re-run: {self.TOKEN_SCRIPT_PATH} to obtain a new token."
+                )
+                raise ProcessorExecuteError(error_msg)
+
+    def _authenticate_with_config_file(self, connection: Any) -> None:
+        """Authenticate using the refresh-tokens.json config file (fallback / local dev).
+
+        Used when OPENEO_REFRESH_TOKEN is not set or contains a placeholder value.
+        The openEO client auto-loads the token from $OPENEO_CONFIG_HOME/refresh-tokens.json.
+        Raises ProcessorExecuteError if the config file token is missing or invalid.
+
+        Args:
+            connection: Active openEO connection
+        """
+        logger.warning(
+            "OPENEO_REFRESH_TOKEN not set or using placeholder value, "
+            "falling back to refresh-tokens.json config file (OPENEO_CONFIG_HOME)"
+        )
+        try:
+            connection.authenticate_oidc_refresh_token()
+            logger.info(
+                "Successfully authenticated using stored refresh token from config file"
+            )
+        except Exception as config_auth_error:
+            logger.error(
+                f"Authentication failed with config file: {str(config_auth_error)}",
+                exc_info=True,
+            )
+            config_home = os.getenv(
+                "OPENEO_CONFIG_HOME", self.OPENEO_CONFIG_HOME_DEFAULT
+            )
+            error_msg = (
+                f"OpenEO authentication failed. No valid refresh token found. "
+                f"Looked for refresh-tokens.json in OPENEO_CONFIG_HOME={config_home}. "
+                f"{self.TOKEN_EXPIRY_MSG} "
+                f"Please run: {self.TOKEN_SCRIPT_PATH} to set up authentication "
+                f"and copy the token to your .env file. "
+                f"Error details: {str(config_auth_error)}"
+            )
+            raise ProcessorExecuteError(error_msg)
 
     def _process_sentinel_data(
         self,
@@ -398,45 +553,44 @@ class SentinelFetchProcessor(BaseProcessor):
         Returns:
             Dict mapping product names to asset metadata
         """
-        # Connect to openEO backend
+        # Early-exit: serve all products from cache without connecting to OpenEO
+        cached_assets: Dict[str, Dict[str, Any]] = {}
+        for product in output_products:
+            cog_filename = f"sentinel2_{farm_identifier}_{product}_{temporal_extent[0]}_{temporal_extent[1]}.tif"
+            cog_path = os.path.join(self.output_dir, cog_filename)
+            if os.path.exists(cog_path):
+                try:
+                    stats = _extract_cog_stats(cog_path)
+                    cached_assets[product] = {
+                        "href": cog_path,
+                        "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+                        "roles": ["data"] if product != "true_color" else ["visual"],
+                        "title": self._get_product_title(product),
+                        "raster:bands": self._get_raster_bands_metadata(product),
+                        "statistics": stats,
+                    }
+                    logger.info(f"Early cache hit: {cog_filename}, skipping OpenEO")
+                except Exception as e:
+                    logger.warning(
+                        f"Cache read failed for {cog_filename}, will re-fetch: {e}"
+                    )
+
+        if len(cached_assets) == len(output_products):
+            logger.info("All products served from cache — OpenEO connection skipped")
+            return cached_assets
+
+        # Connect to openEO backend (only reached when ≥1 product needs fetching)
         try:
             connection = openeo.connect(self.OPENEO_BACKEND_URL)
-            logger.info("Authenticating to openEO using stored refresh token")
-            try:
-                connection.authenticate_oidc_refresh_token()
-                logger.info("Successfully authenticated using stored refresh token")
-            except Exception as auth_error:
-                # Fallback: Try using refresh token from environment variable
-                logger.warning(
-                    f"Auto-loading refresh token failed: {str(auth_error)}. "
-                    "Attempting fallback to OPENEO_REFRESH_TOKEN environment variable."
-                )
-                refresh_token: Optional[str] = os.getenv("OPENEO_REFRESH_TOKEN")
-                refresh_token = refresh_token.strip() if refresh_token else None
 
-                if not refresh_token:
-                    raise ProcessorExecuteError(
-                        "OpenEO authentication failed. No refresh token found in storage or environment. "
-                        "Please run: ./mos-pygeoapi/scripts/get_openeo_token.sh to set up authentication."
-                    )
+            # Primary: Try OPENEO_REFRESH_TOKEN environment variable
+            refresh_token: Optional[str] = os.getenv("OPENEO_REFRESH_TOKEN")
+            refresh_token = refresh_token.strip() if refresh_token else None
 
-                try:
-                    connection.authenticate_oidc_refresh_token(
-                        refresh_token=refresh_token, client_id="cdse-public"
-                    )
-                    logger.info(
-                        "Successfully authenticated using environment variable refresh token"
-                    )
-                except Exception as fallback_error:
-                    logger.error(
-                        f"Fallback authentication failed: {str(fallback_error)}",
-                        exc_info=True,
-                    )
-                    raise ProcessorExecuteError(
-                        f"OpenEO authentication failed. The stored refresh token may be expired or invalid. "
-                        f"Please re-run: ./mos-pygeoapi/scripts/get_openeo_token.sh to obtain a new token. "
-                        f"Error details: {str(fallback_error)}"
-                    )
+            if refresh_token and self._is_valid_token(refresh_token):
+                self._authenticate_with_env_token(connection, refresh_token)
+            else:
+                self._authenticate_with_config_file(connection)
 
         except ProcessorExecuteError:
             raise
@@ -683,9 +837,7 @@ class SentinelFetchProcessor(BaseProcessor):
         if SentinelFetchProcessor._collection_checked:
             return
 
-        stac_api_url: str = os.getenv(
-            "STAC_API_URL", f"http://stac-api:{self.DEFAULT_STAC_API_PORT}"
-        )
+        stac_api_url: str = ApiConfig().STAC_API_URL
         collection_id: str = self.STAC_COLLECTION_ID
         collection_url: str = f"{stac_api_url}/collections/{collection_id}"
 
@@ -749,9 +901,7 @@ class SentinelFetchProcessor(BaseProcessor):
         # Ensure collection exists first
         self._ensure_collection_exists()
 
-        stac_api_url: str = os.getenv(
-            "STAC_API_URL", f"http://stac-api:{self.DEFAULT_STAC_API_PORT}"
-        )
+        stac_api_url: str = ApiConfig().STAC_API_URL
         collection_id: str = self.STAC_COLLECTION_ID
         items_url: str = f"{stac_api_url}/collections/{collection_id}/items"
         item_id: str = stac_item["id"]
@@ -807,9 +957,7 @@ class SentinelFetchProcessor(BaseProcessor):
     def _generate_preview_url(self, asset_href: str) -> str:
         """Generate TiTiler preview URL for asset"""
         filename: str = os.path.basename(asset_href)
-        raster_api_port: int = int(
-            os.getenv("RASTER_API_PORT", str(self.DEFAULT_RASTER_API_PORT))
-        )
+        raster_api_port: int = ApiConfig().RASTER_API_PORT
         raster_api_url: str = f"http://raster-api:{raster_api_port}"
         return f"{raster_api_url}/cog/preview.png?url=/data/{filename}&rescale=0,1"
 
@@ -836,12 +984,17 @@ class SentinelFetchProcessor(BaseProcessor):
             aggregation_method: str = data.get("aggregation_method", "median")
             cloud_cover_max: float = data.get("cloud_cover_max", 20)
 
+            if not 0 <= cloud_cover_max <= 100:
+                raise ProcessorExecuteError(
+                    f"'cloud_cover_max' must be between 0 and 100, got: {cloud_cover_max}"
+                )
+
             # Validate that exactly one geometry source is provided
-            if not farm_geometry and not farm_id:
+            if farm_geometry is None and farm_id is None:
                 raise ProcessorExecuteError(
                     "Either 'farm_geometry' or 'farm_id' must be provided"
                 )
-            if farm_geometry and farm_id:
+            if farm_geometry is not None and farm_id is not None:
                 raise ProcessorExecuteError(
                     "Provide only one of 'farm_geometry' or 'farm_id', not both"
                 )
@@ -868,13 +1021,20 @@ class SentinelFetchProcessor(BaseProcessor):
 
             if farm_id:
                 geometry_geojson = self._get_geometry_from_db(farm_id)
-                farm_identifier = f"farm_{farm_id}"
             else:
                 geometry_geojson = farm_geometry  # type: ignore
-                farm_identifier = f"farm_{uuid.uuid4().hex[:8]}"
 
             # Extract bbox from geometry
             geom_shape: Union[Polygon, MultiPolygon] = shape(geometry_geojson)
+
+            # Deterministic farm identifier: use farm_id or MD5 of bbox for geometry input
+            if farm_id:
+                farm_identifier = f"farm_{farm_id}"
+            else:
+                bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
+                farm_identifier = (
+                    f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
+                )
 
             # Validate geometry
             if not geom_shape.is_valid:
@@ -946,16 +1106,18 @@ class SentinelFetchProcessor(BaseProcessor):
             # Re-raise our own errors without wrapping
             raise
         except (KeyError, TypeError) as e:
-            logger.error(f"Invalid input parameters: {str(e)}", exc_info=True)
-            raise ProcessorExecuteError(f"Invalid input parameters: {str(e)}")
+            logger.error("Invalid input parameters: %s", e, exc_info=True)
+            raise ProcessorExecuteError(
+                "Invalid input parameters — check required fields and types."
+            )
         except (ValueError, AttributeError) as e:
-            logger.error(f"Data validation error: {str(e)}", exc_info=True)
-            raise ProcessorExecuteError(f"Data validation error: {str(e)}")
+            logger.error("Data validation error: %s", e, exc_info=True)
+            raise ProcessorExecuteError("Data validation error — check input values.")
         except Exception as e:
             logger.error(
-                f"Unexpected error processing Sentinel-2 data: {str(e)}", exc_info=True
+                "Unexpected error processing Sentinel-2 data: %s", e, exc_info=True
             )
-            raise ProcessorExecuteError(f"Unexpected error: {str(e)}")
+            raise ProcessorExecuteError("Unexpected error processing Sentinel-2 data.")
 
     def __repr__(self) -> str:
         return f"<SentinelFetchProcessor> {self.name}"

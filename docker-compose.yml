@@ -1,42 +1,119 @@
+x-chatbot-build-args: &chatbot-build-args
+  CHATBOT_VERSION: ${CHATBOT_VERSION:-v0.1.1-alpha}
+  INCLUDE_OLLAMA: ${INCLUDE_OLLAMA:-full}
+
 services:
+
+  caddy:
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile.caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # persistent TLS certificates — do not delete this volume
+      - caddy_config:/config
+    networks:
+      - default
+    depends_on:
+      - home
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
+
+  home:
+    build:
+      context: ./frontend/home
+      dockerfile: Dockerfile.home
+    expose:
+      - "8080"
+    volumes:
+      - ./frontend/home/html/js:/usr/share/nginx/html/js:ro
+      - ./frontend/home/html/css:/usr/share/nginx/html/css:ro
+      - ./frontend/home/html/map.html:/usr/share/nginx/html/map.html:ro
+    environment:
+      - HOST_PROTOCOL=${HOST_PROTOCOL:-http}
+      - HOST_URL=${HOST_URL:-localhost}
+      - STAC_BROWSER_PORT=${STAC_BROWSER_PORT}
+      - STAC_API_PORT=${STAC_API_PORT}
+      - RASTER_API_PORT=${RASTER_API_PORT}
+      - VECTOR_API_PORT=${VECTOR_API_PORT}
+      - PYGEOAPI_API_PORT=${PYGEOAPI_API_PORT}
+    depends_on:
+      - stac-browser
+      - mos-chatbot-frontend
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: "0.25"
 
   stac-browser:
     build:
       context: ./frontend/stac-browser
       dockerfile: Dockerfile.stac-browser
-    ports:
-      - "${FRONTEND_PORT}:8080"
+    expose:
+      - "8080"
     environment:
-      - FRONTEND_PORT=${FRONTEND_PORT}
+      - HOST_PROTOCOL=${HOST_PROTOCOL:-http}
+      - HOST_URL=${HOST_URL:-localhost}
+      - STAC_BROWSER_PORT=${STAC_BROWSER_PORT}
+      - STAC_API_PORT=${STAC_API_PORT}
+      - RASTER_API_PORT=${RASTER_API_PORT}
+      - VECTOR_API_PORT=${VECTOR_API_PORT}
+      - PYGEOAPI_API_PORT=${PYGEOAPI_API_PORT}
     depends_on:
-      - stac-api
-      - raster-api
-      - database
-    
+      stac-api:
+        condition: service_healthy
+      raster-api:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/ || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+          cpus: "0.25"
+
   gis-pipeline:
     build:
       context: .
       dockerfile: gis-pipeline/Dockerfile.gis-pipeline
+      target: test
+      args:
+        USER_GID: ${USER_GID:-1000}
+        USER_UID: ${USER_UID:-1000}
     environment:
-      # PostgreSQL
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASS=${POSTGRES_PASS}
-      - POSTGRES_DBNAME=${POSTGRES_DBNAME}
+      - POSTGRES_USER=${DB_USER:-mos_gis}
+      - POSTGRES_PASS=${DB_PASS}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-mos_gis}
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
       - POSTGRES_HOST_READER=${POSTGRES_HOST}
       - POSTGRES_HOST_WRITER=${POSTGRES_HOST}
-      - POSTGRES_USER_READER=${POSTGRES_USER}
-      - POSTGRES_USER_WRITER=${POSTGRES_USER}
-      - POSTGRES_PASS_READER=${POSTGRES_PASS}
-      - POSTGRES_PASS_WRITER=${POSTGRES_PASS}
-      - POSTGRES_DBNAME_READER=${POSTGRES_DBNAME}
-      - POSTGRES_DBNAME_WRITER=${POSTGRES_DBNAME}
+      - POSTGRES_USER_READER=${DB_USER:-mos_gis}
+      - POSTGRES_USER_WRITER=${DB_USER:-mos_gis}
+      - POSTGRES_PASS_READER=${DB_PASS}
+      - POSTGRES_PASS_WRITER=${DB_PASS}
+      - POSTGRES_DBNAME_READER=${POSTGRES_DBNAME:-mos_gis}
+      - POSTGRES_DBNAME_WRITER=${POSTGRES_DBNAME:-mos_gis}
       - POSTGRES_PORT_READER=${POSTGRES_PORT}
       - POSTGRES_PORT_WRITER=${POSTGRES_PORT}
       # API
       - STAC_API_URL=${STAC_API_URL}
-      - PYGEOAPI_API_URL=${PYGEOAPI_API_URL}
       - STAC_API_PORT=${STAC_API_PORT}
     working_dir: /app
     volumes:
@@ -47,152 +124,312 @@ services:
       - ./gis-pipeline/logs:/gis-pipeline/logs
       - ./test:/app/test
       - ./gis-pipeline/src/gis_pipeline:/app/gis_pipeline
+      - ./gis-pipeline/test:/app/gis_pipeline/test
       - ./gis-pipeline/config.yaml:/app/config.yaml
       - ./gis-pipeline/docs:/app/docs
     depends_on:
-      - database
+      database:
+        condition: service_healthy
+    restart: on-failure
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'sleep infinity' > /dev/null"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
 
   stac-api:
     build:
       context: .
       dockerfile: stac-api/Dockerfile.stac-api
-    ports:
-      - "${STAC_API_PORT}:8080"
+      target: test
+      args:
+        USER_GID: ${USER_GID:-1000}
+        USER_UID: ${USER_UID:-1000}
+    expose:
+      - "${STAC_API_PORT}"
     environment:
-      # PostgreSQL
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASS=${POSTGRES_PASS}
-      - POSTGRES_DBNAME=${POSTGRES_DBNAME}
-      - POSTGRES_HOST=${POSTGRES_HOST}
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_HOST_READER=${POSTGRES_HOST}
-      - POSTGRES_HOST_WRITER=${POSTGRES_HOST}
-      - POSTGRES_USER_READER=${POSTGRES_USER}
-      - POSTGRES_USER_WRITER=${POSTGRES_USER}
-      - POSTGRES_PASS_READER=${POSTGRES_PASS}
-      - POSTGRES_PASS_WRITER=${POSTGRES_PASS}
-      - POSTGRES_DBNAME_READER=${POSTGRES_DBNAME}
-      - POSTGRES_DBNAME_WRITER=${POSTGRES_DBNAME}
-      - POSTGRES_PORT_READER=${POSTGRES_PORT}
-      - POSTGRES_PORT_WRITER=${POSTGRES_PORT}
-      # API
+      # Admin credentials — used ONLY in entrypoint to apply pgstac grants; not read by stac-fastapi
+      - PGSTAC_ADMIN_USER=${POSTGRES_USER:-postgres}
+      - PGSTAC_ADMIN_PASS=${POSTGRES_PASS}
+      - PGUSER=${DB_USER:-mos_gis}
+      - PGPASSWORD=${DB_PASS}
+      - PGDATABASE=${POSTGRES_DBNAME:-mos_gis}
+      - PGHOST=${POSTGRES_HOST}
+      - PGPORT=${POSTGRES_PORT}
+      - ENABLE_TRANSACTIONS_EXTENSIONS=TRUE
       - STAC_API_URL=${STAC_API_URL}
-      - PYGEOAPI_API_URL=${PYGEOAPI_API_URL}
       - STAC_API_PORT=${STAC_API_PORT}
+      - CORS_ORIGINS=${CORS_ORIGINS:-${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}}
+      - WEB_CONCURRENCY=2
+      - APP_ROOT_PATH=/mos-stac
     working_dir: /app
+    volumes:
+      - ./stac-api/test:/app/stac_api/test
     depends_on:
-      - database
+      database:
+        condition: service_healthy
     stdin_open: true
     tty: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs --max-time 5 http://localhost:${STAC_API_PORT}/_mgmt/ping || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
 
   raster-api:
     build:
       context: .
       dockerfile: raster-api/Dockerfile.raster-api
-    ports:
-      - "${RASTER_API_PORT}:8080"
+      target: test
+      args:
+        USER_GID: ${USER_GID:-1000}
+        USER_UID: ${USER_UID:-1000}
+    expose:
+      - "${RASTER_API_PORT}"
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASS=${POSTGRES_PASS}
-      - POSTGRES_DBNAME=${POSTGRES_DBNAME}
+      - POSTGRES_USER=${DB_USER:-mos_gis}
+      - POSTGRES_PASS=${DB_PASS}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-mos_gis}
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
       - RASTER_API_PORT=${RASTER_API_PORT}
+      - APP_ROOT_PATH=/mos-raster
+      - WEB_CONCURRENCY=2
+      - GDAL_CACHEMAX=200
+    working_dir: /app
     volumes:
       - ./data/output/raster_cog:/data
+      - ./raster-api/test:/app/raster_api/test
     depends_on:
-      - database
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs --max-time 5 http://localhost:${RASTER_API_PORT}/healthz || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
 
   vector-api:
     build:
       context: .
       dockerfile: vector-api/Dockerfile.vector-api
-    ports:
-      - "${VECTOR_API_PORT}:8080"
+      target: test
+    expose:
+      - "${VECTOR_API_PORT}"
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASS=${POSTGRES_PASS}
-      - POSTGRES_DBNAME=${POSTGRES_DBNAME}
+      - POSTGRES_USER=${DB_USER:-mos_gis}
+      - POSTGRES_PASS=${DB_PASS}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-mos_gis}
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
       - VECTOR_API_PORT=${VECTOR_API_PORT}
+      - APP_ROOT_PATH=/mos-vector
       - TIPG_FALLBACK_KEY_NAMES=["gid"]
+      - TIPG_DB_SPATIAL_EXTENT=false
       - DUCKDB_DATA_DIR=/data/duckdb
-      - VECTOR_API_CORS_ORIGINS=${VECTOR_API_CORS_ORIGINS:-}
+      - VECTOR_API_CORS_ORIGINS=${VECTOR_API_CORS_ORIGINS:-${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}}
+      - PEDO_TABLE_NAME=${PEDO_TABLE_NAME:-public.pedo_coverage}
+      - SOM_TABLE_NAME=${SOM_TABLE_NAME:-public.som_field_boundaries}
+      - WATER_TABLE_NAME=${WATER_TABLE_NAME:-public.grhq_water_union}
+    working_dir: /app
     volumes:
       - ./data/duckdb:/data/duckdb
+      - ./vector-api/test:/app/vector_api/test
     depends_on:
-      - database
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs --max-time 5 http://localhost:${VECTOR_API_PORT}/ || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
 
   mos-pygeoapi:
     build:
-      context: ./mos-pygeoapi
-      dockerfile: Dockerfile.mos-pygeoapi
-    ports:
-      - "${PYGEOAPI_API_PORT}:5000"
+      context: .
+      dockerfile: mos-pygeoapi/Dockerfile.mos-pygeoapi
+      target: test
+      args:
+        USER_GID: ${USER_GID:-1000}
+        USER_UID: ${USER_UID:-1000}
+    expose:
+      - "5000"
     environment:
+      - HOST_PROTOCOL=${HOST_PROTOCOL:-http}
+      - HOST_URL=${HOST_URL:-localhost}
       - PYGEOAPI_CONFIG=/app/config/pygeoapi-config.yaml
       - PYGEOAPI_OPENAPI=/app/openapi/openapi.yaml
       - PYGEOAPI_API_PORT=${PYGEOAPI_API_PORT}
-      # PostgreSQL
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASS=${POSTGRES_PASS}
-      - POSTGRES_DBNAME=${POSTGRES_DBNAME}
+      - POSTGRES_USER=${DB_USER:-mos_gis}
+      - POSTGRES_PASS=${DB_PASS}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-mos_gis}
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
-      # OpenEO Authentication
       - OPENEO_CONFIG_HOME=/app/config/openeo-config
-      # OPENEO_REFRESH_TOKEN: Fallback method
       - OPENEO_REFRESH_TOKEN=${OPENEO_REFRESH_TOKEN}
-      # Farm Data Configuration
       - FARM_TABLE_NAME=${FARM_TABLE_NAME}
       - FARM_GEOMETRY_COLUMN=${FARM_GEOMETRY_COLUMN}
       - FARM_ID_COLUMN=${FARM_ID_COLUMN}
-      # API
+      - DUCKDB_DATA_DIR=/data/duckdb
       - RASTER_API_PORT=${RASTER_API_PORT}
       - STAC_API_URL=${STAC_API_URL}
     volumes:
       - ./data/output/raster_cog:/data
+      - ./data/duckdb:/data/duckdb
       - ./mos-pygeoapi/config/openeo-config:/app/config/openeo-config
+      - ./mos-pygeoapi/test:/app/mos_pygeoapi/test
     depends_on:
-      - database
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs --max-time 5 http://localhost:5000/ || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "1.0"
+
+  mos-chatbot-backend:
+    build:
+      context: .
+      dockerfile: mos-chatbot/Dockerfile.mos-chatbot-backend
+      args:
+        <<: *chatbot-build-args
+      target: test
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL=${LLM_MODEL}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-1000}
+      - ENABLE_AUTH=${ENABLE_AUTH:-false}
+      - API_KEY=${API_KEY}
+      - STAC_API_URL=http://stac-api:${STAC_API_PORT:-8081}
+      - RASTER_API_INTERNAL_URL=http://raster-api:8080
+      - VECTOR_API_INTERNAL_URL=http://vector-api:8080
+      - VECTOR_API_URL=http://vector-api:8080
+      - PYGEOAPI_INTERNAL_URL=http://mos-pygeoapi:5000
+      - FRONTEND_URL=${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}
+      - WEATHER_DATA_SOURCE=${WEATHER_DATA_SOURCE:-planetary_computer}
+      - OPEN_METEO_API_KEY=${OPEN_METEO_API_KEY:-}
+      - RATE_LIMIT_LLM=${RATE_LIMIT_LLM:-10/minute}
+      - RATE_LIMIT_SEARCH=${RATE_LIMIT_SEARCH:-30/minute}
+    expose:
+      - "8000"
+    volumes:
+      - llm_model_cache:/app/.ollama
+    depends_on:
+      - stac-api
+      - raster-api
+      - vector-api
+      - mos-pygeoapi
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: "2.0"
+
+  mos-chatbot-frontend:
+    build:
+      context: .
+      dockerfile: mos-chatbot/Dockerfile.mos-chatbot-frontend
+      args:
+        <<: *chatbot-build-args
+        VITE_API_URL: ${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}
+    expose:
+      - "3001"
+    depends_on:
+      - mos-chatbot-backend
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: "0.25"
 
   database:
     image: ghcr.io/stac-utils/pgstac:v0.8.5
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
+      # Admin superuser — used only for Docker init, healthcheck, and pg_dump backups
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASS}
-      - POSTGRES_DB=${POSTGRES_DBNAME}
-      - PGUSER=${POSTGRES_USER}
+      - POSTGRES_DB=${POSTGRES_DBNAME:-mos_gis}
+      - PGUSER=${POSTGRES_USER:-postgres}
       - PGPASSWORD=${POSTGRES_PASS}
-      - PGDATABASE=${POSTGRES_DBNAME}
+      - PGDATABASE=${POSTGRES_DBNAME:-mos_gis}
+      - DB_USER=${DB_USER:-mos_gis}
+      - DB_PASS=${DB_PASS}
     ports:
-      - "${POSTGRES_LOCAL_PORT}:${POSTGRES_PORT}"
-    command: postgres -N 500
+      - "127.0.0.1:${POSTGRES_LOCAL_PORT}:${POSTGRES_PORT}"
+    command: postgres -c max_connections=500 -c shared_buffers=1536MB -c effective_cache_size=4GB -c work_mem=64MB
     volumes:
       - ./data/pg/.pgdata:/var/lib/postgresql/data
-      - ./scripts/001_create_postgres_role.sql:/docker-entrypoint-initdb.d/001_create_postgres_role.sql
-      - ./data/demo/init_demo_bdppad_2024_4326_sample_STAC.sql:/docker-entrypoint-initdb.d/init_demo_bdppad_2024_4326_sample_STAC.sql
-      - ./data/demo/init_demo_sud_du_quebec_4326.sql:/docker-entrypoint-initdb.d/init_demo_sud_du_quebec_4326.sql
-
-  tests:
-    build:
-      context: .
-      dockerfile: Dockerfile.test
-    working_dir: /workspace
-    environment:
-      PYTHONPATH: /workspace
-    volumes:
-      - .:/workspace
-    profiles:
-      - manual
-    depends_on:
-      - stac-api
-      - gis-pipeline
-      - vector-api
-      - raster-api
-      - mos-pygeoapi
+      - ./scripts/create_app_role.sh:/docker-entrypoint-initdb.d/create_app_role.sh
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "psql -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DBNAME} -c 'SELECT 1 FROM pgstac.migrations LIMIT 1' -q 2>/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 6g
+          cpus: "1.0"
 
 networks:
   default:
     name: eoapi-network
+
+volumes:
+  caddy_data:       # persistent TLS certificates — do not delete this volume
+  caddy_config:
+  llm_model_cache:  # LLM model weights — shared across container rebuilds

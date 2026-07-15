@@ -4,4 +4,4 @@
 #
 # execute the command passed to the docker service
 # Uses custom app that combines TiPg (PostGIS) + Parquet router (DuckDB)
-exec gunicorn -k uvicorn.workers.UvicornWorker vector_api.app:app --bind ${HOST}:8080
+exec "$@"

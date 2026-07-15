@@ -9,7 +9,7 @@ from gis_pipeline.core.config import Config
 
 
 def setup_logging():
-    """Set up structured logging with structlog + standard logging."""
+    """Configure structlog and file logging, then return a structlog logger."""
     log_level_str = getenv("LOG_LEVEL", "INFO").upper()
     numeric_level = getattr(logging, log_level_str, logging.INFO)
 
@@ -18,43 +18,56 @@ def setup_logging():
 
     log_path = log_dir / "app.log"
 
-    file_handler = RotatingFileHandler(
-        log_path,
-        mode="a",
-        maxBytes=10 * 1024 * 1024,  # 10 MB for development
-        backupCount=5,
-        encoding="utf-8",
+    formatter = structlog.stdlib.ProcessorFormatter(
+        processor=structlog.dev.ConsoleRenderer(pad_level=False),
+        foreign_pre_chain=[
+            structlog.contextvars.merge_contextvars,
+            structlog.stdlib.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+        ],
     )
+
+    handlers: list[logging.Handler] = []
+    try:
+        file_handler = RotatingFileHandler(
+            log_path,
+            mode="a",
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
+    except PermissionError:
+        pass  # log directory not writable (e.g. CI bind mount owned by root)
+
     stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    handlers.append(stream_handler)
 
-    # Python standard logging configuration
-    logging.basicConfig(
-        level=numeric_level,
-        format="%(message)s",  # structlog handles formatting
-        handlers=[file_handler, stream_handler],
-    )
+    root_logger = logging.getLogger()
+    root_logger.setLevel(numeric_level)
+    for handler in handlers:
+        root_logger.addHandler(handler)
 
-    # structlog configuration
     structlog.configure(
         processors=[
-            structlog.stdlib.filter_by_level,
-            structlog.stdlib.add_logger_name,
+            structlog.contextvars.merge_contextvars,
             structlog.stdlib.add_log_level,
-            structlog.stdlib.PositionalArgumentsFormatter(),
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
+        wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
-        wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
     )
 
     logger = structlog.get_logger()
-    logger.info("Logging initialized", log_file=log_path)
-    return structlog.get_logger()
+    logger.info("Logging initialized", log_file=str(log_path))
+    return logger
 
 
 def handle_error(

@@ -9,6 +9,11 @@ if [ ! -f "${PYGEOAPI_CONFIG}" ]; then
     exit 1
 fi
 #
+# Resolve environment variables in config template
+envsubst '${HOST_PROTOCOL} ${HOST_URL}' \
+    < "${PYGEOAPI_CONFIG}" > /tmp/pygeoapi-config-resolved.yaml
+export PYGEOAPI_CONFIG=/tmp/pygeoapi-config-resolved.yaml
+#
 # Create openapi directory
 mkdir -p "$(dirname "${PYGEOAPI_OPENAPI}")"
 #
@@ -28,5 +33,27 @@ echo "OpenAPI file ready (${FILE_SIZE} bytes)"
 export PYGEOAPI_CONFIG
 export PYGEOAPI_OPENAPI
 #
+echo "Validating environment configuration..."
+python -c "
+import sys
+sys.path.insert(0, '/app')
+from processes.config import ApiConfig, DatabaseConfig, FarmConfig, StorageConfig
+try:
+    DatabaseConfig()
+    ApiConfig()
+    FarmConfig()
+    StorageConfig()
+    print('Environment configuration: OK')
+except Exception as e:
+    print(f'ERROR: invalid environment configuration: {e}', file=sys.stderr)
+    sys.exit(1)
+"
+#
 echo "Starting pygeoapi server..."
-exec pygeoapi serve
+exec gunicorn pygeoapi.flask_app:APP \
+    --bind 0.0.0.0:5000 \
+    --workers ${WEB_CONCURRENCY:-1} \
+    --timeout ${GUNICORN_TIMEOUT:-600} \
+    --access-logfile - \
+    --access-logformat 'INFO:     %(h)s - "%(r)s" %(s)s' \
+    --log-level info

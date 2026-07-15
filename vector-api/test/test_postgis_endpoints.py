@@ -664,3 +664,26 @@ def test_feature_collection_validation(
         assert feature["type"] == "Feature"
         assert "geometry" in feature
         assert "properties" in feature
+
+
+# ------------------------------------------
+# App infrastructure tests
+# ------------------------------------------
+
+
+@pytest.mark.unit
+def test_database_settings_can_be_constructed():
+    """tipg.DatabaseSettings instantiates without a live database connection."""
+    from tipg.settings import DatabaseSettings
+
+    settings = DatabaseSettings()
+    assert hasattr(settings, "schemas")
+    assert hasattr(settings, "tipg_schema")
+
+
+@pytest.mark.unit
+def test_mount_root_path_middleware_importable():
+    """MountRootPathMiddleware is exported from vector_api.app."""
+    from vector_api.app import MountRootPathMiddleware
+
+    assert MountRootPathMiddleware is not None

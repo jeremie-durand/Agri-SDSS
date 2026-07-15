@@ -11,37 +11,49 @@ Maintained by Ministère de l'Agriculture, des Pêcheries et de l'Alimentation d
 ## Data Details
 
 | Property | Value |
-|----------|-------|
-| **Type** | Raster (multi-band GeoTIFF) |
-| **Format** | GeoTIFF (.tif), Cloud Optimized GeoTIFF (.cog.tif) |
+| -------- | ----- |
+| **Type** | Raster (one single-property COG per soil property) |
+| **Format** | Cloud Optimized GeoTIFF (.tif) |
 | **CRS** | EPSG:4326 (WGS84) |
 | **Resolution** | 100m × 100m grid cells |
 | **Spatial Extent** | Quebec province |
-| **Band Count** | 6 main properties + derivatives |
-| **Data Type** | Float32 (percentages, pH, indices) |
+| **Band Count** | 7 per file (bands 1–6: property values, band 7: alpha mask) |
+| **Data Type** | Float32 |
 | **Update Frequency** | Annual |
 | **License** | Open Government License - Quebec (OGL-Q) |
 
-## Soil Properties (Bands)
+## Property Files
 
-Each band contains a specific soil property:
+Each soil property is a separate COG in `data/output/raster_cog/`:
 
-| Band | Property | Unit | Range | Interpretation |
-|------|----------|------|-------|-----------------|
-| **1** | Clay | % | 0-100 | Percentage of clay particles (<2µm) |
-| **2** | Silt | % | 0-100 | Percentage of silt particles (2-63µm) |
-| **3** | Sand | % | 0-100 | Percentage of sand particles (>63µm) |
-| **4** | Organic Matter (C_org) | % | 0-15 | Soil carbon content, critical for fertility |
-| **5** | pH | pH units | 3.5-8.5 | Soil acidity/basicity, affects nutrient availability |
-| **6** | Cation Exchange Capacity (CEC) | cmol/kg | 0-50 | Soil capacity to hold nutrients |
+| File | Property | Unit | Range |
+| ---- | -------- | ---- | ----- |
+| `argile_fr_siigsol_cog.tif` | Clay (argile) | % | 0-100 |
+| `limon_fr_siigsol_cog.tif` | Silt (limon) | % | 0-100 |
+| `sable_fr_siigsol_cog.tif` | Sand (sable) | % | 0-100 |
+| `corg_fr_siigsol_cog.tif` | Organic carbon (C org) | % | 0-15 |
+| `ph_fr_siigsol_cog.tif` | pH | pH units | 3.5-8.5 |
+| `cec_fr_siigsol_cog.tif` | Cation Exchange Capacity | cmol/kg | 0-50 |
+
+**Band layout caveat**: each COG carries a float32 alpha band as its last band and no
+declared nodata value. For statistics or point queries via TiTiler, always pass
+`indexes=1` and `nodata=nan` — otherwise the alpha band skews the results.
 
 ## Using SIIGSOL Data
 
 **Note**: The following examples require services to be running (`docker compose up`).
+Inside the raster-api container the COG directory is mounted at `/data`.
 
-- Visualize in browser: http://localhost:8082/preview?url=data/siigsol_organic_matter.cog.tif
-- Fetch a PNG tile (z10/x512/y512, Organic Matter): curl "http://localhost:8082/cog/tiles/10/512/512.png?url=data/siigsol_corg.cog.tif"
-- Request GeoTIFF coverage (WCS, EPSG:4326 bbox): curl "http://localhost:8082/cog/wcs?service=WCS&request=GetCoverage&coverageId=siigsol&format=image/tiff&bbox=-71.5,45.0,-71.0,45.5&crs=EPSG:4326"
+```bash
+# COG metadata (bounds, bands, CRS)
+curl "http://<host>:8082/cog/info?url=/data/ph_fr_siigsol_cog.tif"
+
+# Band statistics — indexes=1 and nodata=nan required (alpha band)
+curl "http://<host>:8082/cog/statistics?url=/data/ph_fr_siigsol_cog.tif&indexes=1&nodata=nan"
+
+# PNG tile (organic carbon, rescaled for display)
+curl "http://<host>:8082/cog/tiles/10/302/368.png?url=/data/corg_fr_siigsol_cog.tif&indexes=1&nodata=nan&rescale=0,15"
+```
 
 ## Metadata
 

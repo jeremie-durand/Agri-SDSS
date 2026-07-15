@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MOS-GIS — Geospatial Data Platform</title>
+    <link rel="stylesheet" href="css/index.css" />
+</head>
+<body>
+
+<nav class="unified-nav" role="navigation">
+  <a class="unified-nav__brand" href="/">MOS<span>-GIS</span></a>
+  <div class="unified-nav__links">
+    <a class="unified-nav__link" href="/" data-nav="map">Map</a>
+    <a class="unified-nav__link active" href="/services" data-nav="services">Services</a>
+    <a class="unified-nav__link" href="/data" data-nav="data">Data</a>
+    <a class="unified-nav__link" href="/stac/" data-nav="stac">STAC</a>
+    <a class="unified-nav__link" href="/chatbot/" data-nav="chatbot">AI Assistant</a>
+  </div>
+  <button class="unified-nav__lang" id="langToggle" type="button" aria-label="Switch to English">EN</button>
+</nav>
+
+<header aria-label="MOS-GIS">
+    <div class="header-left">
+        <div class="header-wordmark" aria-hidden="true">MOS<span>-GIS</span></div>
+        <p data-i18n="header-desc">
+            A comprehensive geospatial data platform that automates the processing, indexing, and publication
+            of GIS data from multiple sources into a distributed API ecosystem using open standards and
+            cloud-native modular architecture, applied to Soil Organic Matter (SOM) optimization in Quebec.
+        </p>
+    </div>
+    <div class="header-right">
+        <a class="btn btn-github" href="https://github.com/Mon-Systeme-Fourrager/mos-gis" target="_blank" rel="noopener">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.483
+                0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462
+                -.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832
+                .092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683
+                -.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836a9.59 9.59 0
+                012.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028
+                1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012
+                2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.478-10-10-10z"/>
+            </svg>
+            GitHub
+        </a>
+    </div>
+</header>
+
+<main>
+    <p class="section-label" data-i18n="section-label">Backend services</p>
+
+    <div class="services-grid">
+
+        <!-- STAC API -->
+        <article class="service-card">
+            <div class="card-header">
+                <div class="card-icon card-icon--stac">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+                        <polyline points="2 17 12 22 22 17"/>
+                        <polyline points="2 12 12 17 22 12"/>
+                    </svg>
+                </div>
+                <div class="card-title-group">
+                    <div class="card-title">STAC API</div>
+                    <span class="card-badge card-badge--stac">OGC · STAC</span>
+                </div>
+            </div>
+            <p class="card-description" data-i18n="stac-desc">
+                Spatio-temporal catalogue (STAC 1.0) for discovering and accessing rasters.
+                Search by bbox, date, collection, and CQL2 filters.
+                Collections and items persisted in PostgreSQL via the <strong>pgstac</strong> schema (tables <code>pgstac.collections</code> and <code>pgstac.items</code>).
+            </p>
+            <div class="endpoint-url">
+                <span class="dot"></span>
+                /mos-stac/
+            </div>
+            <div class="card-actions">
+                <a class="btn btn-primary" href="/mos-stac/" target="_blank" rel="noopener">Endpoint</a>
+                <a class="btn btn-ghost" href="/mos-stac/api.html" target="_blank" rel="noopener">Docs</a>
+            </div>
+        </article>
+
+        <!-- Raster API -->
+        <article class="service-card">
+            <div class="card-header">
+                <div class="card-icon card-icon--raster">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                        <path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>
+                    </svg>
+                </div>
+                <div class="card-title-group">
+                    <div class="card-title">Raster API</div>
+                    <span class="card-badge card-badge--raster">OGC · Tiles · COG</span>
+                </div>
+            </div>
+            <p class="card-description" data-i18n="raster-desc">
+                Dynamic tile service for Cloud Optimized GeoTIFFs (TiTiler).
+                XYZ tile generation, statistics, band previews, and indices.
+                Exposes COGs from configurable storage — local folder (<code>data/output/raster_cog/</code>) or cloud bucket (S3, GCS, Azure).
+            </p>
+            <div class="endpoint-url">
+                <span class="dot"></span>
+                /mos-raster/
+            </div>
+            <div class="card-actions">
+                <a class="btn btn-primary" href="/mos-raster/" target="_blank" rel="noopener">Endpoint</a>
+                <a class="btn btn-ghost" href="/mos-raster/api.html" target="_blank" rel="noopener">Docs</a>
+            </div>
+        </article>
+
+        <!-- Vector API -->
+        <article class="service-card">
+            <div class="card-header">
+                <div class="card-icon card-icon--vector">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+                        <circle cx="12" cy="10" r="3"/>
+                    </svg>
+                </div>
+                <div class="card-title-group">
+                    <div class="card-title">Vector API</div>
+                    <span class="card-badge card-badge--vector">OGC · Features · Tiles</span>
+                </div>
+            </div>
+            <p class="card-description" data-i18n="vector-desc">
+                OGC API Features-compliant vector data API (TiPg).
+                Access to PostGIS and GeoParquet layers, MVT vector tiles.
+            </p>
+            <div class="endpoint-url">
+                <span class="dot"></span>
+                /mos-vector/
+            </div>
+            <div class="card-actions">
+                <a class="btn btn-primary" href="/mos-vector/" target="_blank" rel="noopener">Endpoint</a>
+                <a class="btn btn-ghost" href="/mos-vector/postgis/api.html" target="_blank" rel="noopener">PostGIS Docs</a>
+                <a class="btn btn-ghost" href="/mos-vector/parquet/api.html" target="_blank" rel="noopener">Parquet Docs</a>
+            </div>
+        </article>
+
+        <!-- PyGeoAPI -->
+        <article class="service-card">
+            <div class="card-header">
+                <div class="card-icon card-icon--pygeoapi">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83
+                                 M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                    </svg>
+                </div>
+                <div class="card-title-group">
+                    <div class="card-title">PyGeoAPI</div>
+                    <span class="card-badge card-badge--pygeoapi">OGC · Processes · EO</span>
+                </div>
+            </div>
+            <p class="card-description" data-i18n="pygeoapi-desc">
+                <strong>OGC API - Processes</strong> server (pygeoapi) for running standardized geoprocessing jobs via HTTP requests.
+            </p>
+            <div class="endpoint-url">
+                <span class="dot"></span>
+                /mos-pygeoapi/
+            </div>
+            <div class="card-actions">
+                <a class="btn btn-primary" href="/mos-pygeoapi/" target="_blank" rel="noopener">Endpoint</a>
+                <a class="btn btn-ghost" href="/mos-pygeoapi/openapi#/" target="_blank" rel="noopener">Docs</a>
+                <a class="btn btn-ghost" href="/mos-pygeoapi/processes" target="_blank" rel="noopener">Processes</a>
+            </div>
+        </article>
+
+        <!-- Chatbot -->
+        <article class="service-card chatbot-card">
+            <div class="card-header">
+                <div class="card-icon card-icon--chatbot">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    </svg>
+                </div>
+                <div class="card-title-group">
+                    <div class="card-title">Chatbot</div>
+                    <span class="card-badge card-badge--chatbot">AI · LLM</span>
+                </div>
+            </div>
+
+            <p class="card-description" data-i18n="chatbot-desc">
+                LLM-powered chatbot for querying geospatial data in natural language.
+            </p>
+
+            <div class="endpoint-url" id="chatbot-endpoint">
+                <span class="dot"></span>
+                /chatbot/
+            </div>
+
+            <div class="card-actions">
+                <a class="btn btn-primary" id="chatbot-link" href="/chatbot/" target="_blank" rel="noopener">Endpoint</a>
+                <a class="btn btn-ghost" href="https://github.com/jeremie-durand/OpenGeo-AI-Assistant" target="_blank" rel="noopener">GitHub</a>
+            </div>
+        </article>
+    </div>
+</main>
+
+<footer>
+    <p data-i18n="footer-text">MOS-GIS Geospatial Tools  · Mon Système Fourrager</p>
+    <p>
+        <a href="https://github.com/Mon-Systeme-Fourrager/mos-gis" target="_blank" rel="noopener">GitHub →</a>
+    </p>
+</footer>
+
+<script>
+(function() {
+  var path = window.location.pathname;
+  document.querySelectorAll('.unified-nav__link').forEach(function(a) {
+    var nav = a.getAttribute('data-nav');
+    var isActive =
+      (nav === 'map'      && (path === '/' || path === '/map.html')) ||
+      (nav === 'services' && (path === '/services' || path === '/index.html')) ||
+      (nav === 'data'     && (path === '/data' || path === '/data.html')) ||
+      (nav === 'stac'     && path.startsWith('/stac/')) ||
+      (nav === 'chatbot'  && path.startsWith('/chatbot/'));
+    if (isActive) a.classList.add('active');
+  });
+
+  var T = {
+    en: {
+      'header-desc': 'A comprehensive geospatial data platform that automates the processing, indexing, and publication of GIS data from multiple sources into a distributed API ecosystem using open standards and cloud-native modular architecture, applied to Soil Organic Matter (SOM) optimization in Quebec.',
+      'section-label': 'Backend services',
+      'stac-desc': 'Spatio-temporal catalogue (STAC 1.0) for discovering and accessing rasters. Search by bbox, date, collection, and CQL2 filters. Collections and items persisted in PostgreSQL via the <strong>pgstac</strong> schema (tables <code>pgstac.collections</code> and <code>pgstac.items</code>).',
+      'raster-desc': 'Dynamic tile service for Cloud Optimized GeoTIFFs (TiTiler). XYZ tile generation, statistics, band previews, and indices. Exposes COGs from configurable storage — local folder (<code>data/output/raster_cog/</code>) or cloud bucket (S3, GCS, Azure).',
+      'vector-desc': 'OGC API Features-compliant vector data API (TiPg). Access to PostGIS and GeoParquet layers, MVT vector tiles.',
+      'pygeoapi-desc': '<strong>OGC API - Processes</strong> server (pygeoapi) for running standardized geoprocessing jobs via HTTP requests.',
+      'chatbot-desc': 'LLM-powered chatbot for querying geospatial data in natural language.',
+      'footer-text': 'MOS-GIS Geospatial Tools  · Mon Système Fourrager',
+      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant'
+    },
+    fr: {
+      'header-desc': 'Plateforme de données géospatiales complète automatisant le traitement, l’indexation et la publication de données SIG depuis de multiples sources dans un écosystème d’API distribué, basé sur les standards ouverts et une architecture cloud-native modulaire, appliquée à l’optimisation de la Matière Organique des Sols (MOS) au Québec.',
+      'section-label': 'Services disponibles',
+      'stac-desc': 'Catalogue spatio-temporel (STAC 1.0) pour la découverte et l’accès aux rasters. Recherche par bbox, date, collection et filtres CQL2. Collections et items persistés dans PostgreSQL via le schéma <strong>pgstac</strong> (tables <code>pgstac.collections</code> et <code>pgstac.items</code>).',
+      'raster-desc': 'Service de tuiles dynamiques pour Cloud Optimized GeoTIFFs (TiTiler). Génération de tuiles XYZ, statistiques, prévisualisation de bandes et indices. Expose les COGs depuis un storage configurable — dossier local (<code>data/output/raster_cog/</code>) ou bucket cloud (S3, GCS, Azure).',
+      'vector-desc': 'API de données vectorielles (TiPg) conforme OGC API Features. Accès aux couches PostGIS et GeoParquet, tuiles vectorielles MVT.',
+      'pygeoapi-desc': 'Serveur <strong>OGC API - Processes</strong> (pygeoapi) permettant l’exécution de géotraitements standardisés via des requêtes HTTP.',
+      'chatbot-desc': 'Chatbot alimenté par un modèle de langage (LLM) pour l\'interrogation en langage naturel des données géospatiales.',
+      'footer-text': 'Outils géospatiaux MOS-GIS  · Mon Système Fourrager',
+      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA'
+    }
+  };
+
+  var lang = localStorage.getItem('mos-lang') || 'fr';
+
+  function applyLang(l) {
+    lang = l;
+    document.documentElement.lang = l;
+    document.querySelectorAll('[data-i18n]').forEach(function(el) {
+      var k = el.getAttribute('data-i18n');
+      if (T[l][k] !== undefined) el.innerHTML = T[l][k];
+    });
+    document.querySelectorAll('[data-nav]').forEach(function(el) {
+      var k = 'nav-' + el.getAttribute('data-nav');
+      if (T[l][k] !== undefined) el.textContent = T[l][k];
+    });
+    var btn = document.getElementById('langToggle');
+    btn.textContent = l === 'en' ? 'FR' : 'EN';
+    btn.setAttribute('aria-label', l === 'en' ? 'Changer la langue en français' : 'Switch to English');
+    localStorage.setItem('mos-lang', l);
+  }
+
+  document.getElementById('langToggle').addEventListener('click', function() {
+    applyLang(lang === 'en' ? 'fr' : 'en');
+  });
+
+  applyLang(lang);
+})();
+</script>
+</body>
+</html>

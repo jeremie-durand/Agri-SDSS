@@ -183,6 +183,7 @@ data/tmp/
 data/pg/
 data/input/
 data/output/
+data/SOM/
 
 # OpenEO authentication tokens (sensitive)
 mos-pygeoapi/config/openeo-config/refresh-tokens.json
@@ -201,3 +202,6 @@ mos-pygeoapi/processes/hamed_functions/
 .github/skills/
 .cursor/
 openspec/
+
+# Frontend development
+frontend/veda-ui/

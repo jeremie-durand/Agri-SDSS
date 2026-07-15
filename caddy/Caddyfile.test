@@ -1,0 +1,38 @@
+# Caddyfile for rate limiting tests only.
+# Short windows to avoid waiting 1 minute between tests.
+# Used by "make test-caddy" — do not use in production.
+
+# "caddy" = hostname resolved by Docker from the Python test container
+localhost, mos-gis.local, caddy {
+	tls internal
+
+	rate_limit {
+		zone pygeoapi_exec {
+			match {
+				method POST
+				path /mos-pygeoapi/processes/*/execution
+			}
+			key    {remote_host}
+			window 5s
+			events 3
+		}
+	}
+
+	rate_limit {
+		zone pygeoapi_browse {
+			match {
+				method GET
+				path /mos-pygeoapi/*
+			}
+			key    {remote_host}
+			window 5s
+			events 5
+		}
+	}
+
+	reverse_proxy home:8080
+}
+
+:80 {
+	redir https://{host}{uri} permanent
+}

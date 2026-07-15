@@ -1,4 +1,7 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS runtime
+
+ARG USER_GID=1000
+ARG USER_UID=1000
 
 # Set non-interactive mode for apt-get
 ENV DEBIAN_FRONTEND=noninteractive
@@ -9,7 +12,7 @@ ENV PYTHONPATH=/app
 ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 ENV HOST=0.0.0.0
 ENV STAC_API_PORT=8081
-ENV CORS_ORIGINS=*
+ENV CORS_ORIGINS=
 ENV WEB_CONCURRENCY=10
 ENV PYTHONUNBUFFERED=1
 
@@ -21,26 +24,39 @@ COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
 COPY stac-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN mkdir -p /app/scripts && chmod +x /usr/local/bin/wait-for-it.sh /usr/local/bin/entrypoint.sh
 
-# Copy requirements
-ENV PROJ_DIR=/usr
-COPY stac-api/requirements-stac-api.txt ./requirements-stac-api.txt
-
 # Install dependencies
-RUN apt-get update && apt-get install -y \
+ENV PROJ_DIR=/usr
+RUN --mount=type=bind,source=stac-api/requirements-stac-api.txt,target=/tmp/requirements-stac-api.txt \
+    apt-get update && apt-get install -y \
     libpq-dev \
     libgeos-dev \
     libproj-dev \
     curl \
     pkg-config \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/* && \
     pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir numpy>=2.0 psycopg[binary] uvicorn fastapi && \
-    pip install --no-cache-dir -r requirements-stac-api.txt && \
-    rm requirements-stac-api.txt && \
+    pip install --no-cache-dir -r /tmp/requirements-stac-api.txt && \
     mkdir -p /app/data
 
-# Expose the port FastAPI will run on
+# Create non-root user and set ownership
+RUN groupadd --gid ${USER_GID} appuser \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} --no-create-home --shell /bin/bash appuser \
+    && chown -R appuser:appuser /app
+
+COPY --chown=appuser:appuser stac-api/src /app/stac_api
+
+USER appuser
+
 EXPOSE ${STAC_API_PORT}
 
 # API entrypoint
 CMD ["/usr/local/bin/entrypoint.sh"]
+
+FROM runtime AS test
+USER root
+RUN --mount=type=bind,source=stac-api/requirements-stac-api-test.txt,target=/tmp/requirements-stac-api-test.txt \
+    pip install --no-cache-dir -r /tmp/requirements-stac-api-test.txt
+USER appuser
+COPY --chown=appuser:appuser stac-api/test /app/stac_api/test
+COPY --chown=appuser:appuser stac-api/pytest.ini /app/pytest.ini
