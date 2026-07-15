@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # Set build arguments for versions of key dependencies
 ARG NUMPY_VERSION=2.4.2  # Must match the version specified in requirements-gis-pipeline.txt
