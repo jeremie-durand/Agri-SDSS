@@ -4,7 +4,7 @@ Annual raster crop classification for Canada published by Agriculture and Agri-F
 
 ## Overview
 
-**Annual Crop Inventory** provides a pixel-level crop type classification across Canada derived from satellite imagery. Used in the MOS-GIS map for crop identification by clicking a location.
+**Annual Crop Inventory** provides a pixel-level crop type classification across Canada derived from satellite imagery. Used in the Agri-SDSS map for crop identification by clicking a location.
 
 ## Data Details
 

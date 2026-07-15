@@ -57,7 +57,12 @@ def test_orjson_response_render_valid_json() -> None:
     OrjsonResponse = app_module._OrjsonResponse  # type: ignore[attr-defined]
     instance = OrjsonResponse.__new__(OrjsonResponse)
 
-    payload = {"name": "mos-gis", "version": 1, "active": True, "tags": ["stac", "api"]}
+    payload = {
+        "name": "agri-sdss",
+        "version": 1,
+        "active": True,
+        "tags": ["stac", "api"],
+    }
     result = instance.render(payload)
 
     decoded = orjson.loads(result)

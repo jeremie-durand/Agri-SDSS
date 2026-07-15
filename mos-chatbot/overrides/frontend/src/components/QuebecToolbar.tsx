@@ -16,7 +16,7 @@ const QUICK_PROMPTS = [
 ];
 
 /**
- * Toolbar with mos-gis-specific quick-action buttons.
+ * Toolbar with agri-sdss-specific quick-action buttons.
  * Props:
  *   onPrompt: (promptText: string) => void — fires when user clicks a button
  */

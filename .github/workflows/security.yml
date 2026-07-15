@@ -98,6 +98,6 @@ jobs:
             if [ -f "$UPSTREAM_ROOT/$f" ]; then
               echo "OK  override '$f' matches upstream path in container-app/"
             else
-              echo "NEW override '$f' has no upstream counterpart in container-app/ (mos-gis-specific)"
+              echo "NEW override '$f' has no upstream counterpart in container-app/ (agri-sdss-specific)"
             fi
           done

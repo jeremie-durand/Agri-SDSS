@@ -110,7 +110,7 @@ server {
         proxy_read_timeout 120s;
     }
 
-    # ── Local MOS-GIS API proxies (used by chatbot-bridge.js) ────────────────
+    # ── Local Agri-SDSS API proxies (used by chatbot-bridge.js) ────────────────
     location /mos-stac/ {
         proxy_pass http://stac-api:8080/;
         proxy_set_header Host $host;

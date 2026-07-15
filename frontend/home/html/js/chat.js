@@ -21,14 +21,14 @@ import { map, stacState } from './state.js';
  *     var lines = [];
  *
  *     if (isBdppad) {
- *         lines.push('I am looking at an agricultural parcel from the MOS-GIS platform database. Here is its recorded information:');
+ *         lines.push('I am looking at an agricultural parcel from the Agri-SDSS platform database. Here is its recorded information:');
  *         lines.push('');
  *         if (id) lines.push('Parcel ID: ' + id);
  *         if (collectionId) lines.push('Dataset: ' + collectionId);
  *         lines.push('');
  *         lines.push('Dataset context: BDPPAD (Base de données sur les parcelles et propriétés agricoles du Québec) is the Quebec provincial registry of agricultural parcels. The "typpar" field is the official parcel type code; its meaning is given in the "description" field. The "suphec" field is the parcel area in hectares.');
  *     } else {
- *         lines.push('I am looking at a geographic feature from the MOS-GIS platform. Here is its recorded information:');
+ *         lines.push('I am looking at a geographic feature from the Agri-SDSS platform. Here is its recorded information:');
  *         lines.push('');
  *         if (id) lines.push('Feature ID: ' + id);
  *         if (collectionId) lines.push('Dataset: ' + collectionId);

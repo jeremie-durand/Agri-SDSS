@@ -53,7 +53,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy all app code from container-app/ (*.py, *.json, agents/, geoint/)
 COPY --from=source /src/opengeo-ai-assistant/container-app/ .
 
-# Layer mos-gis overrides on top of upstream
+# Layer agri-sdss overrides on top of upstream
 COPY mos-chatbot/overrides/backend/ .
 
 # Ollama runtime — only used when LLM_BASE_URL targets localhost:11434
@@ -64,7 +64,7 @@ COPY --from=ollama /usr/lib/ollama /usr/local/lib/ollama
 RUN sed -i 's/^from datetime import datetime$/from datetime import datetime, timezone/' /app/fastapi_app.py \
     && sed -i 's/datetime\.utcnow()/datetime.now(timezone.utc)/g' /app/fastapi_app.py
 
-# MOS-GIS patches to upstream generic_query_translator.py (see overrides/backend/patch_generic_query_translator.py)
+# Agri-SDSS patches to upstream generic_query_translator.py (see overrides/backend/patch_generic_query_translator.py)
 RUN python3 /app/patch_generic_query_translator.py
 
 RUN mkdir -p /app/uploads /app/.ollama && \

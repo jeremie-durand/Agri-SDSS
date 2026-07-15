@@ -830,7 +830,7 @@ export function somSavePdf() {
     doc.text(tLang['som-pdf-footer'], 12, 291);
     doc.text(s.now.toLocaleString(s.locale), 198, 291, { align: 'right' });
 
-    doc.save('MOS-GIS_SOM_' + s.farmId + '_' + s.now.toISOString().slice(0, 10) + '.pdf');
+    doc.save('Agri-SDSS_SOM_' + s.farmId + '_' + s.now.toISOString().slice(0, 10) + '.pdf');
     somClosePreview();
 }
 

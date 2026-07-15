@@ -21,8 +21,8 @@ BATCH_SIZE = 5_000
 CONN_STR = (
     f"host={os.environ.get('POSTGRES_HOST', 'database')} "
     f"port={os.environ.get('POSTGRES_PORT', '5432')} "
-    f"dbname={os.environ.get('POSTGRES_DBNAME', 'mos_gis')} "
-    f"user={os.environ.get('POSTGRES_USER', 'mos_gis')} "
+    f"dbname={os.environ.get('POSTGRES_DBNAME', 'agri_sdss')} "
+    f"user={os.environ.get('POSTGRES_USER', 'agri_sdss')} "
     f"password={os.environ['POSTGRES_PASS']}"
 )
 

@@ -3,7 +3,7 @@
 # Used by "make test-caddy" — do not use in production.
 
 # "caddy" = hostname resolved by Docker from the Python test container
-localhost, mos-gis.local, caddy {
+localhost, agri-sdss.local, caddy {
 	tls internal
 
 	rate_limit {

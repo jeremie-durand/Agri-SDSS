@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Production deployment guide for MOS-GIS on a Linux server with Docker.
+Production deployment guide for Agri-SDSS on a Linux server with Docker.
 
 ---
 
@@ -41,8 +41,8 @@ Notes:
 ## 1. Clone & configure
 
 ```bash
-git clone https://github.com/Mon-Systeme-Fourrager/mos-gis.git
-cd mos-gis
+git clone https://github.com/Mon-Systeme-Fourrager/agri-sdss.git
+cd agri-sdss
 cp .env.example .env
 ```
 
@@ -57,7 +57,7 @@ Edit `.env` and set every value marked below. Leave others at their defaults unl
 | Variable | What to do |
 | --- | --- |
 | `POSTGRES_PASS` | Admin (superuser) password — used for Docker init, healthcheck, and backups |
-| `DB_PASS` | Application role password — used by all services to connect (`mos_gis` role) |
+| `DB_PASS` | Application role password — used by all services to connect (`agri_sdss` role) |
 | `LLM_API_KEY` | Your OpenAI (or other provider) API key |
 | `API_KEY` | Generate with `openssl rand -hex 32` — protects the chatbot endpoint |
 | `ENABLE_AUTH` | Set to `true` to enforce the API key on the chatbot |
@@ -86,10 +86,10 @@ Two PostgreSQL credentials exist to follow least-privilege:
 | --- | --- | --- |
 | `POSTGRES_USER=postgres` | Superuser | Docker image init, `pg_dump` backups, healthcheck |
 | `POSTGRES_PASS` | Superuser password | Same |
-| `DB_USER=mos_gis` | App role (SELECT/INSERT/UPDATE/DELETE only) | All backend services |
+| `DB_USER=agri_sdss` | App role (SELECT/INSERT/UPDATE/DELETE only) | All backend services |
 | `DB_PASS` | App role password | Same |
 
-The `mos_gis` role is created automatically by `scripts/create_app_role.sh` on first DB initialisation.
+The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on first DB initialisation.
 
 ### CORS
 
@@ -123,11 +123,11 @@ Caddy is the single entry point for all traffic (ports 80 and 443). Backend serv
 
 ### Local / staging (self-signed certificate)
 
-The default `Caddyfile` uses `tls internal` with `localhost, mos-gis.local`. No changes needed — Caddy issues a self-signed cert automatically.
+The default `Caddyfile` uses `tls internal` with `localhost, agri-sdss.local`. No changes needed — Caddy issues a self-signed cert automatically.
 
-To add `mos-gis.local` to your local hosts file (Windows/Mac client):
+To add `agri-sdss.local` to your local hosts file (Windows/Mac client):
 ```
-<server-ip>  mos-gis.local
+<server-ip>  agri-sdss.local
 ```
 
 ### Production (real domain + Let's Encrypt)
@@ -137,7 +137,7 @@ Once your DNS is pointed at the server:
 1. Edit `Caddyfile` — replace the host block:
    ```caddyfile
    # Before
-   localhost, mos-gis.local {
+   localhost, agri-sdss.local {
        tls internal
        reverse_proxy home:8080
    }
@@ -234,7 +234,7 @@ docker compose logs -f caddy
 
 ```bash
 # PostgreSQL dump (run as admin superuser so all schemas are captured)
-docker compose exec database pg_dump -U postgres mos_gis > backup_$(date +%Y%m%d).sql
+docker compose exec database pg_dump -U postgres agri_sdss > backup_$(date +%Y%m%d).sql
 
 # DuckDB (file copy is safe when pipeline is not writing)
 cp data/duckdb/eoapi.duckdb backup_duckdb_$(date +%Y%m%d).duckdb
@@ -242,13 +242,13 @@ cp data/duckdb/eoapi.duckdb backup_duckdb_$(date +%Y%m%d).duckdb
 
 ### Changing the application role password
 
-The `mos_gis` role password is set once at first DB init. To rotate it after initial deployment:
+The `agri_sdss` role password is set once at first DB init. To rotate it after initial deployment:
 
 ```bash
 # 1. Update DB_PASS in .env
 # 2. Apply the new password to the running database
-docker compose exec database psql -U postgres -d mos_gis \
-  -c "ALTER ROLE mos_gis WITH PASSWORD 'your-new-password';"
+docker compose exec database psql -U postgres -d agri_sdss \
+  -c "ALTER ROLE agri_sdss WITH PASSWORD 'your-new-password';"
 # 3. Restart services so they pick up the new DB_PASS
 docker compose up -d
 ```
@@ -261,7 +261,7 @@ All changes needed when moving from self-signed to a real domain:
 
 | File | Change |
 | --- | --- |
-| `Caddyfile` | Replace `localhost, mos-gis.local {` + `tls internal` with `ton-domaine.ca {` |
+| `Caddyfile` | Replace `localhost, agri-sdss.local {` + `tls internal` with `ton-domaine.ca {` |
 | `.env` | `HOST_URL=ton-domaine.ca`, `HOST_PROTOCOL=https` |
 
 ---
@@ -292,7 +292,7 @@ docker run --rm -i \
   bash -c "
     gunzip -c /dump/pgstac_prod_<DATE>.sql.gz \
       | python3 /filter.py \
-      | psql -h database -U postgres -d mos_gis
+      | psql -h database -U postgres -d agri_sdss
   "
 ```
 
@@ -305,7 +305,7 @@ A dump created from an older pgstac version includes DDL that overwrites the pgs
 Run this block to create any missing objects and remove duplicates — it is safe to run even when nothing is broken:
 
 ```bash
-docker compose exec database psql -U postgres -d mos_gis -c "
+docker compose exec database psql -U postgres -d agri_sdss -c "
 SET search_path TO pgstac, public;
 
 -- Create collections table if missing (added in pgstac 0.7+)
@@ -361,10 +361,10 @@ docker compose restart stac-api
 
 ### Step 3 — transfer table ownership to the app role
 
-Tables restored from a dump are owned by `postgres`. The `mos_gis` app role needs ownership to `DROP` and `ALTER` them during pipeline ingestion:
+Tables restored from a dump are owned by `postgres`. The `agri_sdss` app role needs ownership to `DROP` and `ALTER` them during pipeline ingestion:
 
 ```bash
-docker compose exec database psql -U postgres -d mos_gis -c "
+docker compose exec database psql -U postgres -d agri_sdss -c "
 DO \$\$
 DECLARE r RECORD;
 BEGIN
@@ -372,7 +372,7 @@ BEGIN
         SELECT tablename FROM pg_tables
         WHERE schemaname = 'public' AND tableowner = 'postgres'
     LOOP
-        EXECUTE format('ALTER TABLE public.%I OWNER TO mos_gis', r.tablename);
+        EXECUTE format('ALTER TABLE public.%I OWNER TO agri_sdss', r.tablename);
     END LOOP;
 END \$\$;
 "
@@ -383,8 +383,8 @@ END \$\$;
 PostgreSQL 15 does not grant `CREATE` on the `public` schema by default. `scripts/create_app_role.sh` now includes this grant, so a fresh database init is self-contained. On a database that was initialised before this change, apply it manually once:
 
 ```bash
-docker compose exec database psql -U postgres -d mos_gis \
-  -c "GRANT CREATE ON SCHEMA public TO mos_gis;"
+docker compose exec database psql -U postgres -d agri_sdss \
+  -c "GRANT CREATE ON SCHEMA public TO agri_sdss;"
 ```
 
 ### Step 5 — create GIST spatial indexes
@@ -392,7 +392,7 @@ docker compose exec database psql -U postgres -d mos_gis \
 A `pg_dump` does not always preserve spatial indexes. Without GIST indexes on geometry columns, TiPg (vector-api) performs sequential scans and returns empty tile responses. Create indexes on all public geometry tables in one pass:
 
 ```bash
-docker compose exec database psql -U postgres -d mos_gis -t -A -c "
+docker compose exec database psql -U postgres -d agri_sdss -t -A -c "
 SELECT format(
     'CREATE INDEX IF NOT EXISTS %I ON public.%I USING GIST (%I);',
     f_table_name || '_' || f_geometry_column || '_gist',
@@ -401,7 +401,7 @@ SELECT format(
 )
 FROM geometry_columns
 WHERE f_table_schema = 'public';
-" | docker compose exec -T database psql -U postgres -d mos_gis
+" | docker compose exec -T database psql -U postgres -d agri_sdss
 ```
 
 This generates and immediately executes one `CREATE INDEX IF NOT EXISTS` per geometry column. Empty tables are indexed without error. On a database with ~240 geometry tables the pass takes a few minutes.
@@ -426,14 +426,14 @@ CREATE INDEX CONCURRENTLY grhq_water_union_geom_idx
     ON public.grhq_water_union USING GIST(geometry);
 ```
 
-Run those three statements as the `mos_gis` user (or `postgres` if the table owner needs to change):
+Run those three statements as the `agri_sdss` user (or `postgres` if the table owner needs to change):
 
 ```bash
-docker compose exec database psql -U mos_gis -d mos_gis -c "
+docker compose exec database psql -U agri_sdss -d agri_sdss -c "
   DROP TABLE IF EXISTS public.grhq_water_union;
   ALTER TABLE public.grhq_water_union_new RENAME TO grhq_water_union;
 "
-docker compose exec database psql -U mos_gis -d mos_gis -c "
+docker compose exec database psql -U agri_sdss -d agri_sdss -c "
   CREATE INDEX CONCURRENTLY grhq_water_union_geom_idx
       ON public.grhq_water_union USING GIST(geometry);
 "
@@ -449,7 +449,7 @@ Ingest all input files from `/data/input`:
 docker compose run --rm gis-pipeline python3 -m gis_pipeline.main \
   --input /data/input \
   --crs 4326 \
-  --collection mos_gis_collection
+  --collection agri_sdss_collection
 ```
 
 The final log lines report `Processed`, `Errors`, and `Non_spatial_csv` counts. `Errors: 0` is the target. After a successful run, vector layers, COGs, and STAC items are all up to date. The pipeline automatically stamps `has_gee_data` on `som_field_boundaries` at the end of every run — no manual post-step needed.
@@ -468,11 +468,11 @@ docker compose exec database pg_dump -U postgres postgres > migration_backup.sql
 docker compose down
 rm -rf data/pg/.pgdata
 
-# 3. Update .env with new credentials (POSTGRES_DBNAME=mos_gis, DB_USER, DB_PASS, etc.)
+# 3. Update .env with new credentials (POSTGRES_DBNAME=agri_sdss, DB_USER, DB_PASS, etc.)
 
-# 4. Start fresh — Docker creates the mos_gis database and runs init scripts
+# 4. Start fresh — Docker creates the agri_sdss database and runs init scripts
 docker compose up -d database
-docker compose exec database psql -U postgres -d mos_gis < migration_backup.sql
+docker compose exec database psql -U postgres -d agri_sdss < migration_backup.sql
 
 # 5. Start remaining services
 docker compose up -d

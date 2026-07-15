@@ -35,11 +35,11 @@ with CONFIG_PATH.open(mode="r") as f:
 class _DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="")
 
-    POSTGRES_USER: str = "mos_gis"
+    POSTGRES_USER: str = "agri_sdss"
     POSTGRES_PASS: str  # required — container refuses to start without it
     POSTGRES_HOST: str = "database"
     POSTGRES_PORT: int = 5432
-    POSTGRES_DBNAME: str = "mos_gis"
+    POSTGRES_DBNAME: str = "agri_sdss"
 
 
 class _ApiSettings(BaseSettings):

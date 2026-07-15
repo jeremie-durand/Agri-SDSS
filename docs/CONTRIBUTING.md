@@ -1,6 +1,6 @@
-# Contributing to MOS-GIS
+# Contributing to Agri-SDSS
 
-Thank you for your interest in contributing! MOS-GIS welcomes contributions from researchers, agronomists, data providers, and developers. Issues and pull requests are welcome in **English or French**.
+Thank you for your interest in contributing! Agri-SDSS welcomes contributions from researchers, agronomists, data providers, and developers. Issues and pull requests are welcome in **English or French**.
 
 ## Ways to Contribute
 
@@ -8,7 +8,7 @@ You don't need to write code to contribute:
 
 | Contribution | Where to start |
 | --- | --- |
-| Report a bug or request a feature | [Open an issue](https://github.com/Mon-Systeme-Fourrager/mos-gis/issues) |
+| Report a bug or request a feature | [Open an issue](https://github.com/Mon-Systeme-Fourrager/agri-sdss/issues) |
 | Integrate a new dataset | [Adding new data guide](data/adding_new_data.md) — step-by-step, from source doc to pipeline ingestion |
 | Add or improve an OGC process | [Adding a new OGC process](#adding-a-new-ogc-process) below |
 | Improve documentation or FR/EN translations | Edit and open a PR — docs live in `docs/` and each service's folder |
@@ -18,9 +18,9 @@ You don't need to write code to contribute:
 
 ```bash
 # Fork the repository on GitHub, then:
-git clone https://github.com/YOUR_USERNAME/mos-gis.git
-cd mos-gis
-git remote add upstream https://github.com/Mon-Systeme-Fourrager/mos-gis.git
+git clone https://github.com/YOUR_USERNAME/agri-sdss.git
+cd agri-sdss
+git remote add upstream https://github.com/Mon-Systeme-Fourrager/agri-sdss.git
 
 # Configure and start the stack
 cp .env.example .env
@@ -155,16 +155,16 @@ Follow the pattern of the seven existing processes in `mos-pygeoapi/processes/`:
 
 ## License
 
-MOS-GIS is [MIT-licensed](../LICENSE). By contributing, you agree that your contributions are licensed under the same terms.
+Agri-SDSS is [MIT-licensed](../LICENSE). By contributing, you agree that your contributions are licensed under the same terms.
 
 ## Getting Help
 
 - Check the [documentation index](README.md)
-- Review [existing issues](https://github.com/Mon-Systeme-Fourrager/mos-gis/issues)
+- Review [existing issues](https://github.com/Mon-Systeme-Fourrager/agri-sdss/issues)
 - Ask questions in issue discussions — in English or French
 
 ## Recognition
 
 Contributors are recognized in release notes and project documentation.
 
-Thank you for helping improve MOS-GIS!
+Thank you for helping improve Agri-SDSS!

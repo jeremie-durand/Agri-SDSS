@@ -1,5 +1,5 @@
 ---
-name: MOS-GIS
+name: Agri-SDSS
 description: Geospatial data platform for sustainable agriculture research in Quebec
 colors:
   bg: "#0f1117"
@@ -78,13 +78,13 @@ components:
     padding: "0.18rem 0.55rem"
 ---
 
-# Design System: MOS-GIS
+# Design System: Agri-SDSS
 
 ## 1. Overview
 
 **Creative North Star: "The Observatory"**
 
-MOS-GIS is a dark-mode precision instrument. Its surfaces are the control room of a research observatory: deep black-blue voids, instrument panels that reveal data on demand, and a single signal-green acquisition color that marks what is live, active, and reachable. Nothing glows for decoration. Every lit element has a reason. Researchers and agronomists arrive here to locate, inspect, and retrieve geospatial data — the interface should never compete with the data it presents.
+Agri-SDSS is a dark-mode precision instrument. Its surfaces are the control room of a research observatory: deep black-blue voids, instrument panels that reveal data on demand, and a single signal-green acquisition color that marks what is live, active, and reachable. Nothing glows for decoration. Every lit element has a reason. Researchers and agronomists arrive here to locate, inspect, and retrieve geospatial data — the interface should never compete with the data it presents.
 
 The aesthetic is neither developer-tool austere nor enterprise-platform heavy. It is a calm, public-facing scientific interface. Density is moderate. Typography is clear and purposeful. The service grid is the primary interaction surface — each card a gateway — and it must communicate function and status without ambiguity.
 
@@ -134,7 +134,7 @@ Per-service colors exist exclusively inside badge chips and card icon background
 **Character:** A single sans-serif family across all weights. No display/body split — hierarchy is entirely through weight (400 → 600 → 700) and scale. Clean, neutral, system-native. The typeface defers to the data; it never asserts personality of its own.
 
 ### Hierarchy
-- **Display** (700, 1.6rem, lh 1.2, ls -0.02em): The wordmark `MOS-GIS` in the header only. One instance per page.
+- **Display** (700, 1.6rem, lh 1.2, ls -0.02em): The wordmark `Agri-SDSS` in the header only. One instance per page.
 - **Title** (600, 0.98rem, lh 1.3): Card titles and section headings. Used sparingly — one title per card.
 - **Body** (400, 0.85rem, lh 1.6): Card descriptions and header tagline. Max line length 65ch. The primary reading weight for all prose content.
 - **Label** (mono, 600, 0.75rem, ls 0.1em, uppercase): Section labels (`Services disponibles`) and endpoint URLs. Uppercase reserved for short labels of ≤4 words.

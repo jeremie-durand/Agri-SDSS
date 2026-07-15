@@ -1,6 +1,6 @@
 # STAC Metadata Examples
 
-Practical STAC Item and Collection templates for mos-gis data.
+Practical STAC Item and Collection templates for agri-sdss data.
 
 ## STAC Item - Vector Features
 
@@ -41,7 +41,7 @@ A STAC Item describes a single asset or feature collection:
   },
   "assets": {
     "geopackage": {
-      "href": "s3://mos-gis-data/grhq/grhq_watercourses.gpkg",
+      "href": "s3://agri-sdss-data/grhq/grhq_watercourses.gpkg",
       "type": "application/geopackage+sqlite3",
       "roles": ["data"],
       "title": "GRHQ Watercourses (GeoPackage)",
@@ -55,7 +55,7 @@ A STAC Item describes a single asset or feature collection:
       "description": "Features accessible via vector API"
     },
     "metadata": {
-      "href": "s3://mos-gis-data/grhq/grhq_metadata.xml",
+      "href": "s3://agri-sdss-data/grhq/grhq_metadata.xml",
       "type": "application/xml",
       "roles": ["metadata"],
       "title": "ISO 19115 Metadata"
@@ -132,7 +132,7 @@ Example for SIIGSOL gridded soil properties:
   },
   "assets": {
     "clay": {
-      "href": "s3://mos-gis-data/siigsol/siigsol_clay.cog.tif",
+      "href": "s3://agri-sdss-data/siigsol/siigsol_clay.cog.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "roles": ["data"],
       "title": "Clay Content (Band 1)",
@@ -153,7 +153,7 @@ Example for SIIGSOL gridded soil properties:
       ]
     },
     "organic_matter": {
-      "href": "s3://mos-gis-data/siigsol/siigsol_organic_matter.cog.tif",
+      "href": "s3://agri-sdss-data/siigsol/siigsol_organic_matter.cog.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "roles": ["data"],
       "title": "Organic Matter / Carbon (Band 4)",
@@ -174,7 +174,7 @@ Example for SIIGSOL gridded soil properties:
       ]
     },
     "ph": {
-      "href": "s3://mos-gis-data/siigsol/siigsol_ph.cog.tif",
+      "href": "s3://agri-sdss-data/siigsol/siigsol_ph.cog.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "roles": ["data"],
       "title": "Soil pH (Band 5)",
@@ -195,7 +195,7 @@ Example for SIIGSOL gridded soil properties:
       ]
     },
     "cec": {
-      "href": "s3://mos-gis-data/siigsol/siigsol_cec.cog.tif",
+      "href": "s3://agri-sdss-data/siigsol/siigsol_cec.cog.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "roles": ["data"],
       "title": "Cation Exchange Capacity (Band 6)",
@@ -216,14 +216,14 @@ Example for SIIGSOL gridded soil properties:
       ]
     },
     "combined": {
-      "href": "s3://mos-gis-data/siigsol/siigsol_all_bands.cog.tif",
+      "href": "s3://agri-sdss-data/siigsol/siigsol_all_bands.cog.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "roles": ["data"],
       "title": "All Soil Properties (6-band composite)",
       "description": "All soil properties in single multi-band GeoTIFF"
     },
     "thumbnail": {
-      "href": "s3://mos-gis-data/siigsol/siigsol_preview.jpg",
+      "href": "s3://agri-sdss-data/siigsol/siigsol_preview.jpg",
       "type": "image/jpeg",
       "roles": ["thumbnail"],
       "title": "Thumbnail preview"
@@ -291,14 +291,14 @@ Example for hydrometric station measurements:
   },
   "assets": {
     "csv": {
-      "href": "s3://mos-gis-data/hydrometrique/2024-01/station-05010100.csv",
+      "href": "s3://agri-sdss-data/hydrometrique/2024-01/station-05010100.csv",
       "type": "text/csv",
       "roles": ["data"],
       "title": "Discharge Data (CSV)",
       "description": "Hourly discharge measurements in CSV format"
     },
     "parquet": {
-      "href": "s3://mos-gis-data/hydrometrique/2024-01/station-05010100.parquet",
+      "href": "s3://agri-sdss-data/hydrometrique/2024-01/station-05010100.parquet",
       "type": "application/parquet",
       "roles": ["data"],
       "title": "Discharge Data (Parquet)",
@@ -417,10 +417,10 @@ A Collection groups related Items:
       "url": "https://www.agriculture.gouv.qc.ca/"
     },
     {
-      "name": "mos-gis",
+      "name": "agri-sdss",
       "description": "Geospatial Data Platform",
       "roles": ["processor", "host"],
-      "url": "https://github.com/Mon-Systeme-Fourrager/mos-gis"
+      "url": "https://github.com/Mon-Systeme-Fourrager/agri-sdss"
     }
   ],
   "summaries": {

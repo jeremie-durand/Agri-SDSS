@@ -1,6 +1,6 @@
 # stac-browser
 
-STAC catalog explorer UI. Official [radiantearth/stac-browser](https://github.com/radiantearth/stac-browser) image with a MOS-GIS configuration layered on top — browses collections and items from the STAC API and renders COG previews as map tiles via the raster-api.
+STAC catalog explorer UI. Official [radiantearth/stac-browser](https://github.com/radiantearth/stac-browser) image with a Agri-SDSS configuration layered on top — browses collections and items from the STAC API and renders COG previews as map tiles via the raster-api.
 
 **Port**: 8085 (direct) | **Requires**: `stac-api` running; `raster-api` for tile previews
 

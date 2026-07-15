@@ -1,16 +1,16 @@
 # Third-Party Licenses
 
-License inventory of the external open-source software MOS-GIS builds on, and what each license means for releasing this project under the [MIT License](../LICENSE) — including commercial use.
+License inventory of the external open-source software Agri-SDSS builds on, and what each license means for releasing this project under the [MIT License](../LICENSE) — including commercial use.
 
 > **Disclaimer**: this is a good-faith engineering summary, not legal advice.
 
 ## Summary
 
-**MOS-GIS can be released under MIT and used commercially.** Every component is either permissively licensed (MIT / BSD / Apache-2.0 / PostgreSQL / PSF) or a copyleft component used in a way that imposes no obligations on MOS-GIS code (see [Copyleft components](#copyleft-components)). No component requires MOS-GIS itself to adopt a copyleft license.
+**Agri-SDSS can be released under MIT and used commercially.** Every component is either permissively licensed (MIT / BSD / Apache-2.0 / PostgreSQL / PSF) or a copyleft component used in a way that imposes no obligations on Agri-SDSS code (see [Copyleft components](#copyleft-components)). No component requires Agri-SDSS itself to adopt a copyleft license.
 
 ## Core services & container images
 
-| Tool | Role in MOS-GIS | License |
+| Tool | Role in Agri-SDSS | License |
 | --- | --- | --- |
 | [PostgreSQL](https://www.postgresql.org/about/licence/) | Database | PostgreSQL License (permissive) |
 | [PostGIS](https://postgis.net/) | Spatial database extension | GPL-2.0-or-later ⚠️ |
@@ -30,7 +30,7 @@ License inventory of the external open-source software MOS-GIS builds on, and wh
 | [Python](https://docs.python.org/3/license.html) | Backend runtime | PSF-2.0 |
 | [Node.js](https://github.com/nodejs/node/blob/main/LICENSE) | Frontend build toolchain | MIT |
 
-Container base images (`alpine`, `python-slim`/Debian, `node-alpine`) bundle OS packages under their own licenses; this is standard Docker practice and imposes no obligations on MOS-GIS code.
+Container base images (`alpine`, `python-slim`/Debian, `node-alpine`) bundle OS packages under their own licenses; this is standard Docker practice and imposes no obligations on Agri-SDSS code.
 
 ## Python libraries
 
@@ -77,15 +77,15 @@ Container base images (`alpine`, `python-slim`/Debian, `node-alpine`) bundle OS 
 
 ## Copyleft components
 
-These are the components whose licenses *could* be "invasive" — and why none of them affect MOS-GIS:
+These are the components whose licenses *could* be "invasive" — and why none of them affect Agri-SDSS:
 
-- **PostGIS (GPL-2.0-or-later)** — runs as part of the database *server*. MOS-GIS talks to it over SQL connections; it does not link against or embed PostGIS code. GPL obligations apply to PostGIS itself (and would apply if you modified and distributed PostGIS), not to applications that query it. This is the universally accepted reading — countless commercial products use PostGIS this way.
+- **PostGIS (GPL-2.0-or-later)** — runs as part of the database *server*. Agri-SDSS talks to it over SQL connections; it does not link against or embed PostGIS code. GPL obligations apply to PostGIS itself (and would apply if you modified and distributed PostGIS), not to applications that query it. This is the universally accepted reading — countless commercial products use PostGIS this way.
 - **psycopg 3 (LGPL-3.0)** — used as an unmodified library. The LGPL allows proprietary and commercially licensed applications to *use* the library freely; obligations only arise if you modify psycopg itself and distribute the modification.
 - **pygeoif (LGPL)** — transitive dependency of PyGeoAPI, same reasoning as psycopg: unmodified library use, no obligations.
 - **certifi (MPL-2.0)** — file-level copyleft covering only certifi's own files; using it unmodified imposes nothing.
-- **hadolint (GPL-3.0)** — a CI lint tool. It is never distributed with MOS-GIS, so its license is irrelevant to users of the platform.
+- **hadolint (GPL-3.0)** — a CI lint tool. It is never distributed with Agri-SDSS, so its license is irrelevant to users of the platform.
 
-**Attribution requirements**: the permissive licenses (MIT, BSD, Apache-2.0) require preserving copyright notices when *redistributing the components themselves*. Since MOS-GIS pulls them as Docker images and package dependencies (which carry their own notices), no additional action is needed. Apache-2.0 components (Caddy, STAC Browser, openeo, …) additionally require stating significant modifications — MOS-GIS configures but does not modify them.
+**Attribution requirements**: the permissive licenses (MIT, BSD, Apache-2.0) require preserving copyright notices when *redistributing the components themselves*. Since Agri-SDSS pulls them as Docker images and package dependencies (which carry their own notices), no additional action is needed. Apache-2.0 components (Caddy, STAC Browser, openeo, …) additionally require stating significant modifications — Agri-SDSS configures but does not modify them.
 
 ## Data licenses
 

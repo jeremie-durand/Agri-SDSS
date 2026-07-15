@@ -1,6 +1,6 @@
 # caddy
 
-Public entry point for the MOS-GIS platform. Handles TLS termination, HTTP→HTTPS redirect, and rate limiting on OGC process routes.
+Public entry point for the Agri-SDSS platform. Handles TLS termination, HTTP→HTTPS redirect, and rate limiting on OGC process routes.
 
 **Port**: 443 (HTTPS) / 80 (redirect) | **Requires**: `home` frontend service running as upstream
 

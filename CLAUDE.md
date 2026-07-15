@@ -40,7 +40,7 @@ make generate-args      # Regenerate gis-pipeline/docs/ARGS.md from the CLI pars
 
 ## Architecture
 
-MOS-GIS is a geospatial data platform for sustainable agriculture research in Quebec. It follows a pipeline → storage → API → frontend pattern. The authoritative service/port table, system diagram, and technology choices are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Agri-SDSS is a geospatial data platform for sustainable agriculture research in Quebec. It follows a pipeline → storage → API → frontend pattern. The authoritative service/port table, system diagram, and technology choices are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Shared infrastructure
 
@@ -74,9 +74,9 @@ Two credentials exist (least-privilege model — see [docs/DEPLOYMENT.md](docs/D
 | --- | --- | --- |
 | `POSTGRES_USER` | `postgres` | Superuser — Docker init, healthcheck, and backups only |
 | `POSTGRES_PASS` | _(generated)_ | Superuser password (`POSTGRES_PASSWORD` in CI) |
-| `DB_USER` | `mos_gis` | App role used by all backend services (SELECT/INSERT/UPDATE/DELETE) |
+| `DB_USER` | `agri_sdss` | App role used by all backend services (SELECT/INSERT/UPDATE/DELETE) |
 | `DB_PASS` | _(generated)_ | App role password |
-| `POSTGRES_DBNAME` | `mos_gis` | Database name (`POSTGRES_DB` in CI) |
+| `POSTGRES_DBNAME` | `agri_sdss` | Database name (`POSTGRES_DB` in CI) |
 | `POSTGRES_HOST` | `database` | Hostname — use `database` in Docker, `localhost` locally |
 | `POSTGRES_PORT` | `5432` | Port — use `5432` in Docker, `5439` locally |
 | `POSTGRES_LOCAL_PORT` | `5439` | Host-side port mapping for local connections |

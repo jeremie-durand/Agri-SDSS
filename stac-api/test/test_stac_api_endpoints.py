@@ -16,9 +16,9 @@ def sample_stac_catalog(stac_api_url_fixture):
     return {
         "type": "Catalog",
         "stac_version": "1.0.0",
-        "id": "mos-gis-catalog",
-        "title": "MOS-GIS STAC Catalog",
-        "description": "STAC catalog for MOS-GIS project",
+        "id": "agri-sdss-catalog",
+        "title": "Agri-SDSS STAC Catalog",
+        "description": "STAC catalog for Agri-SDSS project",
         "links": [
             {
                 "rel": "self",

@@ -1,6 +1,6 @@
 # frontend
 
-Browser-facing services for MOS-GIS. Three UIs, all served under a single origin via the `home` nginx reverse proxy.
+Browser-facing services for Agri-SDSS. Three UIs, all served under a single origin via the `home` nginx reverse proxy.
 
 **Port**: 8084 (home) | **HTTPS**: via Caddy at :443
 

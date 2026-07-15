@@ -1,6 +1,6 @@
 # Documentation
 
-Central index for MOS-GIS documentation. Service-specific deep-dives live next to their code in each service's `docs/` folder.
+Central index for Agri-SDSS documentation. Service-specific deep-dives live next to their code in each service's `docs/` folder.
 
 ## General
 

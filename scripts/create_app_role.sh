@@ -6,7 +6,7 @@
 # Required env vars in the database container:
 #   POSTGRES_USER  — Docker-created superuser (used here to run psql)
 #   POSTGRES_DB    — database name
-#   DB_USER        — application role name (default: mos_gis)
+#   DB_USER        — application role name (default: agri_sdss)
 #   DB_PASS        — application role password (no default — must be set)
 set -euo pipefail
 

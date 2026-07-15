@@ -11,7 +11,7 @@ sequenceDiagram
     participant TileServer as TileServer (TiTiler)
     participant BrowserCache as Browser HTTP Cache
     participant SW as Service Worker (leaflet-offline-sw.js)
-    participant TileCache as Cache Storage (mos-gis-raster-tiles-v1)
+    participant TileCache as Cache Storage (agri-sdss-raster-tiles-v1)
 
     User ->> Leaflet: Load map (map.html)
     Leaflet ->> SW: Request Raster API tile
@@ -21,7 +21,7 @@ sequenceDiagram
     SW ->> TileServer: Forward tile request (XYZ)
     TileServer ->> TileServer: Generate tile from COG
     TileServer -->> SW: Return PNG tile
-    SW ->> TileCache: Put tile response in `mos-gis-raster-tiles-v1`
+    SW ->> TileCache: Put tile response in `agri-sdss-raster-tiles-v1`
     SW -->> Leaflet: Return network response
     Leaflet ->> BrowserCache: Store tile (standard HTTP cache)
 ```
@@ -33,7 +33,7 @@ sequenceDiagram
     participant User
         participant Leaflet
         participant SW as Service Worker (leaflet-offline-sw.js)
-        participant TileCache as Cache Storage (mos-gis-raster-tiles-v1)
+        participant TileCache as Cache Storage (agri-sdss-raster-tiles-v1)
 
         User ->> Leaflet: Pan / zoom map
         Leaflet ->> SW: Request Raster API tile (XYZ)

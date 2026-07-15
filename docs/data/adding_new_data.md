@@ -174,7 +174,7 @@ docker compose exec gis-pipeline tail -f logs/*.log
 
 ```bash
 # Connect to PostgreSQL
-docker compose exec database psql -U mos_gis -d mos_gis
+docker compose exec database psql -U agri_sdss -d agri_sdss
 
 # Check tables
 SELECT table_name FROM information_schema.tables 

@@ -1,6 +1,6 @@
 # mos-chatbot
 
-This directory integrates [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant) into the MOS-GIS platform as a SDSS (Spatial Decision Support System) chatbot focused on Quebec agriculture.
+This directory integrates [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant) into the Agri-SDSS platform as a SDSS (Spatial Decision Support System) chatbot focused on Quebec agriculture.
 
 Architecture, override layout, service wiring, SDSS tools, LLM configuration, and the upstream upgrade process are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

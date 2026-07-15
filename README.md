@@ -1,4 +1,4 @@
-# MOS-GIS
+# Agri-SDSS
 
 Geospatial data platform for sustainable agriculture research in Quebec. Automated pipeline from raw geodata to OGC-compliant APIs, a STAC catalog, and an AI assistant.
 
@@ -7,8 +7,8 @@ Currently specialized for Soil Organic Matter (SOM) potential mapping and decisi
 ## Quick start
 
 ```bash
-git clone https://github.com/Mon-Systeme-Fourrager/mos-gis.git
-cd mos-gis && cp .env.example .env
+git clone https://github.com/Mon-Systeme-Fourrager/agri-sdss.git
+cd agri-sdss && cp .env.example .env
 docker compose up -d
 ```
 

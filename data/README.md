@@ -1,6 +1,6 @@
 # data
 
-Persistent data volumes for the MOS-GIS platform. Not a service — mounted into containers at runtime.
+Persistent data volumes for the Agri-SDSS platform. Not a service — mounted into containers at runtime.
 
 ## Directory structure
 

@@ -97,19 +97,19 @@ services:
         USER_GID: ${USER_GID:-1000}
         USER_UID: ${USER_UID:-1000}
     environment:
-      - POSTGRES_USER=${DB_USER:-mos_gis}
+      - POSTGRES_USER=${DB_USER:-agri_sdss}
       - POSTGRES_PASS=${DB_PASS}
-      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-mos_gis}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-agri_sdss}
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
       - POSTGRES_HOST_READER=${POSTGRES_HOST}
       - POSTGRES_HOST_WRITER=${POSTGRES_HOST}
-      - POSTGRES_USER_READER=${DB_USER:-mos_gis}
-      - POSTGRES_USER_WRITER=${DB_USER:-mos_gis}
+      - POSTGRES_USER_READER=${DB_USER:-agri_sdss}
+      - POSTGRES_USER_WRITER=${DB_USER:-agri_sdss}
       - POSTGRES_PASS_READER=${DB_PASS}
       - POSTGRES_PASS_WRITER=${DB_PASS}
-      - POSTGRES_DBNAME_READER=${POSTGRES_DBNAME:-mos_gis}
-      - POSTGRES_DBNAME_WRITER=${POSTGRES_DBNAME:-mos_gis}
+      - POSTGRES_DBNAME_READER=${POSTGRES_DBNAME:-agri_sdss}
+      - POSTGRES_DBNAME_WRITER=${POSTGRES_DBNAME:-agri_sdss}
       - POSTGRES_PORT_READER=${POSTGRES_PORT}
       - POSTGRES_PORT_WRITER=${POSTGRES_PORT}
       # API
@@ -159,9 +159,9 @@ services:
       # Admin credentials — used ONLY in entrypoint to apply pgstac grants; not read by stac-fastapi
       - PGSTAC_ADMIN_USER=${POSTGRES_USER:-postgres}
       - PGSTAC_ADMIN_PASS=${POSTGRES_PASS}
-      - PGUSER=${DB_USER:-mos_gis}
+      - PGUSER=${DB_USER:-agri_sdss}
       - PGPASSWORD=${DB_PASS}
-      - PGDATABASE=${POSTGRES_DBNAME:-mos_gis}
+      - PGDATABASE=${POSTGRES_DBNAME:-agri_sdss}
       - PGHOST=${POSTGRES_HOST}
       - PGPORT=${POSTGRES_PORT}
       - ENABLE_TRANSACTIONS_EXTENSIONS=TRUE
@@ -204,9 +204,9 @@ services:
     expose:
       - "${RASTER_API_PORT}"
     environment:
-      - POSTGRES_USER=${DB_USER:-mos_gis}
+      - POSTGRES_USER=${DB_USER:-agri_sdss}
       - POSTGRES_PASS=${DB_PASS}
-      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-mos_gis}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-agri_sdss}
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
       - RASTER_API_PORT=${RASTER_API_PORT}
@@ -243,9 +243,9 @@ services:
     expose:
       - "${VECTOR_API_PORT}"
     environment:
-      - POSTGRES_USER=${DB_USER:-mos_gis}
+      - POSTGRES_USER=${DB_USER:-agri_sdss}
       - POSTGRES_PASS=${DB_PASS}
-      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-mos_gis}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-agri_sdss}
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
       - VECTOR_API_PORT=${VECTOR_API_PORT}
@@ -295,9 +295,9 @@ services:
       - PYGEOAPI_CONFIG=/app/config/pygeoapi-config.yaml
       - PYGEOAPI_OPENAPI=/app/openapi/openapi.yaml
       - PYGEOAPI_API_PORT=${PYGEOAPI_API_PORT}
-      - POSTGRES_USER=${DB_USER:-mos_gis}
+      - POSTGRES_USER=${DB_USER:-agri_sdss}
       - POSTGRES_PASS=${DB_PASS}
-      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-mos_gis}
+      - POSTGRES_DBNAME=${POSTGRES_DBNAME:-agri_sdss}
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
       - OPENEO_CONFIG_HOME=/app/config/openeo-config
@@ -400,11 +400,11 @@ services:
       # Admin superuser — used only for Docker init, healthcheck, and pg_dump backups
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASS}
-      - POSTGRES_DB=${POSTGRES_DBNAME:-mos_gis}
+      - POSTGRES_DB=${POSTGRES_DBNAME:-agri_sdss}
       - PGUSER=${POSTGRES_USER:-postgres}
       - PGPASSWORD=${POSTGRES_PASS}
-      - PGDATABASE=${POSTGRES_DBNAME:-mos_gis}
-      - DB_USER=${DB_USER:-mos_gis}
+      - PGDATABASE=${POSTGRES_DBNAME:-agri_sdss}
+      - DB_USER=${DB_USER:-agri_sdss}
       - DB_PASS=${DB_PASS}
     ports:
       - "127.0.0.1:${POSTGRES_LOCAL_PORT}:${POSTGRES_PORT}"

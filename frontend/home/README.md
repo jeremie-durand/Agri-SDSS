@@ -1,6 +1,6 @@
 # Home Frontend
 
-The unified entry point for MOS-GIS. A static nginx frontend that serves the Leaflet map, proxies all sub-applications (STAC Browser, AI Chatbot) under a single origin, and bridges API traffic to backend services.
+The unified entry point for Agri-SDSS. A static nginx frontend that serves the Leaflet map, proxies all sub-applications (STAC Browser, AI Chatbot) under a single origin, and bridges API traffic to backend services.
 
 ---
 
@@ -14,7 +14,7 @@ The unified entry point for MOS-GIS. A static nginx frontend that serves the Lea
 - **Bilingual interface**: EN / FR language toggle across all pages
 
 **Key Features:**
-- Single-origin access to all MOS-GIS services
+- Single-origin access to all Agri-SDSS services
 - Vanilla JS ES modules — no build step required
 - Service Worker (`leaflet-offline-sw.js`) for offline raster tile caching
 - Entrypoint script patches nginx config at container startup from environment variables
@@ -48,7 +48,7 @@ graph TD
 2. **Map loads** → fetches vector collections from `/mos-vector/`, STAC items from `/mos-stac/`, tiles from `/mos-raster/`
 3. **User navigates to `/stac/`** → nginx proxies to stac-browser and injects the shared nav bar
 4. **User opens `/chatbot/`** → nginx proxies to chatbot frontend and injects both `chatbot-bridge.js` and the nav bar
-5. **Chatbot bridge** relays `MOS_GIS_CONTEXT` (parcel click), `MOS_GIS_ZOOM`, and `MOS_GIS_TILES` messages between the chatbot and the Leaflet map
+5. **Chatbot bridge** relays `AGRI_SDSS_CONTEXT` (parcel click), `AGRI_SDSS_ZOOM`, and `AGRI_SDSS_TILES` messages between the chatbot and the Leaflet map
 
 ---
 
@@ -127,11 +127,11 @@ The main page. Modules loaded via ES imports from `html/js/`:
 ### Chatbot ↔ Map Bridge
 
 `chatbot-bridge.js` is injected into the chatbot iframe via `sub_filter`. It:
-- Listens for `MOS_GIS_CONTEXT` postMessages (sent when the user clicks a parcel on the map)
+- Listens for `AGRI_SDSS_CONTEXT` postMessages (sent when the user clicks a parcel on the map)
 - Enriches the context with live parcel data and STAC collections, then injects an analysis prompt into the chatbot
 - Intercepts Axios responses from the chatbot backend and forwards map commands to the parent map:
-  - `MOS_GIS_ZOOM` — zooms the Leaflet map to a bbox or lat/lon
-  - `MOS_GIS_TILES` — adds a raster tile layer to the Leaflet map
+  - `AGRI_SDSS_ZOOM` — zooms the Leaflet map to a bbox or lat/lon
+  - `AGRI_SDSS_TILES` — adds a raster tile layer to the Leaflet map
 
 ---
 

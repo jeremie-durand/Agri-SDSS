@@ -13,7 +13,7 @@ RUN npm ci
 
 COPY --from=source /src/opengeo-ai-assistant/web-ui .
 
-# Layer mos-gis overrides on top of upstream
+# Layer agri-sdss overrides on top of upstream
 COPY mos-chatbot/overrides/frontend/ .
 
 ARG VITE_API_URL=http://localhost:8005

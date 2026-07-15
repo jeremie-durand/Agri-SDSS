@@ -41,7 +41,7 @@ window.STAC_BROWSER_CONFIG = {
                     'ouvertes du MRNF du Québec, découpés par parcelles agricoles.'
             };
             stac.description = descFr[stac.id] ||
-                'Données géospatiales générées par le pipeline MOS-GIS.';
+                'Données géospatiales générées par le pipeline Agri-SDSS.';
         }
 
         return stac;

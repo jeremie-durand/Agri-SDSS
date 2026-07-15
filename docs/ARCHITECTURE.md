@@ -1,6 +1,6 @@
 # Architecture
 
-MOS-GIS is a pipeline → storage → API → frontend platform for sustainable agriculture research in Quebec.
+Agri-SDSS is a pipeline → storage → API → frontend platform for sustainable agriculture research in Quebec.
 
 ## Data flow
 

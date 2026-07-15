@@ -1,6 +1,6 @@
 # mos-chatbot
 
-Full-stack AI-powered geospatial assistant for MOS-GIS. Provides a conversational interface for querying data.
+Full-stack AI-powered geospatial assistant for Agri-SDSS. Provides a conversational interface for querying data.
 
 Built on [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant) with MOS-specific overrides layered at Docker build time.
 

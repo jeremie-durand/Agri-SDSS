@@ -8,8 +8,8 @@
  *   is not available anymore, to enable a basic offline mode.
  */
 
-const TILE_CACHE_NAME = "mos-gis-raster-tiles-v2";
-const PREV_CACHE_NAMES = ["mos-gis-raster-tiles-v1"];
+const TILE_CACHE_NAME = "agri-sdss-raster-tiles-v2";
+const PREV_CACHE_NAMES = ["agri-sdss-raster-tiles-v1"];
 
 self.addEventListener("install", () => {
     self.skipWaiting();

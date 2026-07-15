@@ -2,7 +2,7 @@
 
 ## Overview
 
-`mos-chatbot` layers MOS-GIS–specific overrides on top of [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant). The upstream chatbot is not forked — it is cloned at Docker build time and the override files replace or extend it.
+`mos-chatbot` layers Agri-SDSS–specific overrides on top of [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant). The upstream chatbot is not forked — it is cloned at Docker build time and the override files replace or extend it.
 
 ## Containers
 
@@ -45,7 +45,7 @@ overrides/
 
 ## Internal service wiring
 
-The backend reaches other MOS-GIS services over the Docker Compose network:
+The backend reaches other Agri-SDSS services over the Docker Compose network:
 
 | Env var | Docker URL |
 | --- | --- |
@@ -73,7 +73,7 @@ Domain-specific stubs (`predict_soil_organic_matter`, `query_agricultural_parcel
 
 ## Map integration
 
-`SoilMapViewer.tsx` uses `window.parent.postMessage` with `type: 'MOS_GIS_ZOOM'` to sync the parent Leaflet map when embedded in an iframe. The map page listens for both `MOS_GIS_ZOOM` and `MOS_GIS_TILES` messages (see `frontend/home/html/js/chatbot-bridge.js`).
+`SoilMapViewer.tsx` uses `window.parent.postMessage` with `type: 'AGRI_SDSS_ZOOM'` to sync the parent Leaflet map when embedded in an iframe. The map page listens for both `AGRI_SDSS_ZOOM` and `AGRI_SDSS_TILES` messages (see `frontend/home/html/js/chatbot-bridge.js`).
 
 ## LLM configuration
 

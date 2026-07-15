@@ -10,7 +10,7 @@ Researchers, agronomists, data scientists, and farmers at Mon Système Fourrager
 
 ## Product Purpose
 
-MOS-GIS is a public-facing geospatial data platform for sustainable agriculture research in Quebec. It automates the ingestion, processing, and publication of multi-format GIS data (shapefiles, GeoTIFFs, GeoPackages, CSVs) into a distributed API ecosystem built on open standards: STAC 1.0, OGC API Features, OGC API Processes, and cloud-native formats (COG, GeoParquet). The home portal serves as the entry point — a service navigator linking researchers to the STAC Browser, Raster API, Vector API, and PyGeoAPI. Success means any user can find, preview, and access the right dataset in under a minute.
+Agri-SDSS is a public-facing geospatial data platform for sustainable agriculture research in Quebec. It automates the ingestion, processing, and publication of multi-format GIS data (shapefiles, GeoTIFFs, GeoPackages, CSVs) into a distributed API ecosystem built on open standards: STAC 1.0, OGC API Features, OGC API Processes, and cloud-native formats (COG, GeoParquet). The home portal serves as the entry point — a service navigator linking researchers to the STAC Browser, Raster API, Vector API, and PyGeoAPI. Success means any user can find, preview, and access the right dataset in under a minute.
 
 ## Brand Personality
 

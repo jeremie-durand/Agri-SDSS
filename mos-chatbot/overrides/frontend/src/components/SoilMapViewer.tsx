@@ -12,9 +12,9 @@ export default function SoilMapViewer({ lat, lon, zoom = 10, bbox }: SoilMapView
     if (window.parent === window) return; // not embedded in iframe
 
     if (bbox) {
-      window.parent.postMessage({ type: 'MOS_GIS_ZOOM', bbox }, '*');
+      window.parent.postMessage({ type: 'AGRI_SDSS_ZOOM', bbox }, '*');
     } else if (lat !== undefined && lon !== undefined) {
-      window.parent.postMessage({ type: 'MOS_GIS_ZOOM', lat, lon, zoom }, '*');
+      window.parent.postMessage({ type: 'AGRI_SDSS_ZOOM', lat, lon, zoom }, '*');
     }
   }, [lat, lon, zoom, bbox]);
 

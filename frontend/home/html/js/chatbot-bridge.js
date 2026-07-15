@@ -1,7 +1,7 @@
 /**
  * Injected into the chatbot iframe by the home nginx sub_filter.
- * Listens for MOS_GIS_CONTEXT postMessages from the parent map page,
- * shows a sticky context banner, fetches real data from local MOS-GIS APIs,
+ * Listens for AGRI_SDSS_CONTEXT postMessages from the parent map page,
+ * shows a sticky context banner, fetches real data from local Agri-SDSS APIs,
  * and injects a data-rich prompt into the chat input.
  */
 (function () {
@@ -113,7 +113,7 @@
   }
 
   /**
-   * Fetches real parcel data from local MOS-GIS APIs, then injects an
+   * Fetches real parcel data from local Agri-SDSS APIs, then injects an
    * analysis-framed prompt into the chatbot textarea.
    * The prompt avoids location/satellite keywords so the router agent
    * routes to answer_contextual_question (LLM analysis mode).
@@ -172,14 +172,14 @@
       /* Coordinates intentionally omitted — the router agent misroutes lat/lon
          strings to navigate_to. Feature ID + dataset are sufficient for analysis. */
       if (isBdppad) {
-        lines.push('I am looking at an agricultural parcel from the MOS-GIS platform database. Here is its recorded information:');
+        lines.push('I am looking at an agricultural parcel from the Agri-SDSS platform database. Here is its recorded information:');
         lines.push('');
         if (id)  lines.push('Parcel ID: ' + id);
         if (col) lines.push('Dataset: ' + col);
         lines.push('');
         lines.push('Dataset context: BDPPAD (Base de données sur les parcelles et propriétés agricoles du Québec) is the Quebec provincial registry of agricultural parcels. The "typpar" field is the official parcel type code; its meaning is given in the "description" field. The "suphec" field is the parcel area in hectares.');
       } else {
-        lines.push('I am looking at a geographic feature from the MOS-GIS platform. Here is its recorded information:');
+        lines.push('I am looking at a geographic feature from the Agri-SDSS platform. Here is its recorded information:');
         lines.push('');
         if (id)  lines.push('Feature ID: ' + id);
         if (col) lines.push('Dataset: ' + col);
@@ -283,7 +283,7 @@
 
   function sendTileUrl(url) {
     url = url.replace(/^\/api\/raster\//, '/mos-raster/');
-    window.parent.postMessage({ type: 'MOS_GIS_TILES', url: url }, '*');
+    window.parent.postMessage({ type: 'AGRI_SDSS_TILES', url: url }, '*');
   }
 
   function forwardTileUrl(data) {
@@ -311,13 +311,13 @@
       var nav = data.navigate_to;
       if (typeof nav.latitude === 'number' && typeof nav.longitude === 'number') {
         window.parent.postMessage({
-          type: 'MOS_GIS_ZOOM',
+          type: 'AGRI_SDSS_ZOOM',
           lat: nav.latitude,
           lon: nav.longitude,
           zoom: nav.zoom || 10
         }, '*');
       } else if (Array.isArray(nav.bbox) && isGeoBbox(nav.bbox)) {
-        window.parent.postMessage({ type: 'MOS_GIS_ZOOM', bbox: nav.bbox }, '*');
+        window.parent.postMessage({ type: 'AGRI_SDSS_ZOOM', bbox: nav.bbox }, '*');
       }
       return;
     }
@@ -331,13 +331,13 @@
         /* Bbox too large (e.g. MODIS tile covering all of eastern Canada) —
            zoom to centroid at a moderate level instead of fitting the full extent */
         window.parent.postMessage({
-          type: 'MOS_GIS_ZOOM',
+          type: 'AGRI_SDSS_ZOOM',
           lat: (bbox[1] + bbox[3]) / 2,
           lon: (bbox[0] + bbox[2]) / 2,
           zoom: 8
         }, '*');
       } else {
-        window.parent.postMessage({ type: 'MOS_GIS_ZOOM', bbox: bbox }, '*');
+        window.parent.postMessage({ type: 'AGRI_SDSS_ZOOM', bbox: bbox }, '*');
       }
     }
   }
@@ -390,7 +390,7 @@
   closeBtn.addEventListener('click', hideContext);
 
   window.addEventListener('message', function (e) {
-    if (!e.data || e.data.type !== 'MOS_GIS_CONTEXT') return;
+    if (!e.data || e.data.type !== 'AGRI_SDSS_CONTEXT') return;
     showContext(e.data);
   });
 
@@ -404,7 +404,7 @@
   (function () {
     var MSGS = {
       en: 'Welcome to OpenGeo AI Assistant! I\'m here to help you find datasets that include location and date details. Whether you\'re tracking time-sensitive trends or exploring geospatial insights, I\'ve got you covered. Just tell me what you\'re working on, and we\'ll get started!',
-      fr: 'Bienvenue sur l\'Assistant IA MOS-GIS ! Je suis ici pour vous aider à trouver des données géospatiales avec des détails de localisation et de date. Que vous analysiez des tendances temporelles ou exploriez des aperçus spatiaux sur le Québec, je suis là pour vous. Dites-moi sur quoi vous travaillez, et commençons !'
+      fr: 'Bienvenue sur l\'Assistant IA Agri-SDSS ! Je suis ici pour vous aider à trouver des données géospatiales avec des détails de localisation et de date. Que vous analysiez des tendances temporelles ou exploriez des aperçus spatiaux sur le Québec, je suis là pour vous. Dites-moi sur quoi vous travaillez, et commençons !'
     };
 
     // Unique snippets to detect which language version is currently in the DOM

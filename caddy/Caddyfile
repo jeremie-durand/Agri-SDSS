@@ -1,11 +1,11 @@
 # TODO: domain — When DNS points to this server:
-#   1. Replace "localhost, mos-gis.local {" with "your-domain.ca {"
+#   1. Replace "localhost, agri-sdss.local {" with "your-domain.ca {"
 #   2. Remove the "tls internal" line
 #   Caddy will issue and renew the Let's Encrypt certificate automatically.
 #   A single "docker compose restart caddy" is enough after these two changes.
 #   CORS (VECTOR_API_CORS_ORIGINS) updates automatically via HOST_PROTOCOL + HOST_URL.
 
-localhost, mos-gis.local {
+localhost, agri-sdss.local {
 	tls internal
 
 	# ── Rate limiting PyGeoAPI ────────────────────────────────────────────────

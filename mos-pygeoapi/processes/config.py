@@ -20,9 +20,9 @@ class DatabaseConfig(BaseSettings):
 
     POSTGRES_HOST: str = "database"
     POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str = "mos_gis"
+    POSTGRES_USER: str = "agri_sdss"
     POSTGRES_PASS: str
-    POSTGRES_DBNAME: str = "mos_gis"
+    POSTGRES_DBNAME: str = "agri_sdss"
 
     def to_conn_params(self) -> dict:
         """Return a dict suitable for passing to psycopg.connect()."""

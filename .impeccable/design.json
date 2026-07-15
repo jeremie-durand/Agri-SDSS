@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-06-02T00:00:00Z",
-  "title": "Design System: MOS-GIS",
+  "title": "Design System: Agri-SDSS",
   "extensions": {
     "colorMeta": {
       "accent": {
@@ -90,7 +90,7 @@
       }
     },
     "typographyMeta": {
-      "display": { "displayName": "Display / Wordmark", "purpose": "MOS-GIS header wordmark only. One instance per page." },
+      "display": { "displayName": "Display / Wordmark", "purpose": "Agri-SDSS header wordmark only. One instance per page." },
       "title": { "displayName": "Card Title", "purpose": "Service card headings and section titles." },
       "body": { "displayName": "Body", "purpose": "Card descriptions, header tagline, all running prose." },
       "label": { "displayName": "Label / Mono", "purpose": "Section eyebrows (≤4 words), endpoint URLs, code tokens." }
@@ -146,7 +146,7 @@
   ],
   "narrative": {
     "northStar": "The Observatory",
-    "overview": "MOS-GIS is a dark-mode precision instrument. Its surfaces are the control room of a research observatory: deep black-blue voids, instrument panels that reveal data on demand, and a single signal-green acquisition color that marks what is live, active, and reachable. Nothing glows for decoration. Every lit element has a reason.\n\nThe aesthetic is neither developer-tool austere nor enterprise-platform heavy. It is a calm, public-facing scientific interface. Density is moderate. Typography is clear and purposeful. The service grid is the primary interaction surface — six cards, each a gateway.\n\nThis system explicitly rejects heavy enterprise GIS aesthetics: crowded navigation, tiny muted text, navy-on-gray palettes. It equally rejects flashy SaaS conventions: no hero metrics, no gradient blobs, no glassmorphism.",
+    "overview": "Agri-SDSS is a dark-mode precision instrument. Its surfaces are the control room of a research observatory: deep black-blue voids, instrument panels that reveal data on demand, and a single signal-green acquisition color that marks what is live, active, and reachable. Nothing glows for decoration. Every lit element has a reason.\n\nThe aesthetic is neither developer-tool austere nor enterprise-platform heavy. It is a calm, public-facing scientific interface. Density is moderate. Typography is clear and purposeful. The service grid is the primary interaction surface — six cards, each a gateway.\n\nThis system explicitly rejects heavy enterprise GIS aesthetics: crowded navigation, tiny muted text, navy-on-gray palettes. It equally rejects flashy SaaS conventions: no hero metrics, no gradient blobs, no glassmorphism.",
     "keyCharacteristics": [
       "Dark surfaces with tonal depth (background → surface → surface-hover), no shadows",
       "One signal accent (Acquisition Green) used sparingly for active states and primary actions",
