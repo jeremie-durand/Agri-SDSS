@@ -1,5 +1,5 @@
 # ── Stage 1: Clone OpenGeo-AI-Assistant at pinned version ────────────────────
-FROM alpine/git:2.43.0 AS source
+FROM alpine/git:v2.54.0 AS source
 ARG CHATBOT_VERSION=v0.1.1-alpha
 RUN git clone --depth 1 --branch ${CHATBOT_VERSION} \
     https://github.com/jeremie-durand/OpenGeo-AI-Assistant.git /src
