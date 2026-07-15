@@ -6,7 +6,7 @@ ARG INCLUDE_OLLAMA=full
 FROM ollama/ollama:latest AS ollama-full
 
 # Minimal stub for CI: empty placeholders so COPY commands below still succeed.
-FROM alpine:3.20 AS ollama-stub
+FROM alpine:3.24 AS ollama-stub
 RUN mkdir -p /usr/lib/ollama && touch /usr/bin/ollama
 
 # Select based on build arg (BuildKit skips the unused stage entirely).
