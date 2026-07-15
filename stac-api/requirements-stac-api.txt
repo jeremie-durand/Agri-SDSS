@@ -11,6 +11,6 @@ stac-fastapi.extensions==6.2.1
 stac-fastapi.pgstac==6.2.1
 stac-fastapi.types==6.2.1
 stac-pydantic==3.6.0
-starlette_cramjam==0.6.0
+starlette_cramjam==0.7.0
 typing_extensions==4.16.0
 uvicorn==0.51.0
