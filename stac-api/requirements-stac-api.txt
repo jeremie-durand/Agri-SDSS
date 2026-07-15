@@ -7,7 +7,7 @@ pystac==1.14.3
 requests==2.34.2
 SQLAlchemy==2.0.47
 stac-fastapi.api==6.3.2
-stac-fastapi.extensions==6.2.1
+stac-fastapi.extensions==6.3.2
 stac-fastapi.pgstac==6.2.1
 stac-fastapi.types==6.2.1
 stac-pydantic==3.6.0
