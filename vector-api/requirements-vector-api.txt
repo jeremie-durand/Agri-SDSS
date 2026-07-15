@@ -2,6 +2,6 @@
 # Base TiPg dependencies are included in the base image
 asyncpg==0.31.0
 duckdb==1.5.4
-pyarrow==23.0.1
+pyarrow==25.0.0
 geopandas==1.1.4
 shapely==2.1.2
