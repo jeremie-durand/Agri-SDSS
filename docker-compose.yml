@@ -395,7 +395,7 @@ services:
           cpus: "0.25"
 
   database:
-    image: ghcr.io/stac-utils/pgstac:v0.8.5
+    image: ghcr.io/stac-utils/pgstac:v0.9.11
     environment:
       # Admin superuser — used only for Docker init, healthcheck, and pg_dump backups
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
