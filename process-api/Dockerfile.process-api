@@ -4,7 +4,7 @@ ARG USER_GID=1000
 ARG USER_UID=1000
 
 # Set environment variables
-ENV PYGEOAPI_API_PORT=5000
+ENV PROCESS_API_PORT=5000
 ENV PYGEOAPI_API_HOST=0.0.0.0
 ENV PYGEOAPI_CONFIG=/app/config/pygeoapi-config.yaml
 ENV PYGEOAPI_OPENAPI=/app/openapi/openapi.yaml
@@ -13,16 +13,16 @@ ENV PYTHONPATH=/app:${PYTHONPATH}
 WORKDIR /app
 
 # Copy files
-COPY mos-pygeoapi/config/pygeoapi-config.yaml /app/config/pygeoapi-config.yaml
-COPY mos-pygeoapi/config/weather_datasets.yaml /app/config/weather_datasets.yaml
-COPY mos-pygeoapi/config/climate_datasets.yaml /app/config/climate_datasets.yaml
-COPY mos-pygeoapi/processes /app/processes
-COPY mos-pygeoapi/scripts/start.sh /usr/local/bin/start.sh
-COPY mos-pygeoapi/scripts/generate_openapi.py /app/generate_openapi.py
+COPY process-api/config/pygeoapi-config.yaml /app/config/pygeoapi-config.yaml
+COPY process-api/config/weather_datasets.yaml /app/config/weather_datasets.yaml
+COPY process-api/config/climate_datasets.yaml /app/config/climate_datasets.yaml
+COPY process-api/processes /app/processes
+COPY process-api/scripts/start.sh /usr/local/bin/start.sh
+COPY process-api/scripts/generate_openapi.py /app/generate_openapi.py
 # Install dependencies
 # NOTE: apt packages below are not version-pinned because Debian apt does not provide
 # stable cross-architecture pin strings and Dependabot cannot track them.
-RUN --mount=type=bind,source=mos-pygeoapi/requirements-mos-pygeoapi.txt,target=/tmp/requirements-mos-pygeoapi.txt \
+RUN --mount=type=bind,source=process-api/requirements-process-api.txt,target=/tmp/requirements-process-api.txt \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
@@ -32,7 +32,7 @@ RUN --mount=type=bind,source=mos-pygeoapi/requirements-mos-pygeoapi.txt,target=/
         libgeos-dev \
         curl \
         gettext-base && \
-    pip install --no-cache-dir -r /tmp/requirements-mos-pygeoapi.txt && \
+    pip install --no-cache-dir -r /tmp/requirements-process-api.txt && \
     mkdir -p /app/openapi && \
     chmod +x /usr/local/bin/start.sh && \
     apt-get clean && \
@@ -45,14 +45,14 @@ RUN groupadd --gid ${USER_GID} appuser \
 
 USER appuser
 
-EXPOSE ${PYGEOAPI_API_PORT}
+EXPOSE ${PROCESS_API_PORT}
 
 CMD ["/usr/local/bin/start.sh"]
 
 FROM runtime AS test
 USER root
-RUN --mount=type=bind,source=mos-pygeoapi/requirements-mos-pygeoapi-test.txt,target=/tmp/requirements-mos-pygeoapi-test.txt \
-    pip install --no-cache-dir -r /tmp/requirements-mos-pygeoapi-test.txt
+RUN --mount=type=bind,source=process-api/requirements-process-api-test.txt,target=/tmp/requirements-process-api-test.txt \
+    pip install --no-cache-dir -r /tmp/requirements-process-api-test.txt
 USER appuser
-COPY --chown=appuser:appuser mos-pygeoapi/test /app/mos_pygeoapi/test
-COPY --chown=appuser:appuser mos-pygeoapi/pytest.ini /app/pytest.ini
+COPY --chown=appuser:appuser process-api/test /app/process_api/test
+COPY --chown=appuser:appuser process-api/pytest.ini /app/pytest.ini

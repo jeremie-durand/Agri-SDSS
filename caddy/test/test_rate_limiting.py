@@ -1,8 +1,8 @@
 """Integration tests for Caddy rate limiting on PyGeoAPI routes.
 
 Two zones are tested:
-- pygeoapi_exec : POST /mos-pygeoapi/processes/*/execution  (heavy compute)
-- pygeoapi_browse: GET  /mos-pygeoapi/*                     (lightweight reads)
+- pygeoapi_exec : POST /process-api/processes/*/execution  (heavy compute)
+- pygeoapi_browse: GET  /process-api/*                     (lightweight reads)
 
 Run the stack with short windows before executing these tests:
     RATE_LIMIT_PYGEOAPI_EXEC_EVENTS=3   RATE_LIMIT_PYGEOAPI_EXEC_WINDOW=5s
@@ -15,8 +15,8 @@ import time
 import pytest
 
 CADDY_BASE_URL = os.getenv("CADDY_BASE_URL", "https://localhost")
-EXEC_URL = f"{CADDY_BASE_URL}/mos-pygeoapi/processes/eo-sentinel-fetch/execution"
-BROWSE_URL = f"{CADDY_BASE_URL}/mos-pygeoapi/processes"
+EXEC_URL = f"{CADDY_BASE_URL}/process-api/processes/eo-sentinel-fetch/execution"
+BROWSE_URL = f"{CADDY_BASE_URL}/process-api/processes"
 OTHER_URL = f"{CADDY_BASE_URL}/services"
 
 EXEC_LIMIT = int(os.getenv("RATE_LIMIT_PYGEOAPI_EXEC_EVENTS", "3"))
@@ -25,7 +25,7 @@ WINDOW_SECONDS = 6  # safe margin above the 5s test window
 
 
 # ---------------------------------------------------------------------------
-# Execution zone — POST /mos-pygeoapi/processes/*/execution
+# Execution zone — POST /process-api/processes/*/execution
 # ---------------------------------------------------------------------------
 
 
@@ -69,7 +69,7 @@ def test_execution_limit_resets_after_window(caddy_session):
 
 
 # ---------------------------------------------------------------------------
-# Browse zone — GET /mos-pygeoapi/*
+# Browse zone — GET /process-api/*
 # ---------------------------------------------------------------------------
 
 
@@ -132,7 +132,7 @@ def test_browse_zone_does_not_bleed_into_exec_zone(caddy_session):
 
 @pytest.mark.integration
 def test_non_pygeoapi_path_not_rate_limited(caddy_session):
-    """Paths outside /mos-pygeoapi/ must never receive 429 regardless of volume."""
+    """Paths outside /process-api/ must never receive 429 regardless of volume."""
     for _ in range(EXEC_LIMIT + BROWSE_LIMIT + 5):
         r = caddy_session.get(OTHER_URL)
         assert (

@@ -173,7 +173,7 @@ async function _loadProcesses() {
     statusEl.hidden = false;
 
     try {
-        var r = await fetch('/mos-pygeoapi/processes?f=json');
+        var r = await fetch('/process-api/processes?f=json');
         if (!r.ok) throw new Error('HTTP ' + r.status);
         var data = await r.json();
         var procs = Array.isArray(data.processes) ? data.processes

@@ -67,7 +67,7 @@ server {
     # Vite build uses relative asset paths (./assets/) so no sub_filter needed
     # for JS/CSS. Only /favicon.svg and /env-config.js are absolute in index.html.
     location /chatbot/ {
-        proxy_pass http://mos-chatbot-frontend:3001/;
+        proxy_pass http://chatbot-frontend:3001/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header Accept-Encoding "";
@@ -79,22 +79,22 @@ server {
         proxy_hide_header X-Frame-Options;
         add_header X-Frame-Options SAMEORIGIN;
     }
-    location /chatbot/assets/     { proxy_pass http://mos-chatbot-frontend:3001/assets/; }
-    location /chatbot/favicon.svg { proxy_pass http://mos-chatbot-frontend:3001/favicon.svg; }
-    location /chatbot/env-config.js { proxy_pass http://mos-chatbot-frontend:3001/env-config.js; }
-    location /chatbot/images/     { proxy_pass http://mos-chatbot-frontend:3001/images/; }
+    location /chatbot/assets/     { proxy_pass http://chatbot-frontend:3001/assets/; }
+    location /chatbot/favicon.svg { proxy_pass http://chatbot-frontend:3001/favicon.svg; }
+    location /chatbot/env-config.js { proxy_pass http://chatbot-frontend:3001/env-config.js; }
+    location /chatbot/images/     { proxy_pass http://chatbot-frontend:3001/images/; }
     location /chatbot/maps-config.json {
-        proxy_pass http://mos-chatbot-frontend:3001/maps-config.json;
+        proxy_pass http://chatbot-frontend:3001/maps-config.json;
     }
     location /chatbot/pc_collections_metadata.json {
-        proxy_pass http://mos-chatbot-frontend:3001/pc_collections_metadata.json;
+        proxy_pass http://chatbot-frontend:3001/pc_collections_metadata.json;
     }
 
     # ── Chatbot API routes ────────────────────────────────
     # The React SPA uses window.location.origin as its Axios base URL, so API
     # calls from /chatbot/ arrive at home nginx as root-relative paths.
     location ~ ^/(api|query|chat|unified-chat|enhanced-chat|collections|stac-search|veda|search|intelligent-route|health|debug|maps-config|pc_collections_metadata\.json)(/|$) {
-        proxy_pass http://mos-chatbot-backend:8000;
+        proxy_pass http://chatbot-backend:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -103,7 +103,7 @@ server {
 
     # ── SDSS spatial process routes ────────────────────────────
     location /sdss/ {
-        proxy_pass http://mos-chatbot-backend:8000;
+        proxy_pass http://chatbot-backend:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -134,8 +134,8 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         add_header Access-Control-Allow-Origin *;
     }
-    location /mos-pygeoapi/ {
-        proxy_pass http://mos-pygeoapi:5000/;
+    location /process-api/ {
+        proxy_pass http://process-api:5000/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         add_header Access-Control-Allow-Origin *;

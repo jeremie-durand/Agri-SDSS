@@ -63,7 +63,7 @@ Edit `.env` and set every value marked below. Leave others at their defaults unl
 | `ENABLE_AUTH` | Set to `true` to enforce the API key on the chatbot |
 | `HOST_URL` | Your domain name (e.g. `mon-domaine.ca`) or server IP |
 | `HOST_PROTOCOL` | `https` (once Caddy + TLS is configured) |
-| `OPENEO_REFRESH_TOKEN` | OIDC refresh token for Copernicus Data Space — see the [OpenEO setup guide](../mos-pygeoapi/docs/OPENEO_SETUP.md) |
+| `OPENEO_REFRESH_TOKEN` | OIDC refresh token for Copernicus Data Space — see the [OpenEO setup guide](../process-api/docs/OPENEO_SETUP.md) |
 
 ### Generate secrets
 
@@ -101,8 +101,8 @@ PyGeoAPI process routes are rate limited by Caddy. Defaults (per IP):
 
 | Route | Limit |
 | --- | --- |
-| `POST /mos-pygeoapi/processes/*/execution` | 10 requests / minute |
-| `GET /mos-pygeoapi/*` | 60 requests / minute |
+| `POST /process-api/processes/*/execution` | 10 requests / minute |
+| `GET /process-api/*` | 60 requests / minute |
 
 Clients exceeding the limit receive `HTTP 429` with a `Retry-After` header. Adjust in `.env`:
 
@@ -171,7 +171,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Expected healthy services: `caddy`, `home`, `database`, `stac-api`, `raster-api`, `vector-api`, `mos-pygeoapi`, `mos-chatbot-backend`, `mos-chatbot-frontend`, `stac-browser`, `gis-pipeline`.
+Expected healthy services: `caddy`, `home`, `database`, `stac-api`, `raster-api`, `vector-api`, `process-api`, `chatbot-backend`, `chatbot-frontend`, `stac-browser`, `gis-pipeline`.
 
 ---
 
@@ -183,7 +183,7 @@ Expected healthy services: `caddy`, `home`, `database`, `stac-api`, `raster-api`
 docker build --target runtime -f stac-api/Dockerfile.stac-api .
 docker build --target runtime -f vector-api/Dockerfile.vector-api .
 docker build --target runtime -f raster-api/Dockerfile.raster-api .
-docker build --target runtime -f mos-pygeoapi/Dockerfile.mos-pygeoapi .
+docker build --target runtime -f process-api/Dockerfile.process-api .
 docker build --target runtime -f gis-pipeline/Dockerfile.gis-pipeline .
 ```
 
@@ -206,7 +206,7 @@ docker build --target runtime -f gis-pipeline/Dockerfile.gis-pipeline .
 
 ### OpenEO refresh token
 
-The Copernicus Data Space token (`OPENEO_REFRESH_TOKEN`) expires every ~30 days. Regeneration steps, token storage, and reload instructions are in the [OpenEO setup guide](../mos-pygeoapi/docs/OPENEO_SETUP.md).
+The Copernicus Data Space token (`OPENEO_REFRESH_TOKEN`) expires every ~30 days. Regeneration steps, token storage, and reload instructions are in the [OpenEO setup guide](../process-api/docs/OPENEO_SETUP.md).
 
 ### TLS certificate
 
@@ -226,7 +226,7 @@ docker compose up -d --build
 docker compose logs -f
 
 # Specific service
-docker compose logs -f mos-chatbot-backend
+docker compose logs -f chatbot-backend
 docker compose logs -f caddy
 ```
 

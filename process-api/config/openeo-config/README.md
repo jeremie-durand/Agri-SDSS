@@ -10,7 +10,7 @@ This directory stores the OpenEO refresh tokens for persistent authentication ac
 
 The [openEO](https://open-eo.github.io/openeo-python-client/) Python client library automatically manages refresh tokens:
 
-1. **Initial Setup**: Run `./mos-pygeoapi/scripts/get_openeo_token.sh` to authenticate and store your token
+1. **Initial Setup**: Run `./process-api/scripts/get_openeo_token.sh` to authenticate and store your token
 2. **Automatic Loading**: The token is automatically loaded from this directory when needed
 3. **Persistent Storage**: Tokens persist across Docker container restarts via volume mount
 
@@ -22,7 +22,7 @@ The location is configured via the `OPENEO_CONFIG_HOME` environment variable in 
 environment:
   - OPENEO_CONFIG_HOME=/app/config/openeo-config
 volumes:
-  - ./mos-pygeoapi/config/openeo-config:/app/config/openeo-config
+  - ./process-api/config/openeo-config:/app/config/openeo-config
 ```
 
 ## Token Location Priority
@@ -45,7 +45,7 @@ OPENEO_REFRESH_TOKEN=your_refresh_token_value_here
 ```
 
 To obtain the token value for manual configuration:
-1. Run `./mos-pygeoapi/scripts/get_openeo_token.sh` 
+1. Run `./process-api/scripts/get_openeo_token.sh` 
 2. Copy the token from the generated `refresh-tokens.json` file
 3. Paste it into your `.env` file
 
@@ -66,7 +66,7 @@ If authentication fails:
 
 1. Check that `refresh-tokens.json` exists in this directory
 2. Verify file permissions allow read access
-3. Re-run `./mos-pygeoapi/scripts/get_openeo_token.sh` to obtain a fresh token
+3. Re-run `./process-api/scripts/get_openeo_token.sh` to obtain a fresh token
 4. Check Docker volume mounts in `docker-compose.yml`
 
 ## Official Documentation

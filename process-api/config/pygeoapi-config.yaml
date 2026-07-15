@@ -105,7 +105,7 @@ server:
   bind:
     host: 0.0.0.0
     port: 5000
-  url: ${HOST_PROTOCOL}://${HOST_URL}/mos-pygeoapi
+  url: ${HOST_PROTOCOL}://${HOST_URL}/process-api
   mimetype: application/json
   encoding: utf-8
   language: en-US
@@ -121,6 +121,6 @@ manager:
   name: Dummy
   connection:
     subscribers:
-      - in_progress_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PYGEOAPI_API_PORT}/status/in-progress
-        success_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PYGEOAPI_API_PORT}/status/success
-        failed_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PYGEOAPI_API_PORT}/status/failed
+      - in_progress_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PROCESS_API_PORT}/status/in-progress
+        success_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PROCESS_API_PORT}/status/success
+        failed_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PROCESS_API_PORT}/status/failed

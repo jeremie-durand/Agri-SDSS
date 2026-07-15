@@ -164,7 +164,7 @@ export async function somPredictRun() {
     status.className = 'som-run__status';
     somProgressStart();
     try {
-        var r = await fetch('/mos-pygeoapi/processes/som-predict-soil/execution?f=json', {
+        var r = await fetch('/process-api/processes/som-predict-soil/execution?f=json', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ inputs: { field_ids: somPredictFieldIds, scenarios: ['S3_spec_soil_topo_clim'] } })
@@ -1054,7 +1054,7 @@ export async function somAutoGenScenes() {
                    cachedItem.assets.ndvi.statistics['1'] &&
                    cachedItem.assets.ndvi.statistics['1'].mean;
         } else {
-            var r = await fetch('/mos-pygeoapi/processes/sentinel-fetch/execution?f=json', {
+            var r = await fetch('/process-api/processes/sentinel-fetch/execution?f=json', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1110,7 +1110,7 @@ export async function somAutoGenElevation() {
                                [b.getEast(), b.getNorth()], [b.getWest(), b.getNorth()],
                                [b.getWest(), b.getSouth()]]]
             };
-            var r = await fetch('/mos-pygeoapi/processes/lidar-fetch/execution?f=json', {
+            var r = await fetch('/process-api/processes/lidar-fetch/execution?f=json', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ inputs: { farm_geometry: bboxGeom, products: ['dtm'] } })
@@ -1161,7 +1161,7 @@ export async function somAutoGenPrecip() {
         var start = new Date(end);
         start.setDate(start.getDate() - 6);
 
-        var r = await fetch('/mos-pygeoapi/processes/msc-observations/execution?f=json', {
+        var r = await fetch('/process-api/processes/msc-observations/execution?f=json', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1291,7 +1291,7 @@ export async function somRunAnalysis() {
     btn.disabled = true;
     status.textContent = tLang['som-running'];
     try {
-        var r = await fetch('/mos-pygeoapi/', { method: 'GET' });
+        var r = await fetch('/process-api/', { method: 'GET' });
         if (!r.ok) throw new Error(tLang['som-run-error'] + ' (HTTP ' + r.status + ')');
         if (typeof Chart === 'undefined') throw new Error('Chart.js not loaded');
         var now = new Date();

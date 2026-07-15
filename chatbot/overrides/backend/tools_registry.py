@@ -13,7 +13,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-PYGEOAPI_URL = os.environ.get("PYGEOAPI_INTERNAL_URL", "http://mos-pygeoapi:5000")
+PYGEOAPI_URL = os.environ.get("PYGEOAPI_INTERNAL_URL", "http://process-api:5000")
 
 
 async def predict_soil_organic_matter(lat: float, lon: float, land_use: str) -> dict:
@@ -38,7 +38,7 @@ async def run_som_process(parcel_id: str, year: int) -> dict:
 
 async def list_pygeoapi_processes() -> list:
     """
-    List all OGC processes available on the MOS PyGeoAPI server.
+    List all OGC processes available on the Process API server.
     Call this first to discover what spatial analyses are possible.
     Returns a list of objects with id, title, and description.
     """
@@ -70,7 +70,7 @@ async def get_process_schema(process_id: str) -> dict:
 
 async def execute_pygeoapi_process(process_id: str, inputs: dict) -> dict:
     """
-    Execute an OGC API process on the MOS PyGeoAPI server.
+    Execute an OGC API process on the Process API server.
     Use list_pygeoapi_processes to discover available processes and
     get_process_schema to know what inputs each one requires.
     Returns the process outputs as a dict.

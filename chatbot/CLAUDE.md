@@ -1,4 +1,4 @@
-# mos-chatbot
+# chatbot
 
 This directory integrates [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant) into the Agri-SDSS platform as a SDSS (Spatial Decision Support System) chatbot focused on Quebec agriculture.
 
@@ -6,21 +6,21 @@ Architecture, override layout, service wiring, SDSS tools, LLM configuration, an
 
 ## The override rule
 
-`mos-chatbot` does **not** fork the upstream chatbot — Docker builds clone the upstream at the pinned tag (`CHATBOT_VERSION` in `.env`) and then copy `mos-chatbot/overrides/` on top. Files in `overrides/` with the same relative path as an upstream file **replace** it; new files are additive.
+`chatbot` does **not** fork the upstream chatbot — Docker builds clone the upstream at the pinned tag (`CHATBOT_VERSION` in `.env`) and then copy `chatbot/overrides/` on top. Files in `overrides/` with the same relative path as an upstream file **replace** it; new files are additive.
 
 To upgrade the upstream chatbot, bump `CHATBOT_VERSION` in `.env` and verify that the override files still apply cleanly (no signature drift).
 
 ## Testing
 
 ```bash
-# Run all mos-chatbot tests (also lints both Dockerfiles with hadolint)
-make test-mos-chatbot
+# Run all chatbot tests (also lints both Dockerfiles with hadolint)
+make test-chatbot
 
 # Tests only (no hadolint)
-docker compose run --rm mos-chatbot-backend pytest mos_chatbot/test/ -v
+docker compose run --rm chatbot-backend pytest chatbot/test/ -v
 
 # Single test file
-docker compose run --rm mos-chatbot-backend pytest mos_chatbot/test/test_service_connectivity.py -v
+docker compose run --rm chatbot-backend pytest chatbot/test/test_service_connectivity.py -v
 ```
 
 Test markers follow the project convention:

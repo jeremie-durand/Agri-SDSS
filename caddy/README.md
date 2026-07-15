@@ -14,7 +14,7 @@ docker compose up -d caddy
 
 - Terminates TLS — self-signed (`tls internal`) by default for `localhost`; point a real domain at the server and remove `tls internal` for automatic Let's Encrypt
 - Proxies all traffic to the `home` service, which routes to individual APIs
-- Rate-limits OGC process execution: 10 req/min per IP on `POST /mos-pygeoapi/processes/*/execution`
+- Rate-limits OGC process execution: 10 req/min per IP on `POST /process-api/processes/*/execution`
 - Sets security headers: HSTS, `X-Frame-Options`, `X-Content-Type-Options`, CSP
 
 ## Configuration

@@ -69,7 +69,7 @@ class SentinelFetchProcessor(BaseProcessor):
     TOKEN_EXPIRY_MSG: str = (
         "Both the primary (OPENEO_REFRESH_TOKEN env var) and fallback (refresh-tokens.json config file) tokens expire after approximately 30 days."
     )
-    TOKEN_SCRIPT_PATH: str = "./mos-pygeoapi/scripts/get_openeo_token.sh"
+    TOKEN_SCRIPT_PATH: str = "./process-api/scripts/get_openeo_token.sh"
     OPENEO_CONFIG_HOME_DEFAULT: str = "~/.local/share/openeo-python-client"
     # Placeholder patterns to detect unconfigured tokens (case-insensitive)
     TOKEN_PLACEHOLDER_PATTERNS: Tuple[str, ...] = (

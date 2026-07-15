@@ -25,8 +25,8 @@ make test-gis-pipeline
 make test-stac-api
 make test-vector-api
 make test-raster-api
-make test-mos-pygeoapi
-make test-mos-chatbot
+make test-process-api
+make test-chatbot
 
 # Single test file or test (inside container)
 docker compose run --rm stac-api pytest stac_api/test/test_foo.py::test_bar -v
@@ -95,10 +95,10 @@ Two credentials exist (least-privilege model — see [docs/DEPLOYMENT.md](docs/D
 | `STAC_API_PORT` | `8081` | stac-api |
 | `RASTER_API_PORT` | `8082` | raster-api |
 | `VECTOR_API_PORT` | `8083` | vector-api |
-| `PYGEOAPI_API_PORT` | `5000` | mos-pygeoapi |
+| `PROCESS_API_PORT` | `5000` | process-api |
 | `HOME_PORT` | `8084` | home frontend (unified entry point) |
-| `CHATBOT_BACKEND_PORT` | `8005` | mos-chatbot-backend |
-| `CHATBOT_FRONTEND_PORT` | `3001` | mos-chatbot-frontend (direct access) |
+| `CHATBOT_BACKEND_PORT` | `8005` | chatbot-backend |
+| `CHATBOT_FRONTEND_PORT` | `3001` | chatbot-frontend (direct access) |
 | `STAC_BROWSER_PORT` | `8085` | stac-browser (direct access) |
 | `VECTOR_API_CORS_ORIGINS` | _(empty)_ | Comma-separated allowed CORS origins for vector-api; empty blocks all cross-origin requests |
 
@@ -106,7 +106,7 @@ Two credentials exist (least-privilege model — see [docs/DEPLOYMENT.md](docs/D
 
 | Variable | Description |
 | --- | --- |
-| `OPENEO_REFRESH_TOKEN` | OIDC refresh token for Copernicus Data Space — expires ~30 days; regenerate with `./mos-pygeoapi/scripts/get_openeo_token.sh` |
+| `OPENEO_REFRESH_TOKEN` | OIDC refresh token for Copernicus Data Space — expires ~30 days; regenerate with `./process-api/scripts/get_openeo_token.sh` |
 
 ## Claude guidelines
 
@@ -153,7 +153,7 @@ Commit prefixes (conventional style): `feat:`, `fix:`, `docs:`, `test:`, `refact
 GitHub Actions (`.github/workflows/action.yml`) runs on PR/push to main/develop:
 
 1. Validates `ARGS.md` is in sync with CLI arguments
-2. Builds per-service images (`gis-pipeline`, `stac-api`, `vector-api`, `raster-api`, `mos-pygeoapi`, `mos-chatbot-backend`)
+2. Builds per-service images (`gis-pipeline`, `stac-api`, `vector-api`, `raster-api`, `process-api`, `chatbot-backend`)
 3. Starts the database, then runs `make test-all`
 
 ### Automation

@@ -1,7 +1,7 @@
 """
 Build-time patch for upstream generic_query_translator.py.
 
-Applied by Dockerfile.mos-chatbot-backend after the upstream source is copied.
+Applied by Dockerfile.chatbot-backend after the upstream source is copied.
 Keep each patch as a simple str.replace so drift is caught at build time
 (a failed replace leaves the file unchanged and the unit test will catch it).
 """

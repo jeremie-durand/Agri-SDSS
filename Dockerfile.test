@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install requirements from all components
 COPY gis-pipeline/requirements-gis-pipeline.txt /tmp/requirements-gis-pipeline.txt
 COPY stac-api/requirements-stac-api.txt /tmp/requirements-stac-api.txt
-COPY mos-pygeoapi/requirements-mos-pygeoapi.txt /tmp/requirements-mos-pygeoapi.txt
+COPY process-api/requirements-process-api.txt /tmp/requirements-process-api.txt
 COPY vector-api/requirements-vector-api.txt /tmp/requirements-vector-api.txt
 
 # Install pytest and all component requirements
@@ -18,11 +18,11 @@ RUN pip install --no-cache-dir \
     pytest pytest-cov pytest-xdist responses requests \
     -r /tmp/requirements-gis-pipeline.txt \
     -r /tmp/requirements-stac-api.txt \
-    -r /tmp/requirements-mos-pygeoapi.txt \
+    -r /tmp/requirements-process-api.txt \
     -r /tmp/requirements-vector-api.txt && \
     rm /tmp/requirements-gis-pipeline.txt \
        /tmp/requirements-stac-api.txt \
-       /tmp/requirements-mos-pygeoapi.txt \
+       /tmp/requirements-process-api.txt \
        /tmp/requirements-vector-api.txt
 
 # Copy all source code and tests
@@ -32,7 +32,7 @@ COPY gis-pipeline /workspace/gis-pipeline
 COPY stac-api /workspace/stac-api
 COPY vector-api /workspace/vector-api
 COPY raster-api /workspace/raster-api
-COPY mos-pygeoapi /workspace/mos-pygeoapi
+COPY process-api /workspace/process-api
 COPY scripts /workspace/scripts
 COPY tests_shared /workspace/tests_shared
 COPY pytest.ini /workspace/pytest.ini

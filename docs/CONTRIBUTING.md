@@ -12,7 +12,7 @@ You don't need to write code to contribute:
 | Integrate a new dataset | [Adding new data guide](data/adding_new_data.md) — step-by-step, from source doc to pipeline ingestion |
 | Add or improve an OGC process | [Adding a new OGC process](#adding-a-new-ogc-process) below |
 | Improve documentation or FR/EN translations | Edit and open a PR — docs live in `docs/` and each service's folder |
-| Improve the map, chatbot, or UI | [frontend/home/README.md](../frontend/home/README.md) and [mos-chatbot/docs/ARCHITECTURE.md](../mos-chatbot/docs/ARCHITECTURE.md) |
+| Improve the map, chatbot, or UI | [frontend/home/README.md](../frontend/home/README.md) and [chatbot/docs/ARCHITECTURE.md](../chatbot/docs/ARCHITECTURE.md) |
 
 ## Development Setup
 
@@ -72,8 +72,8 @@ make test-gis-pipeline
 make test-stac-api
 make test-vector-api
 make test-raster-api
-make test-mos-pygeoapi
-make test-mos-chatbot
+make test-process-api
+make test-chatbot
 
 # Single test file (inside container)
 docker compose run --rm stac-api pytest stac_api/test/test_foo.py::test_bar -v
@@ -130,12 +130,12 @@ Data must be under an open license (OGL-Q, OGL-Canada, CC-BY, …) — note it i
 
 ## Adding a New OGC Process
 
-Follow the pattern of the seven existing processes in `mos-pygeoapi/processes/`:
+Follow the pattern of the seven existing processes in `process-api/processes/`:
 
 1. `processes/<name>.py` (processor class) + `processes/<name>_metadata.py` (PROCESS_METADATA)
-2. Register it in `mos-pygeoapi/config/pygeoapi-config.yaml`
-3. Write a spec doc in `mos-pygeoapi/docs/` (see [SOM_PREDICT_SOIL_SPECS.md](../mos-pygeoapi/docs/SOM_PREDICT_SOIL_SPECS.md) for the format)
-4. Add the process to the [mos-pygeoapi README](../mos-pygeoapi/README.md) table
+2. Register it in `process-api/config/pygeoapi-config.yaml`
+3. Write a spec doc in `process-api/docs/` (see [SOM_PREDICT_SOIL_SPECS.md](../process-api/docs/SOM_PREDICT_SOIL_SPECS.md) for the format)
+4. Add the process to the [process-api README](../process-api/README.md) table
 5. Add tests with the appropriate markers
 
 ## Code Style

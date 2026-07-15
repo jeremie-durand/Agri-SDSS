@@ -1,15 +1,15 @@
-# mos-pygeoapi
+# process-api
 
 OGC API Processes service built on PyGeoAPI. Executes server-side geospatial processes: satellite imagery retrieval, LiDAR products, climate/weather timeseries, agronomic indicators, and soil organic matter prediction.
 
 **Port**: 5000 | **Requires**: `OPENEO_REFRESH_TOKEN` for Sentinel processes (expires ~30 days)
 
-Interactive API docs: `http://<host>/mos-pygeoapi/openapi?f=html`
+Interactive API docs: `http://<host>/process-api/openapi?f=html`
 
 ## Start
 
 ```bash
-docker compose up -d mos-pygeoapi
+docker compose up -d process-api
 ```
 
 ## Available processes
@@ -34,7 +34,7 @@ curl -X POST http://<host>:5000/processes/weather-timeseries/execution \
 
 ## Configuration
 
-`mos-pygeoapi/config/pygeoapi-config.yaml` — processes and providers  
+`process-api/config/pygeoapi-config.yaml` — processes and providers  
 `OPENEO_REFRESH_TOKEN` — Copernicus OIDC token
 
 ## Docs

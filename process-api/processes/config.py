@@ -1,4 +1,4 @@
-"""Environment configuration for mos-pygeoapi processes.
+"""Environment configuration for process-api processes.
 
 All environment variables consumed by this service are declared here as typed
 pydantic-settings classes so that missing or mis-typed values are caught at

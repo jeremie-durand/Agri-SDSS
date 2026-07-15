@@ -1,15 +1,15 @@
-# mos-chatbot — Architecture
+# chatbot — Architecture
 
 ## Overview
 
-`mos-chatbot` layers Agri-SDSS–specific overrides on top of [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant). The upstream chatbot is not forked — it is cloned at Docker build time and the override files replace or extend it.
+`chatbot` layers Agri-SDSS–specific overrides on top of [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant). The upstream chatbot is not forked — it is cloned at Docker build time and the override files replace or extend it.
 
 ## Containers
 
 | Service | Port (host) | Port (container) | Role |
 | --- | --- | --- | --- |
-| `mos-chatbot-backend` | `CHATBOT_BACKEND_PORT` (8005) | 8000 | FastAPI + LLM agent |
-| `mos-chatbot-frontend` | `CHATBOT_FRONTEND_PORT` (3001) | 80 | Vite/React SPA served by nginx |
+| `chatbot-backend` | `CHATBOT_BACKEND_PORT` (8005) | 8000 | FastAPI + LLM agent |
+| `chatbot-frontend` | `CHATBOT_FRONTEND_PORT` (3001) | 80 | Vite/React SPA served by nginx |
 
 ## Build-time override pattern
 
@@ -20,7 +20,7 @@ upstream source (cloned at CHATBOT_VERSION)
    [upstream code copied into image]
          │
          ▼
-mos-chatbot/overrides/   ← layered on top (COPY runs after)
+chatbot/overrides/   ← layered on top (COPY runs after)
 ```
 
 Files in `overrides/` with the same relative path as an upstream file **replace** it. New files are additive.
@@ -52,7 +52,7 @@ The backend reaches other Agri-SDSS services over the Docker Compose network:
 | `STAC_API_URL` | `http://stac-api:8080` |
 | `RASTER_API_INTERNAL_URL` | `http://raster-api:8080` |
 | `VECTOR_API_INTERNAL_URL` | `http://vector-api:8080` |
-| `PYGEOAPI_INTERNAL_URL` | `http://mos-pygeoapi:5000` |
+| `PYGEOAPI_INTERNAL_URL` | `http://process-api:5000` |
 
 ## SDSS tools
 
@@ -60,7 +60,7 @@ The backend reaches other Agri-SDSS services over the Docker Compose network:
 
 | Tool | Description |
 | --- | --- |
-| `list_pygeoapi_processes` | Discover available OGC processes on mos-pygeoapi |
+| `list_pygeoapi_processes` | Discover available OGC processes on process-api |
 | `get_process_schema` | Fetch input/output schema for one process |
 | `execute_pygeoapi_process` | Execute a process with given inputs |
 

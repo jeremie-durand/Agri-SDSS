@@ -1,5 +1,5 @@
-test-all: test-gis-pipeline test-stac-api test-vector-api test-raster-api test-mos-pygeoapi test-mos-chatbot
-	docker compose up -d --force-recreate --wait vector-api raster-api mos-pygeoapi
+test-all: test-gis-pipeline test-stac-api test-vector-api test-raster-api test-process-api test-chatbot
+	docker compose up -d --force-recreate --wait vector-api raster-api process-api
 	docker compose restart home
 
 test-gis-pipeline:
@@ -19,11 +19,11 @@ test-vector-api:
 test-raster-api:
 	docker compose run --build --rm raster-api pytest raster_api/test/ -v
 
-test-mos-pygeoapi:
-	docker compose run --build --rm mos-pygeoapi pytest mos_pygeoapi/test/ -v
+test-process-api:
+	docker compose run --build --rm process-api pytest process_api/test/ -v
 
-test-mos-chatbot:
-	docker compose run --build --rm mos-chatbot-backend pytest mos_chatbot/test/ -v
+test-chatbot:
+	docker compose run --build --rm chatbot-backend pytest chatbot/test/ -v
 
 test-caddy:
 	@echo "Hot-reloading Caddy with test config (3 exec/5s, 5 browse/5s)..."
@@ -44,8 +44,8 @@ test-caddy:
 .PHONY: lint-dockerfiles scan-secrets test-caddy generate-args
 
 lint-dockerfiles:
-	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < mos-chatbot/Dockerfile.mos-chatbot-backend
-	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < mos-chatbot/Dockerfile.mos-chatbot-frontend
+	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < chatbot/Dockerfile.chatbot-backend
+	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < chatbot/Dockerfile.chatbot-frontend
 
 scan-secrets:
 	trivy fs --scanners secret .

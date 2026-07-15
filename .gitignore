@@ -186,7 +186,7 @@ data/output/
 data/SOM/
 
 # OpenEO authentication tokens (sensitive)
-mos-pygeoapi/config/openeo-config/refresh-tokens.json
+process-api/config/openeo-config/refresh-tokens.json
 
 # Log files
 gis-pipeline/logs/
@@ -194,7 +194,7 @@ gis-pipeline/logs/
 # Custom processes
 pygeoapi/processes/hamed_functions/
 pygeoapi/config/openeo-config/refresh-tokens.json
-mos-pygeoapi/processes/hamed_functions/
+process-api/processes/hamed_functions/
 
 # AI development tools
 .claude/

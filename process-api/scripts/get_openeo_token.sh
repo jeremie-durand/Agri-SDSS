@@ -2,7 +2,7 @@
 set -e
 # Security check: Verify refresh-tokens.json is in .gitignore
 GITIGNORE_PATH=".gitignore"
-TOKEN_FILE_PATTERN="mos-pygeoapi/config/openeo-config/refresh-tokens.json"
+TOKEN_FILE_PATTERN="process-api/config/openeo-config/refresh-tokens.json"
 #
 if [ -f "$GITIGNORE_PATH" ]; then
     if ! grep -F -q -x "$TOKEN_FILE_PATTERN" "$GITIGNORE_PATH"; then
@@ -64,7 +64,7 @@ TEMP_OUTPUT=$(mktemp)
 #
 # Run authentication and token extraction in one Docker container
 echo "Connecting to OpenEO..."
-docker compose run --rm mos-pygeoapi python3 -c "
+docker compose run --rm process-api python3 -c "
 import openeo
 import json
 import os
@@ -177,7 +177,7 @@ echo ""
 echo "NOTE: Refresh tokens expire after approximately 30 days."
 echo "      Re-run this script when your token expires."
 echo ""
-echo "The token is also stored in: ./mos-pygeoapi/config/openeo-config/refresh-tokens.json"
+echo "The token is also stored in: ./process-api/config/openeo-config/refresh-tokens.json"
 echo "(This JSON file is used as a fallback for local development)"
 echo ""
 echo "============================================================"
@@ -192,7 +192,7 @@ echo "  3. Reload pygeoapi to apply changes:"
 echo "     docker compose down && docker compose up -d"
 echo ""
 echo "  4. Test the sentinel-fetch process:"
-echo "     curl -X POST ${HOST_PROTOCOL:-http}://${HOST_URL:-localhost}:${PYGEOAPI_API_PORT:-5000}/processes/sentinel-fetch/execution \\"
+echo "     curl -X POST ${HOST_PROTOCOL:-http}://${HOST_URL:-localhost}:${PROCESS_API_PORT:-5000}/processes/sentinel-fetch/execution \\"
 echo "       -H 'Content-Type: application/json' \\"
 echo "       -d '{\"inputs\": {"
 echo "         \"farm_id\": 75,"

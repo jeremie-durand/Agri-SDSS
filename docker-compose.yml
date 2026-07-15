@@ -43,10 +43,10 @@ services:
       - STAC_API_PORT=${STAC_API_PORT}
       - RASTER_API_PORT=${RASTER_API_PORT}
       - VECTOR_API_PORT=${VECTOR_API_PORT}
-      - PYGEOAPI_API_PORT=${PYGEOAPI_API_PORT}
+      - PROCESS_API_PORT=${PROCESS_API_PORT}
     depends_on:
       - stac-browser
-      - mos-chatbot-frontend
+      - chatbot-frontend
     restart: unless-stopped
     deploy:
       resources:
@@ -67,7 +67,7 @@ services:
       - STAC_API_PORT=${STAC_API_PORT}
       - RASTER_API_PORT=${RASTER_API_PORT}
       - VECTOR_API_PORT=${VECTOR_API_PORT}
-      - PYGEOAPI_API_PORT=${PYGEOAPI_API_PORT}
+      - PROCESS_API_PORT=${PROCESS_API_PORT}
     depends_on:
       stac-api:
         condition: service_healthy
@@ -279,10 +279,10 @@ services:
           memory: 1g
           cpus: "1.0"
 
-  mos-pygeoapi:
+  process-api:
     build:
       context: .
-      dockerfile: mos-pygeoapi/Dockerfile.mos-pygeoapi
+      dockerfile: process-api/Dockerfile.process-api
       target: test
       args:
         USER_GID: ${USER_GID:-1000}
@@ -294,7 +294,7 @@ services:
       - HOST_URL=${HOST_URL:-localhost}
       - PYGEOAPI_CONFIG=/app/config/pygeoapi-config.yaml
       - PYGEOAPI_OPENAPI=/app/openapi/openapi.yaml
-      - PYGEOAPI_API_PORT=${PYGEOAPI_API_PORT}
+      - PROCESS_API_PORT=${PROCESS_API_PORT}
       - POSTGRES_USER=${DB_USER:-agri_sdss}
       - POSTGRES_PASS=${DB_PASS}
       - POSTGRES_DBNAME=${POSTGRES_DBNAME:-agri_sdss}
@@ -311,8 +311,8 @@ services:
     volumes:
       - ./data/output/raster_cog:/data
       - ./data/duckdb:/data/duckdb
-      - ./mos-pygeoapi/config/openeo-config:/app/config/openeo-config
-      - ./mos-pygeoapi/test:/app/mos_pygeoapi/test
+      - ./process-api/config/openeo-config:/app/config/openeo-config
+      - ./process-api/test:/app/process_api/test
     depends_on:
       database:
         condition: service_healthy
@@ -331,10 +331,10 @@ services:
           memory: 2g
           cpus: "1.0"
 
-  mos-chatbot-backend:
+  chatbot-backend:
     build:
       context: .
-      dockerfile: mos-chatbot/Dockerfile.mos-chatbot-backend
+      dockerfile: chatbot/Dockerfile.chatbot-backend
       args:
         <<: *chatbot-build-args
       target: test
@@ -350,7 +350,7 @@ services:
       - RASTER_API_INTERNAL_URL=http://raster-api:8080
       - VECTOR_API_INTERNAL_URL=http://vector-api:8080
       - VECTOR_API_URL=http://vector-api:8080
-      - PYGEOAPI_INTERNAL_URL=http://mos-pygeoapi:5000
+      - PYGEOAPI_INTERNAL_URL=http://process-api:5000
       - FRONTEND_URL=${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}
       - WEATHER_DATA_SOURCE=${WEATHER_DATA_SOURCE:-planetary_computer}
       - OPEN_METEO_API_KEY=${OPEN_METEO_API_KEY:-}
@@ -364,7 +364,7 @@ services:
       - stac-api
       - raster-api
       - vector-api
-      - mos-pygeoapi
+      - process-api
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -374,17 +374,17 @@ services:
           memory: 4g
           cpus: "2.0"
 
-  mos-chatbot-frontend:
+  chatbot-frontend:
     build:
       context: .
-      dockerfile: mos-chatbot/Dockerfile.mos-chatbot-frontend
+      dockerfile: chatbot/Dockerfile.chatbot-frontend
       args:
         <<: *chatbot-build-args
         VITE_API_URL: ${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}
     expose:
       - "3001"
     depends_on:
-      - mos-chatbot-backend
+      - chatbot-backend
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

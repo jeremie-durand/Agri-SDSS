@@ -39,8 +39,8 @@ jobs:
           NEW="${{ steps.latest.outputs.tag }}"
           sed -i "s/^CHATBOT_VERSION=.*/CHATBOT_VERSION=${NEW}/" .env.example
           sed -i "s|\(CHATBOT_VERSION: \${CHATBOT_VERSION:-\).*\(}\)|\1${NEW}\2|" docker-compose.yml
-          sed -i "s/^ARG CHATBOT_VERSION=.*/ARG CHATBOT_VERSION=${NEW}/" mos-chatbot/Dockerfile.mos-chatbot-backend
-          sed -i "s/^ARG CHATBOT_VERSION=.*/ARG CHATBOT_VERSION=${NEW}/" mos-chatbot/Dockerfile.mos-chatbot-frontend
+          sed -i "s/^ARG CHATBOT_VERSION=.*/ARG CHATBOT_VERSION=${NEW}/" chatbot/Dockerfile.chatbot-backend
+          sed -i "s/^ARG CHATBOT_VERSION=.*/ARG CHATBOT_VERSION=${NEW}/" chatbot/Dockerfile.chatbot-frontend
 
       - name: Open PR if version differs
         if: steps.latest.outputs.tag != steps.current.outputs.tag
@@ -60,8 +60,8 @@ jobs:
             **Files updated:**
             - `.env.example`
             - `docker-compose.yml`
-            - `mos-chatbot/Dockerfile.mos-chatbot-backend`
-            - `mos-chatbot/Dockerfile.mos-chatbot-frontend`
+            - `chatbot/Dockerfile.chatbot-backend`
+            - `chatbot/Dockerfile.chatbot-frontend`
 
             **Before merging, verify:**
             - [ ] CI security scan passes (CVE scan, secrets scan, Hadolint)

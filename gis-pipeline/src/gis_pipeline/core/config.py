@@ -49,7 +49,7 @@ class _ApiSettings(BaseSettings):
     STAC_API_PORT: int = 8081
     RASTER_API_PORT: int = 8082
     VECTOR_API_PORT: int = 8083
-    PYGEOAPI_API_PORT: int = 5000
+    PROCESS_API_PORT: int = 5000
     FRONTEND_PORT: int = 8085
 
 
@@ -105,7 +105,7 @@ class Config:
     DUCKDB_DATA_DIR = _storage.DUCKDB_DATA_DIR
 
     # Ports
-    PYGEOAPI_API_PORT = _api.PYGEOAPI_API_PORT
+    PROCESS_API_PORT = _api.PROCESS_API_PORT
     STAC_API_PORT = _api.STAC_API_PORT
     RASTER_API_PORT = _api.RASTER_API_PORT
     VECTOR_API_PORT = _api.VECTOR_API_PORT

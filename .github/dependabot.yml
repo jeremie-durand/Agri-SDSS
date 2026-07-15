@@ -50,7 +50,7 @@ updates:
       prefix: "chore"
 
   - package-ecosystem: "pip"
-    directory: "/mos-pygeoapi/"
+    directory: "/process-api/"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -62,7 +62,7 @@ updates:
       prefix: "chore"
 
   - package-ecosystem: "pip"
-    directory: "/mos-chatbot/"
+    directory: "/chatbot/"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -115,7 +115,7 @@ updates:
       prefix: "chore"
 
   - package-ecosystem: "docker"
-    directory: "/mos-pygeoapi/"
+    directory: "/process-api/"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -125,7 +125,7 @@ updates:
       prefix: "chore"
 
   - package-ecosystem: "docker"
-    directory: "/mos-chatbot/"
+    directory: "/chatbot/"
     schedule:
       interval: "weekly"
       day: "monday"

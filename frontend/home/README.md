@@ -9,7 +9,7 @@ The unified entry point for Agri-SDSS. A static nginx frontend that serves the L
 **Home** is the single URL users visit. It provides:
 - **Interactive map**: Leaflet-based map with vector parcels, raster overlays, SOM analysis, and STAC item visualization
 - **Unified navigation**: A shared nav bar injected into every sub-application (STAC Browser, Chatbot) via nginx `sub_filter`
-- **Reverse proxy**: Routes `/stac/`, `/chatbot/`, `/mos-stac/`, `/mos-vector/`, `/mos-raster/`, `/mos-pygeoapi/` to the appropriate services — no CORS issues for the browser
+- **Reverse proxy**: Routes `/stac/`, `/chatbot/`, `/mos-stac/`, `/mos-vector/`, `/mos-raster/`, `/process-api/` to the appropriate services — no CORS issues for the browser
 - **Chatbot bridge**: `chatbot-bridge.js` injected into the chatbot iframe to relay map context and tile commands between the chatbot and the Leaflet map via `postMessage`
 - **Bilingual interface**: EN / FR language toggle across all pages
 
@@ -31,13 +31,13 @@ graph TD
     Home -->|/services| Services[index.html<br/>Services overview]
     Home -->|/data| Data[data.html<br/>Data catalog]
     Home -->|/stac/| STAC[stac-browser<br/>:8085]
-    Home -->|/chatbot/| Chatbot[mos-chatbot-frontend<br/>:3001]
+    Home -->|/chatbot/| Chatbot[chatbot-frontend<br/>:3001]
 
     Home -->|/mos-stac/| StacAPI[stac-api<br/>:8081]
     Home -->|/mos-vector/| VectorAPI[vector-api<br/>:8083]
     Home -->|/mos-raster/| RasterAPI[raster-api<br/>:8082]
-    Home -->|/mos-pygeoapi/| PyGeoAPI[mos-pygeoapi<br/>:5000]
-    Home -->|/api, /chat, ...| ChatbotAPI[mos-chatbot-backend<br/>:8005]
+    Home -->|/process-api/| PyGeoAPI[process-api<br/>:5000]
+    Home -->|/api, /chat, ...| ChatbotAPI[chatbot-backend<br/>:8005]
 
     Map -->|postMessage| Chatbot
     Chatbot -->|postMessage| Map
@@ -83,8 +83,8 @@ STAC_BROWSER_PORT=8085       # stac-browser container port
 STAC_API_PORT=8081           # stac-api container port
 RASTER_API_PORT=8082         # raster-api container port
 VECTOR_API_PORT=8083         # vector-api container port
-PYGEOAPI_API_PORT=5000       # mos-pygeoapi container port
-CHATBOT_BACKEND_PORT=8005    # mos-chatbot-backend container port
+PROCESS_API_PORT=5000       # process-api container port
+CHATBOT_BACKEND_PORT=8005    # chatbot-backend container port
 ```
 
 ### Customization
@@ -140,13 +140,13 @@ The main page. Modules loaded via ES imports from `html/js/`:
 | Path | Proxied To | Notes |
 |------|-----------|-------|
 | `/stac/` | `stac-browser:8085` | `sub_filter` rewrites asset paths and injects nav |
-| `/chatbot/` | `mos-chatbot-frontend:3001` | `sub_filter` injects chatbot-bridge.js and nav |
-| `/api/`, `/chat/`, `/query/`, etc. | `mos-chatbot-backend:8000` | Chatbot SPA uses `window.location.origin` as base URL |
-| `/sdss/` | `mos-chatbot-backend:8000` | SDSS spatial process routes |
+| `/chatbot/` | `chatbot-frontend:3001` | `sub_filter` injects chatbot-bridge.js and nav |
+| `/api/`, `/chat/`, `/query/`, etc. | `chatbot-backend:8000` | Chatbot SPA uses `window.location.origin` as base URL |
+| `/sdss/` | `chatbot-backend:8000` | SDSS spatial process routes |
 | `/mos-stac/` | `stac-api` | Used by chatbot-bridge.js |
 | `/mos-vector/` | `vector-api` | Used by chatbot-bridge.js and map |
 | `/mos-raster/` | `raster-api` | Used for tile overlays |
-| `/mos-pygeoapi/` | `mos-pygeoapi:5000` | 630s read timeout for long-running processes |
+| `/process-api/` | `process-api:5000` | 630s read timeout for long-running processes |
 | `/aac-identify/` | `agriculture.canada.ca` | CORS proxy for AAC imagery service |
 
 ---

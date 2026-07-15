@@ -29,30 +29,30 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build mos-chatbot-backend
+      - name: Build chatbot-backend
         run: |
           VERSION=$(grep '^CHATBOT_VERSION=' .env.example | cut -d= -f2)
           docker build \
             --build-arg CHATBOT_VERSION="$VERSION" \
             --build-arg INCLUDE_OLLAMA=stub \
             --target runtime \
-            -t mos-chatbot-backend \
-            -f mos-chatbot/Dockerfile.mos-chatbot-backend \
+            -t chatbot-backend \
+            -f chatbot/Dockerfile.chatbot-backend \
             .
 
-      - name: Build mos-chatbot-frontend
+      - name: Build chatbot-frontend
         run: |
           VERSION=$(grep '^CHATBOT_VERSION=' .env.example | cut -d= -f2)
           docker build \
             --build-arg CHATBOT_VERSION="$VERSION" \
-            -t mos-chatbot-frontend \
-            -f mos-chatbot/Dockerfile.mos-chatbot-frontend \
+            -t chatbot-frontend \
+            -f chatbot/Dockerfile.chatbot-frontend \
             .
 
       - name: Trivy CVE scan — backend
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: mos-chatbot-backend
+          image-ref: chatbot-backend
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -60,7 +60,7 @@ jobs:
       - name: Trivy CVE scan — frontend
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: mos-chatbot-frontend
+          image-ref: chatbot-frontend
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -68,9 +68,9 @@ jobs:
       - name: Generate SBOM — backend
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: mos-chatbot-backend
+          image-ref: chatbot-backend
           format: cyclonedx
-          output: sbom-mos-chatbot-backend.json
+          output: sbom-chatbot-backend.json
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v7
@@ -93,8 +93,8 @@ jobs:
       - name: Verify backend override paths still exist upstream
         run: |
           UPSTREAM_ROOT=/tmp/chatbot/opengeo-ai-assistant/container-app
-          for f in $(find mos-chatbot/overrides/backend -type f \
-              | sed 's|mos-chatbot/overrides/backend/||'); do
+          for f in $(find chatbot/overrides/backend -type f \
+              | sed 's|chatbot/overrides/backend/||'); do
             if [ -f "$UPSTREAM_ROOT/$f" ]; then
               echo "OK  override '$f' matches upstream path in container-app/"
             else

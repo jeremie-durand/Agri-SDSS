@@ -18,10 +18,10 @@ flowchart LR
     COG --> STAC
 
     DK --> VEC
-    PG --> PYGE[mos-pygeoapi\n:5000]
+    PG --> PYGE[process-api\n:5000]
 
     STAC --> SB[stac-browser\n:8085]
-    STAC --> CHAT[mos-chatbot\n:8005]
+    STAC --> CHAT[chatbot\n:8005]
     VEC --> CHAT
     RAST --> CHAT
     PYGE --> CHAT
@@ -47,8 +47,8 @@ flowchart LR
 | `stac-api` | 8081 | STAC 1.0.0 catalog (stac-fastapi + pgSTAC) |
 | `vector-api` | 8083 | OGC Features — PostGIS (TiPg) and DuckDB/Parquet backends |
 | `raster-api` | 8082 | OGC Tiles / WCS / WMS for COGs (TiTiler) |
-| `mos-pygeoapi` | 5000 | OGC Processes — climate, satellite, LiDAR (PyGeoAPI + OpenEO) |
-| `mos-chatbot` | 8005 / 3001 | AI geospatial assistant (backend + React frontend) |
+| `process-api` | 5000 | OGC Processes — climate, satellite, LiDAR (PyGeoAPI + OpenEO) |
+| `chatbot` | 8005 / 3001 | AI geospatial assistant (backend + React frontend) |
 | `stac-browser` | 8085 | STAC catalog explorer UI (served at `/stac/` via home) |
 | `home` | 8084 | Nginx reverse proxy + map page |
 | `caddy` | 443 / 80 | TLS termination, HTTPS redirect, rate limiting |

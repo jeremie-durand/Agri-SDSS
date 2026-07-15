@@ -1,5 +1,5 @@
 """
-Verify mos-chatbot backend is correctly connected to its four internal services.
+Verify chatbot backend is correctly connected to its four internal services.
 All tests are @pytest.mark.mocked — no live services required.
 """
 
@@ -82,7 +82,7 @@ def test_stac_search_proxies_to_internal_stac_api():
 
 @pytest.mark.mocked
 def test_internal_service_env_vars_match_docker_hostnames():
-    """Env vars for raster-api, vector-api, mos-pygeoapi must use correct Docker network hostnames."""
+    """Env vars for raster-api, vector-api, process-api must use correct Docker network hostnames."""
     assert os.getenv("RASTER_API_INTERNAL_URL") == "http://raster-api:8080"
     assert os.getenv("VECTOR_API_INTERNAL_URL") == "http://vector-api:8080"
-    assert os.getenv("PYGEOAPI_INTERNAL_URL") == "http://mos-pygeoapi:5000"
+    assert os.getenv("PYGEOAPI_INTERNAL_URL") == "http://process-api:5000"

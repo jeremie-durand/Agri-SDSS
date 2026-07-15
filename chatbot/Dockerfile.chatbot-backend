@@ -54,7 +54,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY --from=source /src/opengeo-ai-assistant/container-app/ .
 
 # Layer agri-sdss overrides on top of upstream
-COPY mos-chatbot/overrides/backend/ .
+COPY chatbot/overrides/backend/ .
 
 # Ollama runtime — only used when LLM_BASE_URL targets localhost:11434
 COPY --from=ollama /usr/bin/ollama /usr/local/bin/ollama
@@ -85,11 +85,11 @@ CMD ["/app/entrypoint.sh"]
 FROM runtime AS test
 USER root
 
-COPY mos-chatbot/requirements-mos-chatbot-test.txt /tmp/
-RUN pip install --no-cache-dir -r /tmp/requirements-mos-chatbot-test.txt
+COPY chatbot/requirements-chatbot-test.txt /tmp/
+RUN pip install --no-cache-dir -r /tmp/requirements-chatbot-test.txt
 
-COPY mos-chatbot/test /app/mos_chatbot/test
-COPY mos-chatbot/pytest.ini /app/pytest.ini
+COPY chatbot/test /app/chatbot/test
+COPY chatbot/pytest.ini /app/pytest.ini
 
-RUN chown -R appuser:appuser /app/mos_chatbot
+RUN chown -R appuser:appuser /app/chatbot
 USER appuser

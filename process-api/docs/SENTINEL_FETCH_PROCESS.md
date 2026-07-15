@@ -16,8 +16,8 @@ and publishes metadata to the STAC catalog.
 
 ```bash
 # After setting OPENEO_REFRESH_TOKEN in .env:
-docker compose build mos-pygeoapi
-docker compose up -d mos-pygeoapi
+docker compose build process-api
+docker compose up -d process-api
 ```
 
 The token expires ~30 days — regenerate with `scripts/get_openeo_token.sh`.

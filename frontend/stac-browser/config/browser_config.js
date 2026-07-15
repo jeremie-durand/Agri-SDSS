@@ -73,7 +73,7 @@ window.STAC_BROWSER_CONFIG = {
         },
         {
             label: "OGC Processes — PyGeoAPI",
-            url: "https://${HOST_URL}/mos-pygeoapi/"
+            url: "https://${HOST_URL}/process-api/"
         }
     ]
 };

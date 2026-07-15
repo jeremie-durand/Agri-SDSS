@@ -10,7 +10,7 @@ localhost, agri-sdss.local, caddy {
 		zone pygeoapi_exec {
 			match {
 				method POST
-				path /mos-pygeoapi/processes/*/execution
+				path /process-api/processes/*/execution
 			}
 			key    {remote_host}
 			window 5s
@@ -22,7 +22,7 @@ localhost, agri-sdss.local, caddy {
 		zone pygeoapi_browse {
 			match {
 				method GET
-				path /mos-pygeoapi/*
+				path /process-api/*
 			}
 			key    {remote_host}
 			window 5s

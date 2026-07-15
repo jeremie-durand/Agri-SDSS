@@ -18,11 +18,11 @@ License inventory of the external open-source software Agri-SDSS builds on, and 
 | [stac-fastapi / stac-fastapi-pgstac](https://github.com/stac-utils/stac-fastapi) | `stac-api` | MIT |
 | [TiTiler](https://github.com/developmentseed/titiler) | `raster-api` | MIT |
 | [TiPg](https://github.com/developmentseed/tipg) | `vector-api` (PostGIS backend) | MIT |
-| [PyGeoAPI](https://github.com/geopython/pygeoapi) | `mos-pygeoapi` (OGC Processes) | MIT |
+| [PyGeoAPI](https://github.com/geopython/pygeoapi) | `process-api` (OGC Processes) | MIT |
 | [DuckDB](https://github.com/duckdb/duckdb) | GeoParquet analytics | MIT |
 | [GDAL](https://github.com/OSGeo/gdal) | Raster processing (`gdalwarp`, COG) | MIT |
 | [STAC Browser](https://github.com/radiantearth/stac-browser) | `stac-browser` catalog UI | Apache-2.0 |
-| [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant) | `mos-chatbot` upstream | MIT (incl. Microsoft Earth Copilot portions, also MIT) |
+| [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant) | `chatbot` upstream | MIT (incl. Microsoft Earth Copilot portions, also MIT) |
 | [Ollama](https://github.com/ollama/ollama) | Optional local LLM runtime | MIT |
 | [Caddy](https://github.com/caddyserver/caddy) | TLS entry point | Apache-2.0 |
 | [caddy-ratelimit](https://github.com/mholt/caddy-ratelimit) | Rate-limiting Caddy plugin | Apache-2.0 |
@@ -64,7 +64,7 @@ Container base images (`alpine`, `python-slim`/Debian, `node-alpine`) bundle OS 
 | Library | Used by | License |
 | --- | --- | --- |
 | [Leaflet](https://github.com/Leaflet/Leaflet) | home map | BSD-2-Clause |
-| [React](https://github.com/facebook/react) + [Vite](https://github.com/vitejs/vite) | mos-chatbot-frontend | MIT |
+| [React](https://github.com/facebook/react) + [Vite](https://github.com/vitejs/vite) | chatbot-frontend | MIT |
 | [Vue.js](https://github.com/vuejs/core) | stac-browser | MIT |
 
 ## Development & CI tools (not distributed)

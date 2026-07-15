@@ -19,8 +19,8 @@ Central index for Agri-SDSS documentation. Service-specific deep-dives live next
 | `stac-api` | [stac-api/README.md](../stac-api/README.md) |
 | `vector-api` | [vector-api/README.md](../vector-api/README.md) |
 | `raster-api` | [raster-api/README.md](../raster-api/README.md) |
-| `mos-pygeoapi` | [mos-pygeoapi/README.md](../mos-pygeoapi/README.md) |
-| `mos-chatbot` | [mos-chatbot/README.md](../mos-chatbot/README.md) |
+| `process-api` | [process-api/README.md](../process-api/README.md) |
+| `chatbot` | [chatbot/README.md](../chatbot/README.md) |
 | `frontend` | [frontend/README.md](../frontend/README.md) |
 | `caddy` | [caddy/README.md](../caddy/README.md) |
 
