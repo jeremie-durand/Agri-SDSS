@@ -7,8 +7,8 @@ Currently specialized for Soil Organic Matter (SOM) potential mapping and decisi
 ## Quick start
 
 ```bash
-git clone https://github.com/Mon-Systeme-Fourrager/agri-sdss.git
-cd agri-sdss && cp .env.example .env
+git clone https://github.com/jeremie-durand/Agri-SDSS.git
+cd Agri-SDSS && cp .env.example .env
 docker compose up -d
 ```
 

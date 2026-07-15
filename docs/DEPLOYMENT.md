@@ -41,8 +41,8 @@ Notes:
 ## 1. Clone & configure
 
 ```bash
-git clone https://github.com/Mon-Systeme-Fourrager/agri-sdss.git
-cd agri-sdss
+git clone https://github.com/jeremie-durand/Agri-SDSS.git
+cd Agri-SDSS
 cp .env.example .env
 ```
 

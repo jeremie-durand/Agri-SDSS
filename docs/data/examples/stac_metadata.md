@@ -420,7 +420,7 @@ A Collection groups related Items:
       "name": "agri-sdss",
       "description": "Geospatial Data Platform",
       "roles": ["processor", "host"],
-      "url": "https://github.com/Mon-Systeme-Fourrager/agri-sdss"
+      "url": "https://github.com/jeremie-durand/Agri-SDSS"
     }
   ],
   "summaries": {

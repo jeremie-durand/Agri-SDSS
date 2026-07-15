@@ -8,7 +8,7 @@ You don't need to write code to contribute:
 
 | Contribution | Where to start |
 | --- | --- |
-| Report a bug or request a feature | [Open an issue](https://github.com/Mon-Systeme-Fourrager/agri-sdss/issues) |
+| Report a bug or request a feature | [Open an issue](https://github.com/jeremie-durand/Agri-SDSS/issues) |
 | Integrate a new dataset | [Adding new data guide](data/adding_new_data.md) — step-by-step, from source doc to pipeline ingestion |
 | Add or improve an OGC process | [Adding a new OGC process](#adding-a-new-ogc-process) below |
 | Improve documentation or FR/EN translations | Edit and open a PR — docs live in `docs/` and each service's folder |
@@ -18,9 +18,9 @@ You don't need to write code to contribute:
 
 ```bash
 # Fork the repository on GitHub, then:
-git clone https://github.com/YOUR_USERNAME/agri-sdss.git
-cd agri-sdss
-git remote add upstream https://github.com/Mon-Systeme-Fourrager/agri-sdss.git
+git clone https://github.com/YOUR_USERNAME/Agri-SDSS.git
+cd Agri-SDSS
+git remote add upstream https://github.com/jeremie-durand/Agri-SDSS.git
 
 # Configure and start the stack
 cp .env.example .env
@@ -160,7 +160,7 @@ Agri-SDSS is [MIT-licensed](../LICENSE). By contributing, you agree that your co
 ## Getting Help
 
 - Check the [documentation index](README.md)
-- Review [existing issues](https://github.com/Mon-Systeme-Fourrager/agri-sdss/issues)
+- Review [existing issues](https://github.com/jeremie-durand/Agri-SDSS/issues)
 - Ask questions in issue discussions — in English or French
 
 ## Recognition
