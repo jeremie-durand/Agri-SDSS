@@ -45,14 +45,13 @@ This project was originally developed as part of a master's degree at Universit�
 | Jérémie Durand | Lead developer & maintainer | [Université de Sherbrooke](https://www.usherbrooke.ca/) & [Mon Système Fourrager](https://msfourrager.com/) |
 | Rami Albasha | Reviewer | [Mon Système Fourrager](https://msfourrager.com/) |
 | Jules Robichaud-Gagnon | Reviewer | [Mon Système Fourrager](https://msfourrager.com/) |
-| Mickaël Germain | Reviewer | [Université de Sherbrooke](https://www.usherbrooke.ca/) |
-
-### Collaborators
-
-| Name | Role | Affiliation |
-| --- | --- | --- |
+| Mickaël Germain | Reviewer & Project supervisor | [Université de Sherbrooke](https://www.usherbrooke.ca/) |
 | Maxime Leduc | Project supervisor | [Mon Système Fourrager](https://msfourrager.com/) |
 | Yacine Bouroubi | Project supervisor | [Université de Sherbrooke](https://www.usherbrooke.ca/) |
+
+### Contributors
+
+Thanks to everyone who contributes code, issues, or reviews. All contributors are listed automatically on the [contributors graph](https://github.com/jeremie-durand/Agri-SDSS/graphs/contributors).
 
 ### Built on open-source projects
 
