@@ -1,0 +1,73 @@
+name: Chatbot Release Watcher
+
+on:
+  schedule:
+    - cron: "0 8 * * *"   # daily at 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  check-for-update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Get latest OpenGeo-AI-Assistant release tag
+        id: latest
+        run: |
+          RELEASE=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/jeremie-durand/OpenGeo-AI-Assistant/releases?per_page=1" \
+            | jq '.[0]')
+          TAG=$(echo "$RELEASE" | jq -r '.tag_name')
+          if [[ "$TAG" == "null" || -z "$TAG" ]]; then
+            echo "Could not fetch release tag — aborting" >&2
+            exit 1
+          fi
+          IS_PRERELEASE=$(echo "$RELEASE" | jq -r '.prerelease')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: Get currently pinned version
+        id: current
+        run: |
+          TAG=$(grep '^CHATBOT_VERSION=' .env.example | cut -d= -f2)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Bump CHATBOT_VERSION in all pinned files
+        if: steps.latest.outputs.tag != steps.current.outputs.tag
+        run: |
+          NEW="${{ steps.latest.outputs.tag }}"
+          sed -i "s/^CHATBOT_VERSION=.*/CHATBOT_VERSION=${NEW}/" .env.example
+          sed -i "s|\(CHATBOT_VERSION: \${CHATBOT_VERSION:-\).*\(}\)|\1${NEW}\2|" docker-compose.yml
+          sed -i "s/^ARG CHATBOT_VERSION=.*/ARG CHATBOT_VERSION=${NEW}/" mos-chatbot/Dockerfile.mos-chatbot-backend
+          sed -i "s/^ARG CHATBOT_VERSION=.*/ARG CHATBOT_VERSION=${NEW}/" mos-chatbot/Dockerfile.mos-chatbot-frontend
+
+      - name: Open PR if version differs
+        if: steps.latest.outputs.tag != steps.current.outputs.tag
+        uses: peter-evans/create-pull-request@v8
+        with:
+          commit-message: "chore: bump chatbot to ${{ steps.latest.outputs.tag }}"
+          title: "${{ steps.latest.outputs.prerelease == 'true' && '[pre-release] ' || '' }}chatbot update: ${{ steps.current.outputs.tag }} → ${{ steps.latest.outputs.tag }}"
+          body: |
+            Automated chatbot version bump.
+
+            | | |
+            |---|---|
+            | **From** | `${{ steps.current.outputs.tag }}` |
+            | **To** | `${{ steps.latest.outputs.tag }}` |
+            | **Type** | ${{ steps.latest.outputs.prerelease == 'true' && '⚠️ Pre-release — may be unstable. You can close this PR and wait for a stable release.' || '✅ Stable release' }} |
+
+            **Files updated:**
+            - `.env.example`
+            - `docker-compose.yml`
+            - `mos-chatbot/Dockerfile.mos-chatbot-backend`
+            - `mos-chatbot/Dockerfile.mos-chatbot-frontend`
+
+            **Before merging, verify:**
+            - [ ] CI security scan passes (CVE scan, secrets scan, Hadolint)
+            - [ ] `verify-overrides` job confirms all backend override paths still valid
+            - [ ] Tested locally with `make build-safe`
+            - [ ] Chatbot tools still resolve correctly against internal APIs
+            - [ ] Quebec UI components render as expected
+          branch: "chore/chatbot-${{ steps.latest.outputs.tag }}"
+          base: develop

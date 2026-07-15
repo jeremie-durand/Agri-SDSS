@@ -1,20 +1,51 @@
 version: 2
 updates:
+  # ── pip: one entry per service, one PR per dependency update ──
+  - package-ecosystem: "pip"
+    directory: "/gis-pipeline/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "pip"
+    directory: "/stac-api/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "chore"
+
   - package-ecosystem: "pip"
     directory: "/vector-api/"
     schedule:
       interval: "weekly"
       day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
     allow:
       - dependency-type: "all"
     commit-message:
-      prefix: "feat"
+      prefix: "chore"
 
-  - package-ecosystem: "docker"
-    directory: "/vector-api/"
+  - package-ecosystem: "pip"
+    directory: "/raster-api/"
     schedule:
       interval: "weekly"
       day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    allow:
+      - dependency-type: "all"
     commit-message:
       prefix: "chore"
 
@@ -23,36 +54,83 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
     allow:
       - dependency-type: "all"
     commit-message:
-      prefix: "feat"
+      prefix: "chore"
 
   - package-ecosystem: "pip"
+    directory: "/mos-chatbot/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "chore"
+
+  # ── docker: base-image pins in every service Dockerfile directory ──
+  - package-ecosystem: "docker"
     directory: "/gis-pipeline/"
     schedule:
       interval: "weekly"
       day: "monday"
-    allow:
-      - dependency-type: "all"
+      time: "06:00"
+      timezone: "America/Montreal"
     commit-message:
-      prefix: "feat"
+      prefix: "chore"
 
-  - package-ecosystem: "pip"
+  - package-ecosystem: "docker"
     directory: "/stac-api/"
     schedule:
       interval: "weekly"
       day: "monday"
-    allow:
-      - dependency-type: "all"
+      time: "06:00"
+      timezone: "America/Montreal"
     commit-message:
-      prefix: "feat"
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/vector-api/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    commit-message:
+      prefix: "chore"
 
   - package-ecosystem: "docker"
     directory: "/raster-api/"
     schedule:
       interval: "weekly"
       day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/mos-pygeoapi/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/mos-chatbot/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
     commit-message:
       prefix: "chore"
 
@@ -61,5 +139,49 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/frontend/home/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/caddy/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    commit-message:
+      prefix: "chore"
+
+  # ── docker-compose: image pins in docker-compose.yml (e.g. pgstac database) ──
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
+    commit-message:
+      prefix: "chore"
+
+  # ── GitHub Actions: one PR per action bump ──
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Montreal"
     commit-message:
       prefix: "chore"

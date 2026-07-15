@@ -16,34 +16,20 @@ jobs:
     permissions:
       contents: read
 
-    services:
-      database:
-        image: postgis/postgis:16-3.4
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: eoapi
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
       - name: Check ARGS.md is up-to-date
         run: |
+          set -a && source .env.ci && set +a
           python -m pip install --upgrade pip
-          python -m pip install pyyaml
+          python -m pip install -r gis-pipeline/requirements-gis-pipeline.txt
           PYTHONPATH=gis-pipeline/src python -m gis_pipeline.generate_args_md
           if ! git diff --quiet gis-pipeline/docs/ARGS.md; then
             echo "ARGS.md is out of sync!"
@@ -53,22 +39,14 @@ jobs:
           fi
           echo "ARGS.md is up-to-date"
 
-      - name: Build test image
-        run: docker build -f Dockerfile.test -t mos-gis-tests .
+      - name: Create .env file
+        run: cp .env.ci .env
+
+      - name: Build service images
+        run: docker compose build gis-pipeline stac-api vector-api raster-api mos-pygeoapi mos-chatbot-backend
+
+      - name: Start database
+        run: docker compose up -d database
 
       - name: Run all tests
-        env:
-          POSTGRES_HOST: database
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: eoapi
-          DUCKDB_DATA_DIR: /tmp
-        run: |
-          docker run --rm \
-            --network ${{ job.services.database.network }} \
-            -e POSTGRES_HOST=$POSTGRES_HOST \
-            -e POSTGRES_USER=$POSTGRES_USER \
-            -e POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
-            -e POSTGRES_DB=$POSTGRES_DB \
-            -e DUCKDB_DATA_DIR=$DUCKDB_DATA_DIR \
-            mos-gis-tests
+        run: make test-all
