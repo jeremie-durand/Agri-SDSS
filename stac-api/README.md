@@ -4,7 +4,7 @@ STAC 1.0.0 catalog API backed by pgSTAC. Search raster and vector datasets by sp
 
 **Port**: 8081 | **Requires**: PostGIS with pgSTAC schema
 
-Interactive API docs: `http://<host>/mos-stac/api.html`
+Interactive API docs: `http://<host>/stac-api/api.html`
 
 ## Start
 

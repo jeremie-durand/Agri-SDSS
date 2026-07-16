@@ -32,7 +32,7 @@ function _updateUI() {
 async function _loadCollections() {
     if (_collections) return _collections;
     try {
-        var r = await fetch('/mos-vector/postgis/collections?f=json&limit=500');
+        var r = await fetch('/vector-api/postgis/collections?f=json&limit=500');
         if (!r.ok) throw new Error('HTTP ' + r.status);
         var data = await r.json();
         _collections = (data.collections || []).filter(function(c) {
@@ -78,7 +78,7 @@ async function _toggle() {
 async function _addLayers() {
     var cols = await _loadCollections();
     cols.forEach(function(col) {
-        var tileUrl = '/mos-vector/postgis/collections/' + encodeURIComponent(col.id) + '/tiles/WebMercatorQuad/{z}/{x}/{y}';
+        var tileUrl = '/vector-api/postgis/collections/' + encodeURIComponent(col.id) + '/tiles/WebMercatorQuad/{z}/{x}/{y}';
         var layer = L.vectorGrid.protobuf(tileUrl, {
             vectorTileLayerStyles: {
                 'default': {

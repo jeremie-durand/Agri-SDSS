@@ -11,7 +11,7 @@
 
   /* ── Banner DOM ─────────────────────────────────────────────────────────── */
   var banner = document.createElement('div');
-  banner.id = 'mos-map-context';
+  banner.id = 'sdss-map-context';
   Object.assign(banner.style, {
     display:        'none',
     position:       'sticky',
@@ -72,7 +72,7 @@
 
   /* ── Helpers ────────────────────────────────────────────────────────────── */
   function mountBanner() {
-    if (!document.getElementById('mos-map-context') && document.body) {
+    if (!document.getElementById('sdss-map-context') && document.body) {
       document.body.insertBefore(banner, document.body.firstChild);
     }
   }
@@ -150,11 +150,11 @@
     analyseBtn.disabled = true;
 
     var vectorUrl = id && col
-      ? '/mos-vector/parquet/collections/' + encodeURIComponent(col) + '/items/' + encodeURIComponent(id)
+      ? '/vector-api/parquet/collections/' + encodeURIComponent(col) + '/items/' + encodeURIComponent(id)
       : null;
 
     Promise.all([
-      fetchJson('/mos-stac/collections'),
+      fetchJson('/stac-api/collections'),
       vectorUrl ? fetchJson(vectorUrl) : Promise.resolve(null)
     ]).then(function (results) {
       var stacResult  = results[0];
@@ -282,7 +282,7 @@
   }
 
   function sendTileUrl(url) {
-    url = url.replace(/^\/api\/raster\//, '/mos-raster/');
+    url = url.replace(/^\/api\/raster\//, '/raster-api/');
     window.parent.postMessage({ type: 'AGRI_SDSS_TILES', url: url }, '*');
   }
 
@@ -443,14 +443,14 @@
     });
 
     function start() {
-      var lang = localStorage.getItem('mos-lang') || 'fr';
+      var lang = localStorage.getItem('sdss-lang') || 'fr';
       if (lang === 'fr' && !applyWelcome('fr')) {
         observer.observe(document.body, { childList: true, subtree: true });
       }
     }
 
     // Handle language switch while already on the chatbot page
-    window.addEventListener('mos-lang-change', function (e) {
+    window.addEventListener('sdss-lang-change', function (e) {
       applyWelcome(e.detail.lang);
     });
 

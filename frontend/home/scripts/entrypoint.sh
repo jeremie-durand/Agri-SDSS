@@ -54,7 +54,7 @@ server {
         sub_filter 'src="/config.js"'   'src="/stac/config.js"';
         sub_filter 'src="/sw.js"'       'src="/stac/sw.js"';
         sub_filter '"/mitm.html"'       '"/stac/mitm.html"';
-        sub_filter '<body>' '<body><script src="/mos-nav.js"></script>';
+        sub_filter '<body>' '<body><script src="/sdss-nav.js"></script>';
     }
     location /stac/js/       { proxy_pass http://stac-browser:8080/js/; }
     location /stac/css/      { proxy_pass http://stac-browser:8080/css/; }
@@ -75,7 +75,7 @@ server {
         sub_filter 'href="/favicon.svg"'  'href="/chatbot/favicon.svg"';
         sub_filter 'src="/env-config.js"' 'src="/chatbot/env-config.js"';
         sub_filter '<head>'               '<head><script src="/js/chatbot-bridge.js"></script>';
-        sub_filter '<body>' '<body><script src="/mos-nav.js"></script>';
+        sub_filter '<body>' '<body><script src="/sdss-nav.js"></script>';
         proxy_hide_header X-Frame-Options;
         add_header X-Frame-Options SAMEORIGIN;
     }
@@ -111,13 +111,13 @@ server {
     }
 
     # ── Local Agri-SDSS API proxies (used by chatbot-bridge.js) ────────────────
-    location /mos-stac/ {
+    location /stac-api/ {
         proxy_pass http://stac-api:8080/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         add_header Access-Control-Allow-Origin *;
     }
-    location /mos-vector/ {
+    location /vector-api/ {
         proxy_pass http://vector-api:8080/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -126,9 +126,9 @@ server {
         proxy_read_timeout 120s;
         sub_filter_once off;
         sub_filter_types text/html;
-        sub_filter "url: '/postgis/api'" "url: '/mos-vector/postgis/api'";
+        sub_filter "url: '/postgis/api'" "url: '/vector-api/postgis/api'";
     }
-    location /mos-raster/ {
+    location /raster-api/ {
         proxy_pass http://raster-api:8080/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -151,7 +151,7 @@ server {
     }
 
     # Serve nav-inject.js at a stable path that STAC's sub_filter won't rewrite.
-    location = /mos-nav.js {
+    location = /sdss-nav.js {
         alias /usr/share/nginx/html/js/nav-inject.js;
         add_header Cache-Control "no-cache, must-revalidate";
     }

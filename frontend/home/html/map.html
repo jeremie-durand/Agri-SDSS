@@ -15,7 +15,7 @@
 <body>
 
 <nav class="unified-nav" role="navigation">
-  <a class="unified-nav__brand" href="/">MOS<span>-GIS</span></a>
+  <a class="unified-nav__brand" href="/">Agri<span>-SDSS</span></a>
   <div class="unified-nav__links">
     <a class="unified-nav__link active" href="/" data-nav="map">Map</a>
     <a class="unified-nav__link" href="/services" data-nav="services">Services</a>
@@ -59,12 +59,6 @@
             <p class="legend" id="aacStatus"></p>
             <p class="legend aac-not-live-notice" id="aacNotLiveNotice" hidden></p>
             <div class="vector-list" id="aacList"></div>
-        </section>
-
-        <section class="tool-box">
-            <h2 data-i18n="background-title">Background data</h2>
-            <p class="legend" id="grhqStatus"></p>
-            <div class="vector-list" id="grhqList"></div>
         </section>
 
         <section class="tool-box">
@@ -366,7 +360,7 @@
 
 <div class="chat-panel" id="chatPanel" hidden>
   <div class="chat-panel__header">
-    <span>MOS Assistant</span>
+    <span>Agri-SDSS Assistant</span>
     <button class="chat-panel__close" id="chatClose" aria-label="Close">&#x2715;</button>
   </div>
   <div class="chat-messages" id="chatMessages"></div>
@@ -713,7 +707,7 @@
     }
   };
 
-  var lang = localStorage.getItem('mos-lang') || 'en';
+  var lang = localStorage.getItem('sdss-lang') || 'en';
   window.T = T;
   window.lang = lang;
 
@@ -734,7 +728,7 @@
     var chatInput = document.getElementById('chatInput');
     if (chatInput) chatInput.setAttribute('placeholder', T[l]['placeholder-chat']);
     document.getElementById('langToggle').textContent = l === 'en' ? 'FR' : 'EN';
-    localStorage.setItem('mos-lang', l);
+    localStorage.setItem('sdss-lang', l);
   }
 
   document.getElementById('langToggle').addEventListener('click', function() {

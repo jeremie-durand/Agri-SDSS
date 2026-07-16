@@ -70,7 +70,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# External path prefix used by the reverse proxy (e.g. /mos-vector).
+# External path prefix used by the reverse proxy (e.g. /vector-api).
 # Used only for URL generation in docs and self-links — NOT passed to uvicorn
 # as --root-path, which would break Starlette's sub-app mount resolution.
 _EXTERNAL_ROOT = os.getenv("APP_ROOT_PATH", "").rstrip("/")

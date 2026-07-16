@@ -63,7 +63,7 @@
 <body>
 
 <nav class="unified-nav" role="navigation">
-  <a class="unified-nav__brand" href="/">MOS<span>-GIS</span></a>
+  <a class="unified-nav__brand" href="/">Agri<span>-SDSS</span></a>
   <div class="unified-nav__links">
     <a class="unified-nav__link" href="/" data-nav="map">Map</a>
     <a class="unified-nav__link" href="/services" data-nav="services">Services</a>
@@ -76,7 +76,7 @@
 
 <header aria-label="Agri-SDSS Data Sources">
   <div class="header-left">
-    <div class="header-wordmark" aria-hidden="true">MOS<span>-GIS</span></div>
+    <div class="header-wordmark" aria-hidden="true">Agri<span>-SDSS</span></div>
     <p data-i18n="header-desc">
       Catalogue des données sources intégrées dans la plateforme Agri-SDSS.
       Chaque source est ingérée, validée et publiée via le pipeline géospatial
@@ -452,7 +452,7 @@
     }
   };
 
-  var lang = localStorage.getItem('mos-lang') || 'fr';
+  var lang = localStorage.getItem('sdss-lang') || 'fr';
 
   function applyLang(l) {
     lang = l;
@@ -468,7 +468,7 @@
     var btn = document.getElementById('langToggle');
     btn.textContent = l === 'en' ? 'FR' : 'EN';
     btn.setAttribute('aria-label', l === 'en' ? 'Changer la langue en français' : 'Switch to English');
-    localStorage.setItem('mos-lang', l);
+    localStorage.setItem('sdss-lang', l);
   }
 
   document.getElementById('langToggle').addEventListener('click', function() {

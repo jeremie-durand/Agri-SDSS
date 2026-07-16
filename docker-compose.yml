@@ -169,7 +169,7 @@ services:
       - STAC_API_PORT=${STAC_API_PORT}
       - CORS_ORIGINS=${CORS_ORIGINS:-${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}}
       - WEB_CONCURRENCY=2
-      - APP_ROOT_PATH=/mos-stac
+      - APP_ROOT_PATH=/stac-api
     working_dir: /app
     volumes:
       - ./stac-api/test:/app/stac_api/test
@@ -210,7 +210,7 @@ services:
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
       - RASTER_API_PORT=${RASTER_API_PORT}
-      - APP_ROOT_PATH=/mos-raster
+      - APP_ROOT_PATH=/raster-api
       - WEB_CONCURRENCY=2
       - GDAL_CACHEMAX=200
     working_dir: /app
@@ -249,7 +249,7 @@ services:
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
       - VECTOR_API_PORT=${VECTOR_API_PORT}
-      - APP_ROOT_PATH=/mos-vector
+      - APP_ROOT_PATH=/vector-api
       - TIPG_FALLBACK_KEY_NAMES=["gid"]
       - TIPG_DB_SPATIAL_EXTENT=false
       - DUCKDB_DATA_DIR=/data/duckdb

@@ -69,7 +69,7 @@ function buildVectorLayer(collectionId, featureCollection) {
 
 function buildVectorTileLayer(collectionId, color) {
     const postgisId = 'public.' + collectionId;
-    const tileUrl = '/mos-vector/postgis/collections/' + encodeURIComponent(postgisId) + '/tiles/WebMercatorQuad/{z}/{x}/{y}?limit=500';
+    const tileUrl = '/vector-api/postgis/collections/' + encodeURIComponent(postgisId) + '/tiles/WebMercatorQuad/{z}/{x}/{y}?limit=500';
     const vtLayer = L.vectorGrid.protobuf(tileUrl, {
         maxRequests: 4,
         maxNativeZoom: 15,
@@ -99,7 +99,7 @@ function buildVectorTileLayer(collectionId, color) {
         const searchPad = 0.0002;
         const clickBbox = [e.latlng.lng - searchPad, e.latlng.lat - searchPad, e.latlng.lng + searchPad, e.latlng.lat + searchPad].join(',');
         const snap = feature;
-        fetch('/mos-vector/parquet/collections/' + collectionId + '/items?bbox=' + clickBbox + '&limit=10&f=json')
+        fetch('/vector-api/parquet/collections/' + collectionId + '/items?bbox=' + clickBbox + '&limit=10&f=json')
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(fc) {
                 var areaEl = document.getElementById('somArea');
@@ -160,7 +160,7 @@ export async function setVectorCollectionVisible(collectionId, shouldShow, zoomT
         if (!itemsUrl) { _setVectorStatus(`Vector: URL items introuvable pour ${collectionId}.`); return; }
 
         const postgisId = 'public.' + collectionId;
-        const tileJsonUrl = '/mos-vector/postgis/collections/' + encodeURIComponent(postgisId) + '/tiles/WebMercatorQuad/tilejson.json';
+        const tileJsonUrl = '/vector-api/postgis/collections/' + encodeURIComponent(postgisId) + '/tiles/WebMercatorQuad/tilejson.json';
         let useTiles = skipTileProbe;
         if (!useTiles) {
             try { const probe = await fetch(tileJsonUrl); useTiles = probe.ok; } catch(_) {}
@@ -332,7 +332,7 @@ function _renderBdppadList(collections) {
     });
 }
 
-const _BDPPAD_CACHE_KEY = 'mos_bdppad_postgis_v1';
+const _BDPPAD_CACHE_KEY = 'sdss_bdppad_postgis_v1';
 
 export async function loadBdppadCollections() {
     const tL = function() { return (window.T && window.T[window.lang]) || (window.T && window.T.fr) || {}; };
@@ -345,7 +345,7 @@ export async function loadBdppadCollections() {
     } catch(_) {}
 
     if (bdppads && bdppads.length) {
-        vectorState.collectionsEndpoint = '/mos-vector/parquet/collections';
+        vectorState.collectionsEndpoint = '/vector-api/parquet/collections';
         const others = vectorState.collections.filter(function(c) { return !c.id.startsWith('bdppad'); });
         vectorState.collections = others.concat(bdppads);
         _renderBdppadList(bdppads);
@@ -357,7 +357,7 @@ export async function loadBdppadCollections() {
     }
 
     // Phase 2 — first load: show "Chargement…" then fetch list and select most recent year
-    vectorState.collectionsEndpoint = '/mos-vector/parquet/collections';
+    vectorState.collectionsEndpoint = '/vector-api/parquet/collections';
     if (bdppadListEl) {
         bdppadListEl.innerHTML = '';
         const loadingHint = document.createElement('p');
@@ -374,7 +374,7 @@ export async function loadBdppadCollections() {
 
 async function _refreshBdppadList() {
     const tL = function() { return (window.T && window.T[window.lang]) || (window.T && window.T.fr) || {}; };
-    const r = await fetch('/mos-vector/postgis/collections?f=json&limit=500');
+    const r = await fetch('/vector-api/postgis/collections?f=json&limit=500');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     const all = Array.isArray(data.collections) ? data.collections : [];
@@ -386,7 +386,7 @@ async function _refreshBdppadList() {
     bdppads.sort(function(a, b) { return _extractYear(b.id).localeCompare(_extractYear(a.id)); });
     try { sessionStorage.setItem(_BDPPAD_CACHE_KEY, JSON.stringify(bdppads)); } catch(_) {}
 
-    vectorState.collectionsEndpoint = '/mos-vector/parquet/collections';
+    vectorState.collectionsEndpoint = '/vector-api/parquet/collections';
     const others = vectorState.collections.filter(function(c) { return !c.id.startsWith('bdppad'); });
     vectorState.collections = others.concat(bdppads);
 

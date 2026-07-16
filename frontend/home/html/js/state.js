@@ -1,7 +1,7 @@
 // ── Default API endpoints (must come before state objects that reference them) ─
-export const defaultStacEndpoint = `${window.location.origin}/mos-stac/`;
-export const defaultVectorEndpoint = `${window.location.origin}/mos-vector/parquet/collections`;
-export const defaultRasterApiBase = `${window.location.origin}/mos-raster`;
+export const defaultStacEndpoint = `${window.location.origin}/stac-api/`;
+export const defaultVectorEndpoint = `${window.location.origin}/vector-api/parquet/collections`;
+export const defaultRasterApiBase = `${window.location.origin}/raster-api`;
 export const defaultRasterCogUrl = "file:///data/corg_fr_siigsol_cog.tif";
 export const defaultVectorCollectionId = "bdppad_v03_an_2025_s_20260504";
 export const defaultView = { center: [46.8139, -71.2080], zoom: 6 };

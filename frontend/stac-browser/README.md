@@ -14,8 +14,8 @@ docker compose up -d stac-browser
 
 ## Key behaviours
 
-- **Proxy-based URLs** — the catalog URL points at the nginx proxy (`https://${HOST_URL}/mos-stac/`), not the stac-api port directly; tile previews go through `/mos-raster/`. No CORS configuration needed.
-- **Bilingual FR/EN** — `preprocessSTAC` swaps collection titles and descriptions based on the `mos-lang` localStorage key set by the shared nav bar.
+- **Proxy-based URLs** — the catalog URL points at the nginx proxy (`https://${HOST_URL}/stac-api/`), not the stac-api port directly; tile previews go through `/raster-api/`. No CORS configuration needed.
+- **Bilingual FR/EN** — `preprocessSTAC` swaps collection titles and descriptions based on the `sdss-lang` localStorage key set by the shared nav bar.
 - **COG rendering** — `buildTileUrlTemplate` sends COG assets to the raster-api tile endpoint for interactive map display.
 - **Config is a startup template** — `config.js` is expanded by `entrypoint.sh` with `envsubst` (`${HOST_URL}`, `${STAC_BROWSER_PORT}`) every time the container starts. Edits made inside a running container are overwritten on restart — always change `config/browser_config.js` and rebuild.
 

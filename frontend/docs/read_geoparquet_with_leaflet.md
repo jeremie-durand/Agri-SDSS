@@ -52,7 +52,7 @@ sequenceDiagram
 
 In this implementation:
 
-- Leaflet uses **Vector API collections endpoint** (`/mos-vector/parquet/collections` via the nginx proxy) configured in the UI as "Vector API collections endpoint".
+- Leaflet uses **Vector API collections endpoint** (`/vector-api/parquet/collections` via the nginx proxy) configured in the UI as "Vector API collections endpoint".
 - When the user clicks "Charger", the frontend:
   - Fetches the list of collections from the Vector API.
   - Builds the "items" URL for each collection (from its links or `/collections/{id}/items`).

@@ -93,9 +93,9 @@ async function _loadVector() {
     pqStatus.hidden = false;
 
     var [pgResult, pqResult] = await Promise.allSettled([
-        fetch('/mos-vector/postgis/collections?f=json&limit=500')
+        fetch('/vector-api/postgis/collections?f=json&limit=500')
             .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
-        fetch('/mos-vector/parquet/collections?f=json')
+        fetch('/vector-api/parquet/collections?f=json')
             .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     ]);
 
@@ -129,7 +129,7 @@ async function _loadStac() {
     statusEl.hidden = false;
 
     try {
-        var r = await fetch('/mos-stac/collections?f=json');
+        var r = await fetch('/stac-api/collections?f=json');
         if (!r.ok) throw new Error('HTTP ' + r.status);
         var data = await r.json();
         var colls = Array.isArray(data.collections) ? data.collections : [];

@@ -1,6 +1,6 @@
 window.STAC_BROWSER_CONFIG = {
-    catalogUrl: "https://${HOST_URL}/mos-stac/",
-    catalogTitle: (localStorage.getItem('mos-lang') || 'fr') === 'fr' ? 'Catalogue STAC' : 'STAC Catalog',
+    catalogUrl: "https://${HOST_URL}/stac-api/",
+    catalogTitle: (localStorage.getItem('sdss-lang') || 'fr') === 'fr' ? 'Catalogue STAC' : 'STAC Catalog',
     allowExternalAccess: true,
     allowedDomains: [],
     detectLocaleFromBrowser: true,
@@ -13,11 +13,11 @@ window.STAC_BROWSER_CONFIG = {
     displayGeoTiffByDefault: true,
     buildTileUrlTemplate: function(opts) {
         var href = opts.href, asset = opts.asset;
-        return "https://${HOST_URL}/mos-raster/cog/tiles/{z}/{x}/{y}@2x?url=" +
+        return "https://${HOST_URL}/raster-api/cog/tiles/{z}/{x}/{y}@2x?url=" +
             encodeURIComponent(asset.href.indexOf("/vsi") === 0 ? asset.href : href);
     },
     preprocessSTAC: function(stac) {
-        var lang = localStorage.getItem('mos-lang') || 'fr';
+        var lang = localStorage.getItem('sdss-lang') || 'fr';
         var fr = lang === 'fr';
 
         // Catalog root: translate title and description
@@ -65,11 +65,11 @@ window.STAC_BROWSER_CONFIG = {
     footerLinks: [
         {
             label: "Raster API — COG Tiles",
-            url: "https://${HOST_URL}/mos-raster/"
+            url: "https://${HOST_URL}/raster-api/"
         },
         {
             label: "Vector API — OGC Features",
-            url: "https://${HOST_URL}/mos-vector/"
+            url: "https://${HOST_URL}/vector-api/"
         },
         {
             label: "OGC Processes — PyGeoAPI",

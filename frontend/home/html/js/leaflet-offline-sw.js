@@ -28,9 +28,9 @@ self.addEventListener("fetch", (event) => {
     const request = event.request;
     const url = new URL(request.url);
 
-    // Only cache Raster API tiles (/mos-raster/). Explicitly exclude /mos-vector/
+    // Only cache Raster API tiles (/raster-api/). Explicitly exclude /vector-api/
     // so MVT vector tiles always bypass this SW and go directly to nginx.
-    const isRasterTile = url.pathname.startsWith("/mos-raster/")
+    const isRasterTile = url.pathname.startsWith("/raster-api/")
         && (url.pathname.includes("/tiles/") || url.pathname.includes("/cog/tiles/"));
     if (!isRasterTile || request.method !== "GET") {
         return;

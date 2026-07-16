@@ -10,7 +10,7 @@ var _somBoundaryLayer = null;
  */
 export function initSomBoundaryLayer(checkbox) {
     _somBoundaryLayer = L.vectorGrid.protobuf(
-        '/mos-vector/postgis/collections/public.som_field_boundaries/tiles/WebMercatorQuad/{z}/{x}/{y}',
+        '/vector-api/postgis/collections/public.som_field_boundaries/tiles/WebMercatorQuad/{z}/{x}/{y}',
         {
             vectorTileLayerStyles: {
                 default: function(props) {

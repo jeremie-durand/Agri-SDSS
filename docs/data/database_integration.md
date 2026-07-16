@@ -9,7 +9,7 @@ This mirrors the standard pattern in comparable platforms (eoAPI/pgSTAC deployme
 - **Load isolation** — pipeline runs generate heavy insert bursts and sustained tile traffic can push the database to its CPU ceiling (measured during load tests). On a shared instance, that load would slow the business application.
 - **Independent lifecycles** — pgSTAC owns its schema and migrations; Agri-SDSS upgrades PostgreSQL/PostGIS/pgSTAC at its own pace without locking the organizational database to the same versions.
 - **Exposure** — Agri-SDSS is Internet-facing through its APIs. Its database can be overloaded or compromised without touching the organizational database, which stays internal.
-- **Consumers don't need DB access** — systems that want Agri-SDSS data consume its HTTP APIs (OGC API Features at `/mos-vector/`, tiles at `/mos-raster/`, STAC at `/mos-stac/`), which survive schema changes that would break database-level coupling.
+- **Consumers don't need DB access** — systems that want Agri-SDSS data consume its HTTP APIs (OGC API Features at `/vector-api/`, tiles at `/raster-api/`, STAC at `/stac-api/`), which survive schema changes that would break database-level coupling.
 
 ## Agri-SDSS database facts
 

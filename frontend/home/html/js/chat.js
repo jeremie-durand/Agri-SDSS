@@ -129,7 +129,7 @@ async function addTileLayer(tjUrl, bbox) {
         var tj = await r.json();
         var tileUrl = tj.tiles && tj.tiles[0];
         if (!tileUrl) return;
-        tileUrl = tileUrl.replace(/^\/api\/raster\//, '/mos-raster/');
+        tileUrl = tileUrl.replace(/^\/api\/raster\//, '/raster-api/');
         // zIndex 650 puts the overlay above Leaflet's tilePane (200) and overlayPane (400).
         // No bounds restriction — auto-navigation already zooms to the right area,
         // and bounding would hide tiles when the MODIS grid cell doesn't align with

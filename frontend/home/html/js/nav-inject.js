@@ -5,12 +5,12 @@
   };
 
   function inject() {
-    if (document.getElementById('mos-nav-host')) return;
+    if (document.getElementById('sdss-nav-host')) return;
 
-    var lang = localStorage.getItem('mos-lang') || 'fr';
+    var lang = localStorage.getItem('sdss-lang') || 'fr';
 
     var host = document.createElement('div');
-    host.id = 'mos-nav-host';
+    host.id = 'sdss-nav-host';
 
     // All layout + visual styles inline with !important.
     // Shadow DOM :host styles lose to host-page author styles,
@@ -71,13 +71,13 @@
         'border:1px solid #2a2e45;cursor:pointer;transition:background .15s,color .15s;}' +
         'button.lang:hover{background:#22263a;color:#e8eaf0;}' +
         '</style>' +
-        '<a class="brand" href="/">MOS<span>-GIS</span></a>' +
+        '<a class="brand" href="/">Agri<span>-SDSS</span></a>' +
         '<div class="links">' + linksHtml + '</div>' +
         '<button class="lang" id="navLangToggle" aria-label="Switch language">' + (l === 'fr' ? 'EN' : 'FR') + '</button>';
 
       shadow.getElementById('navLangToggle').addEventListener('click', function () {
         lang = lang === 'fr' ? 'en' : 'fr';
-        localStorage.setItem('mos-lang', lang);
+        localStorage.setItem('sdss-lang', lang);
         // STAC browser caches the catalog on first load; reload so preprocessSTAC
         // re-runs with the new language and updates the title and description.
         if (window.location.pathname.startsWith('/stac/')) {
@@ -85,7 +85,7 @@
         } else {
           renderNav(lang);
           // Notify scripts in the same document (e.g. chatbot-bridge.js) of the change.
-          window.dispatchEvent(new CustomEvent('mos-lang-change', { detail: { lang: lang } }));
+          window.dispatchEvent(new CustomEvent('sdss-lang-change', { detail: { lang: lang } }));
         }
       });
     }

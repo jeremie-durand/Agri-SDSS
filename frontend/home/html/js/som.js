@@ -117,7 +117,7 @@ async function somPredictFindField() {
                      coordinates: [(b.getWest() + b.getEast()) / 2, (b.getSouth() + b.getNorth()) / 2] };
         }
 
-        var r = await fetch('/mos-vector/som-field-match', {
+        var r = await fetch('/vector-api/som-field-match', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ geometry: geom })
@@ -844,7 +844,7 @@ export async function somAutoGenCorg() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/mos-raster/cog/statistics?url=file:///data/corg_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await fetch('/raster-api/cog/statistics?url=file:///data/corg_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -873,7 +873,7 @@ export async function somAutoGenPh() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/mos-raster/cog/statistics?url=file:///data/ph_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await fetch('/raster-api/cog/statistics?url=file:///data/ph_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -902,7 +902,7 @@ export async function somAutoGenSable() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/mos-raster/cog/statistics?url=file:///data/sable_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await fetch('/raster-api/cog/statistics?url=file:///data/sable_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -931,7 +931,7 @@ export async function somAutoGenLimon() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/mos-raster/cog/statistics?url=file:///data/limon_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await fetch('/raster-api/cog/statistics?url=file:///data/limon_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -960,7 +960,7 @@ export async function somAutoGenArgile() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/mos-raster/cog/statistics?url=file:///data/argile_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await fetch('/raster-api/cog/statistics?url=file:///data/argile_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -989,7 +989,7 @@ export async function somAutoGenCec() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/mos-raster/cog/statistics?url=file:///data/cec_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await fetch('/raster-api/cog/statistics?url=file:///data/cec_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -1014,7 +1014,7 @@ export async function somAutoGenCec() {
 // The datetime query param is not supported on the pgSTAC items endpoint, so we
 // fetch up to 20 intersecting items and match dates client-side.
 async function _searchStacItem(collection, bb, startDate, endDate) {
-    var url = '/mos-stac/collections/' + collection + '/items?bbox='
+    var url = '/stac-api/collections/' + collection + '/items?bbox='
         + bb.map(function(v) { return (+v).toFixed(4); }).join(',')
         + '&limit=20';
     var r = await fetch(url);
@@ -1228,7 +1228,7 @@ export async function somAutoGenPedo() {
     try {
         var geom = somContext.feature && somContext.feature.geometry;
         if (!geom) throw new Error('No feature geometry');
-        var r = await fetch('/mos-vector/pedo-coverage', {
+        var r = await fetch('/vector-api/pedo-coverage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ geometry: geom })
@@ -1260,7 +1260,7 @@ export async function somAutoGenWater() {
     try {
         var geom = somContext.feature && somContext.feature.geometry;
         if (!geom) throw new Error('No feature geometry');
-        var r = await fetch('/mos-vector/water-distance', {
+        var r = await fetch('/vector-api/water-distance', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ geometry: geom })

@@ -9,7 +9,7 @@ The unified entry point for Agri-SDSS. A static nginx frontend that serves the L
 **Home** is the single URL users visit. It provides:
 - **Interactive map**: Leaflet-based map with vector parcels, raster overlays, SOM analysis, and STAC item visualization
 - **Unified navigation**: A shared nav bar injected into every sub-application (STAC Browser, Chatbot) via nginx `sub_filter`
-- **Reverse proxy**: Routes `/stac/`, `/chatbot/`, `/mos-stac/`, `/mos-vector/`, `/mos-raster/`, `/process-api/` to the appropriate services — no CORS issues for the browser
+- **Reverse proxy**: Routes `/stac/`, `/chatbot/`, `/stac-api/`, `/vector-api/`, `/raster-api/`, `/process-api/` to the appropriate services — no CORS issues for the browser
 - **Chatbot bridge**: `chatbot-bridge.js` injected into the chatbot iframe to relay map context and tile commands between the chatbot and the Leaflet map via `postMessage`
 - **Bilingual interface**: EN / FR language toggle across all pages
 
@@ -33,9 +33,9 @@ graph TD
     Home -->|/stac/| STAC[stac-browser<br/>:8085]
     Home -->|/chatbot/| Chatbot[chatbot-frontend<br/>:3001]
 
-    Home -->|/mos-stac/| StacAPI[stac-api<br/>:8081]
-    Home -->|/mos-vector/| VectorAPI[vector-api<br/>:8083]
-    Home -->|/mos-raster/| RasterAPI[raster-api<br/>:8082]
+    Home -->|/stac-api/| StacAPI[stac-api<br/>:8081]
+    Home -->|/vector-api/| VectorAPI[vector-api<br/>:8083]
+    Home -->|/raster-api/| RasterAPI[raster-api<br/>:8082]
     Home -->|/process-api/| PyGeoAPI[process-api<br/>:5000]
     Home -->|/api, /chat, ...| ChatbotAPI[chatbot-backend<br/>:8005]
 
@@ -45,7 +45,7 @@ graph TD
 
 **Request flow:**
 1. **User opens** `http://<host>:8084` → nginx serves `map.html`
-2. **Map loads** → fetches vector collections from `/mos-vector/`, STAC items from `/mos-stac/`, tiles from `/mos-raster/`
+2. **Map loads** → fetches vector collections from `/vector-api/`, STAC items from `/stac-api/`, tiles from `/raster-api/`
 3. **User navigates to `/stac/`** → nginx proxies to stac-browser and injects the shared nav bar
 4. **User opens `/chatbot/`** → nginx proxies to chatbot frontend and injects both `chatbot-bridge.js` and the nav bar
 5. **Chatbot bridge** relays `AGRI_SDSS_CONTEXT` (parcel click), `AGRI_SDSS_ZOOM`, and `AGRI_SDSS_TILES` messages between the chatbot and the Leaflet map
@@ -106,9 +106,9 @@ The main page. Modules loaded via ES imports from `html/js/`:
 |--------|------|
 | `app.js` | Entry point — wires map events, basemap switcher, nav buttons |
 | `state.js` | Shared Leaflet map instance and layer registry |
-| `vector.js` | BDPPAD parcel collections from `/mos-vector/parquet/collections` |
-| `raster.js` | COG tile overlays via `/mos-raster/cog/tiles/` |
-| `stac.js` | STAC item footprints from `/mos-stac/` |
+| `vector.js` | BDPPAD parcel collections from `/vector-api/parquet/collections` |
+| `raster.js` | COG tile overlays via `/raster-api/cog/tiles/` |
+| `stac.js` | STAC item footprints from `/stac-api/` |
 | `som.js` + `som_layers.js` | SOM analysis panel and boundary layers |
 | `aac.js` | Agriculture Canada crop layer (proxied via `/aac-identify/`) |
 | `grhq.js` | GRHQ hydrological network layer |
@@ -119,7 +119,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 
 ### Unified Navigation
 
-`nav-inject.js` is served at `/mos-nav.js` and injected into every sub-application via nginx `sub_filter`:
+`nav-inject.js` is served at `/sdss-nav.js` and injected into every sub-application via nginx `sub_filter`:
 - Injected into STAC Browser HTML (`<body>`)
 - Injected into Chatbot HTML (`<body>`)
 - Provides EN/FR language toggle and links to all pages
@@ -143,9 +143,9 @@ The main page. Modules loaded via ES imports from `html/js/`:
 | `/chatbot/` | `chatbot-frontend:3001` | `sub_filter` injects chatbot-bridge.js and nav |
 | `/api/`, `/chat/`, `/query/`, etc. | `chatbot-backend:8000` | Chatbot SPA uses `window.location.origin` as base URL |
 | `/sdss/` | `chatbot-backend:8000` | SDSS spatial process routes |
-| `/mos-stac/` | `stac-api` | Used by chatbot-bridge.js |
-| `/mos-vector/` | `vector-api` | Used by chatbot-bridge.js and map |
-| `/mos-raster/` | `raster-api` | Used for tile overlays |
+| `/stac-api/` | `stac-api` | Used by chatbot-bridge.js |
+| `/vector-api/` | `vector-api` | Used by chatbot-bridge.js and map |
+| `/raster-api/` | `raster-api` | Used for tile overlays |
 | `/process-api/` | `process-api:5000` | 630s read timeout for long-running processes |
 | `/aac-identify/` | `agriculture.canada.ca` | CORS proxy for AAC imagery service |
 
@@ -186,7 +186,7 @@ docker compose exec home cat /etc/nginx/conf.d/default.conf
 
 ```bash
 # Verify sub_filter is working — check that nav injection is in the served HTML
-curl -s http://<host>:8084/stac/ | grep mos-nav.js
+curl -s http://<host>:8084/stac/ | grep sdss-nav.js
 ```
 
 ### Chatbot bridge not relaying map commands

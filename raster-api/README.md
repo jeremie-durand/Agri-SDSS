@@ -4,7 +4,7 @@ OGC raster service built on TiTiler. Serves Cloud-Optimized GeoTIFFs (COGs) as m
 
 **Port**: 8082 | **Requires**: COG files in `data/output/raster_cog/`
 
-Interactive API docs: `http://<host>/mos-raster/api.html`
+Interactive API docs: `http://<host>/raster-api/api.html`
 
 ## Start
 

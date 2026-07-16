@@ -4,7 +4,7 @@ OGC API – Features service with two backends: **PostGIS** (via TiPg) and **Duc
 
 **Port**: 8083 | **Requires**: PostGIS; DuckDB Parquet files in `data/duckdb/`
 
-Interactive API docs: `http://<host>/mos-vector/postgis/api.html` (PostGIS) · `http://<host>/mos-vector/parquet/api.html` (Parquet)
+Interactive API docs: `http://<host>/vector-api/postgis/api.html` (PostGIS) · `http://<host>/vector-api/parquet/api.html` (Parquet)
 
 ## Start
 
