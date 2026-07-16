@@ -1,3 +1,7 @@
+build:
+	mkdir -p data/input data/duckdb/duckdb_extensions data/output/raster_cog
+	docker compose build || docker compose build
+
 test-all: test-gis-pipeline test-stac-api test-vector-api test-raster-api test-process-api test-chatbot
 	docker compose up -d --force-recreate --wait vector-api raster-api process-api
 	docker compose restart home
@@ -41,7 +45,7 @@ test-caddy:
 	@echo "Restoring production Caddyfile..."
 	docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
-.PHONY: lint-dockerfiles scan-secrets test-caddy generate-args
+.PHONY: build lint-dockerfiles scan-secrets test-caddy generate-args
 
 lint-dockerfiles:
 	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < chatbot/Dockerfile.chatbot-backend
