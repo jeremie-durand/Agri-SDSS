@@ -51,6 +51,8 @@ This project was originally developed as part of a master's degree at UniversitÃ
 
 ### Contributors
 
+- Hamed Etezadi â€” author of the mos-predict SOM prediction model, integrated into the process-api.
+
 Thanks to everyone who contributes code, issues, or reviews. All contributors are listed automatically on the [contributors graph](https://github.com/jeremie-durand/Agri-SDSS/graphs/contributors).
 
 ### Built on open-source projects
