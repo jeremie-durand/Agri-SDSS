@@ -1716,3 +1716,27 @@ class TestStampGeeFlags:
         mock_engine.begin.side_effect = sqlalchemy.exc.SQLAlchemyError("DB gone")
         with pytest.raises(RuntimeError, match="Failed to stamp GEE flags"):
             postgis_manager.stamp_gee_flags("som_field_boundaries", {1})
+
+
+# ------------------------------------------
+# PostGISManager.has_table
+# ------------------------------------------
+
+
+@pytest.mark.unit
+class TestHasTable:
+    def test_returns_true_when_table_exists(self, postgis_manager):
+        """has_table must reflect the SQLAlchemy inspector result."""
+        with patch(
+            "gis_pipeline.modules.db.pg_utils.sqlalchemy.inspect"
+        ) as mock_inspect:
+            mock_inspect.return_value.has_table.return_value = True
+            assert postgis_manager.has_table("som_field_boundaries") is True
+
+    def test_returns_false_when_table_missing(self, postgis_manager):
+        """A missing table must return False without raising."""
+        with patch(
+            "gis_pipeline.modules.db.pg_utils.sqlalchemy.inspect"
+        ) as mock_inspect:
+            mock_inspect.return_value.has_table.return_value = False
+            assert postgis_manager.has_table("som_field_boundaries") is False

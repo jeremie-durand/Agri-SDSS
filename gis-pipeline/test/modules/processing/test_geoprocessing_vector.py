@@ -1507,3 +1507,27 @@ class TestStampGeeFlagsOnFieldBoundaries:
                     stamp_gee_flags_on_field_boundaries()  # must not raise
 
         mock_refresh.assert_not_called()
+
+    def test_missing_table_skips_without_stamping(self):
+        from gis_pipeline.modules.processing.geoprocessing import (
+            stamp_gee_flags_on_field_boundaries,
+        )
+
+        mock_pg = MagicMock()
+        mock_pg.has_table.return_value = False
+
+        with patch(
+            "gis_pipeline.modules.processing.geoprocessing.get_gee_field_ids"
+        ) as mock_ids:
+            with patch(
+                "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+            ) as mock_pg_cls:
+                mock_pg_cls.return_value.__enter__.return_value = mock_pg
+                with patch(
+                    "gis_pipeline.modules.processing.geoprocessing._refresh_gee_geoparquet"
+                ) as mock_refresh:
+                    stamp_gee_flags_on_field_boundaries()
+
+        mock_pg.stamp_gee_flags.assert_not_called()
+        mock_refresh.assert_not_called()
+        mock_ids.assert_not_called()
