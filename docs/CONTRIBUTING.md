@@ -16,19 +16,69 @@ You don't need to write code to contribute:
 
 ## Development Setup
 
+**Prerequisites:** Docker with the Compose plugin, GNU Make, and `openssl` (for password generation). Everything else runs inside containers.
+
+### 1. Fork and clone
+
 ```bash
 # Fork the repository on GitHub, then:
 git clone https://github.com/YOUR_USERNAME/Agri-SDSS.git
 cd Agri-SDSS
 git remote add upstream https://github.com/jeremie-durand/Agri-SDSS.git
-
-# Configure and start the stack
-cp .env.example .env
-docker compose up -d
-
-# Verify everything works
-make test-all
 ```
+
+### 2. Configure the environment
+
+```bash
+cp .env.example .env
+
+# Set the two required database passwords
+sed -i.bak -e "s|^POSTGRES_PASS=.*|POSTGRES_PASS=$(openssl rand -hex 24)|" \
+           -e "s|^DB_PASS=.*|DB_PASS=$(openssl rand -hex 24)|" .env && rm .env.bak
+```
+
+Good to know:
+
+- PostgreSQL is initialized with these credentials on the **first** `docker compose up`. To change them afterwards, use `ALTER ROLE` in the database — or wipe `./data/pg` to re-initialize.
+- If you set passwords by hand, use only letters and digits — some services embed them in a connection URL.
+- Don't export `DB_PASS`/`POSTGRES_PASS` in your shell: OS environment variables override `.env` in Docker Compose.
+- Optional integrations (LLM API key for the chatbot, OpenEO token for climate processes) are documented in `.env.example`.
+
+### 3. Build and start
+
+```bash
+make build            # creates the data/ dirs, builds all images (auto-retries once on network failure)
+docker compose up -d  # first start initializes the database
+```
+
+The first build downloads several GB and compiles GDAL — expect several minutes.
+
+### 4. Verify
+
+```bash
+docker compose ps     # every service should reach "healthy" or "running"
+make test-all         # full test suite — the same thing CI runs
+```
+
+Then open **[https://localhost](https://localhost)** (accept the self-signed certificate warning): you should see the home frontend. The database is reachable directly at `localhost:5439` with the credentials from `.env`.
+
+### 5. Load sample data (optional)
+
+Drop any supported geodata file (GeoJSON, Shapefile, GeoPackage, GeoTIFF, …) in `data/input/`, then:
+
+```bash
+docker compose exec gis-pipeline python3 -m gis_pipeline.main
+```
+
+Outputs land in PostGIS, GeoParquet (`data/duckdb/`), and the STAC catalog — browsable at [https://localhost/data](https://localhost/data).
+
+### Troubleshooting first runs
+
+| Symptom | Cause and fix |
+| --- | --- |
+| Build aborts with `Connection broken` | Dropped connection during a large download. `make build` already retries once; if it still fails, run it again — completed layers are cached, so it resumes where it left off. |
+| `password authentication failed` in a service's logs | `.env` credentials changed after the database was first initialized, or shell-exported `DB_PASS`/`POSTGRES_PASS` are overriding `.env`. Fix with `ALTER ROLE` in PostgreSQL, or wipe `./data/pg` and restart. |
+| `Permission denied` writing under `/data/...` | A `data/` subdirectory was created by Docker as root — happens when the stack starts on a machine where the directory is missing (e.g., after a manual wipe without `make build`). Fix: `sudo chown -R $(id -u):$(id -g) data/duckdb data/output`. |
 
 To get oriented: [ARCHITECTURE.md](ARCHITECTURE.md) has the system diagram and service table, and the [documentation index](README.md) links every guide.
 
