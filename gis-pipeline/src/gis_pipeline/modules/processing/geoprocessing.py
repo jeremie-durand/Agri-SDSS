@@ -569,11 +569,15 @@ def stamp_gee_flags_on_field_boundaries() -> None:
     """Stamp has_gee_data on som_field_boundaries and refresh its GeoParquet.
 
     Called once after all vector tables are loaded (end of process_vector_pipeline).
-    Fully non-fatal: any failure is logged as a warning and does not abort the pipeline.
+    Skipped quietly when som_field_boundaries has not been ingested yet. Fully
+    non-fatal: any failure is logged as a warning and does not abort the pipeline.
     """
-    field_ids = get_gee_field_ids(Config.DUCKDB_DATA_DIR)
     try:
         with PostGISManager() as pg_manager:
+            if not pg_manager.has_table(GEE_TABLE_NAME):
+                logger.info("gee_flags_table_missing", table=GEE_TABLE_NAME)
+                return
+            field_ids = get_gee_field_ids(Config.DUCKDB_DATA_DIR)
             pg_manager.stamp_gee_flags(GEE_TABLE_NAME, field_ids)
     except Exception as exc:
         logger.warning("gee_stamp_postgis_failed", error=str(exc))

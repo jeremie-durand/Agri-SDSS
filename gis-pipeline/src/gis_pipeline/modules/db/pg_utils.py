@@ -1047,6 +1047,10 @@ class PostGISManager:
         """
         self._schema.add_fk_constraints(fk_defs)
 
+    def has_table(self, table_name: str) -> bool:
+        """Return True if table_name exists in the connected database."""
+        return sqlalchemy.inspect(self.engine).has_table(table_name)
+
     def stamp_gee_flags(self, table_name: str, gee_field_ids: set[int]) -> None:
         """Ensure has_gee_data column exists and stamp TRUE for fields with GEE data.
 
