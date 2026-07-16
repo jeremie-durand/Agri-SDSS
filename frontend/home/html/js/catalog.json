@@ -1,0 +1,215 @@
+{
+  "version": 1,
+  "exclude": [
+    { "api": "postgis", "idPattern": "^public\\.(postgis_srs|st_|spatial_ref_sys)" },
+    { "api": "stac", "idPattern": "^test-" }
+  ],
+  "datasets": [
+    {
+      "id": "bdppad",
+      "category": "crop",
+      "type": "ingested",
+      "icon": "FADQ",
+      "org": "BDPPAD — La Financière Agricole du Québec",
+      "description": {
+        "fr": "Limites de parcelles agricoles et déclarations de cultures soumises à La Financière Agricole du Québec. Utilisées pour associer les interventions agronomiques aux parcelles et analyser l'évolution de l'occupation du sol.",
+        "en": "Farm parcel boundaries and crop declarations submitted to La Financière Agricole du Québec. Used to link agronomic interventions to field locations and track land use change over time."
+      },
+      "license": { "label": "OGL-Québec", "url": "https://www.donneesquebec.ca/licence/" },
+      "source": { "label": "fadq.qc.ca", "url": "https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees" },
+      "datasets": [
+        {
+          "name": { "fr": "Parcelles et productions agricoles déclarées", "en": "Farm parcel and crop declarations" },
+          "years": { "fr": "2016 – 2025", "en": "2016 – 2025" },
+          "formats": [ { "label": "Shapefile", "tag": "shp" }, { "label": "PDF", "tag": "pdf" } ],
+          "match": [
+            { "api": "postgis", "idPattern": "^public\\.bdppad" },
+            { "api": "parquet", "idPattern": "^bdppad" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "aac",
+      "category": "crop",
+      "type": "external",
+      "icon": "AAC",
+      "org": "Agriculture et Agroalimentaire Canada",
+      "description": {
+        "fr": "Classification annuelle de l'utilisation des terres à une résolution de 30 m. Identifie les types de cultures à l'échelle du Québec. Accès via ArcGIS ImageServer ; métadonnées distribuées en CSV.",
+        "en": "Annual land use classification at 30 m resolution from Agriculture and Agri-Food Canada. Identifies crop types across Quebec. Accessed via ArcGIS ImageServer; metadata distributed as CSV."
+      },
+      "license": { "label": "OGL-Canada", "url": "https://open.canada.ca/en/open-government-licence-canada" },
+      "source": { "label": "open.canada.ca", "url": "https://open.canada.ca/data/en/dataset/ba2645d5-4458-414d-b196-6303ac06c1c9" },
+      "datasets": [
+        {
+          "name": { "fr": "Inventaire annuel des cultures", "en": "Annual crop inventory" },
+          "years": { "fr": "2016 – 2024 (2025 non disponible)", "en": "2016 – 2024 (2025 not available)" },
+          "formats": [ { "label": "ArcGIS REST", "tag": "arc" }, { "label": "CSV", "tag": "csv" } ],
+          "match": []
+        }
+      ]
+    },
+    {
+      "id": "sentinel2",
+      "category": "crop",
+      "type": "external",
+      "icon": "ESA",
+      "org": "Copernicus Data Space Ecosystem (ESA)",
+      "description": {
+        "fr": "Imagerie de réflectance de surface Sentinel-2 Niveau-2A. Utilisée pour calculer des indices spectraux de sol nu (BSI, NDTI, SWIR) comme covariables dans les modèles de prédiction du MOS (2019–2023).",
+        "en": "Sentinel-2 Level-2A surface reflectance imagery. Used to derive bare-soil spectral indices (BSI, NDTI, SWIR) as covariates in SOM prediction models (2019–2023)."
+      },
+      "license": { "label": "Copernicus Sentinel licence", "url": "https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice" },
+      "source": { "label": "dataspace.copernicus.eu", "url": "https://dataspace.copernicus.eu/" },
+      "datasets": [
+        {
+          "name": { "fr": "Sentinel-2 L2A", "en": "Sentinel-2 L2A" },
+          "years": { "fr": "Juin 2015 – présent", "en": "June 2015 – present" },
+          "formats": [ { "label": "GeoTIFF", "tag": "tif" } ],
+          "match": [
+            { "api": "stac", "idPattern": "sentinel2" },
+            { "api": "process", "idPattern": "^sentinel-fetch$" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "irda",
+      "category": "soil",
+      "type": "ingested",
+      "icon": "IRDA",
+      "org": "Institut de Recherche et de Développement en Agroenvironnement",
+      "description": {
+        "fr": "Levés pédologiques et classification des séries de sols agricoles du Québec. Fournit le type de sol utilisé comme covariable catégorielle dans les modèles de prédiction du MOS, ainsi que les mesures de MOS issues des analyses de terrain.",
+        "en": "Pedological survey maps and soil series classification for agricultural Quebec. Provides soil type as a categorical covariate in SOM prediction models, along with field-measured SOM values."
+      },
+      "license": { "label": "OGL-Québec", "url": "https://www.donneesquebec.ca/licence/" },
+      "source": { "label": "irda.qc.ca", "url": "https://www.irda.qc.ca/fr/services/protection-ressources/sante-sols/information-sols/etudes-pedologiques/" },
+      "datasets": [
+        {
+          "name": { "fr": "Cartes pédologiques et séries de sols du Québec", "en": "Pedological maps and soil series of Quebec" },
+          "years": { "fr": "2022", "en": "2022" },
+          "formats": [ { "label": "Shapefile", "tag": "shp" }, { "label": "CSV", "tag": "csv" } ],
+          "match": [
+            { "api": "postgis", "idPattern": "^public\\.(pedo_|carte_pedo|series_sols)" },
+            { "api": "parquet", "idPattern": "^(pedo_|carte_pedo|series_sols)" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "itc",
+      "category": "soil",
+      "type": "ingested",
+      "icon": "ITC",
+      "org": {
+        "fr": "Inventaire des Terres du Canada — Province du Québec",
+        "en": "Canada Land Inventory — Province of Quebec"
+      },
+      "description": {
+        "fr": "Classes de capacité des terres pour l'agriculture à l'échelle de la province du Québec. Utilisé pour contextualiser les zones d'intervention agronomique et pour la planification de l'utilisation des terres.",
+        "en": "Land capability classes for agriculture at the provincial scale. Used to contextualize agronomic intervention zones and for land use planning."
+      },
+      "license": { "label": "OGL-Canada", "url": "https://open.canada.ca/en/open-government-licence-canada" },
+      "source": { "label": "sis.agr.gc.ca", "url": "https://sis.agr.gc.ca/cansis/nsdb/cli/index.html" },
+      "datasets": [
+        {
+          "name": { "fr": "Capacité des terres agricoles du Québec", "en": "Agricultural land capability classes for Quebec" },
+          "years": { "fr": "2025", "en": "2025" },
+          "formats": [ { "label": "Shapefile", "tag": "shp" } ],
+          "match": [
+            { "api": "postgis", "idPattern": "^public\\.(itc_|inventaire_terres|capacite_terres|cli_)" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mrnf",
+      "category": "soil",
+      "type": "ingested",
+      "icon": "MRNF",
+      "org": "Ministère des Ressources Naturelles et des Forêts",
+      "description": {
+        "fr": "Trois jeux de données spatiaux provinciaux : rasters des propriétés du sol SIIGSOL-100m (carbone organique, pH, texture), produits dérivés du lidar (MNT, pente, indice topographique), et le réseau hydrographique provincial (GRHQ). Tous utilisés comme covariables environnementales dans la modélisation du MOS.",
+        "en": "Three provincial spatial datasets: SIIGSOL-100m soil property rasters (organic carbon, pH, texture), LiDAR-derived elevation products (DEM, slope, topographic index), and the provincial hydrographic network (GRHQ). All used as environmental covariates in SOM modelling."
+      },
+      "license": { "label": "OGL-Québec", "url": "https://www.donneesquebec.ca/licence/" },
+      "source": { "label": "donneesquebec.ca", "url": "https://www.donneesquebec.ca/" },
+      "datasets": [
+        {
+          "name": { "fr": "SIIGSOL-100m — Cartes des propriétés du sol", "en": "SIIGSOL-100m — Soil property maps" },
+          "years": { "fr": "2022", "en": "2022" },
+          "formats": [ { "label": "GeoTIFF", "tag": "tif" } ],
+          "match": [
+            { "api": "stac", "idPattern": "siigsol" }
+          ]
+        },
+        {
+          "name": { "fr": "Produits dérivés du lidar", "en": "LiDAR-derived products" },
+          "years": { "fr": "Données les plus récentes (2026)", "en": "Most recent MRNF data (2026)" },
+          "formats": [ { "label": "GeoTIFF", "tag": "tif" } ],
+          "type": "external",
+          "match": [
+            { "api": "process", "idPattern": "^lidar-fetch$" }
+          ]
+        },
+        {
+          "name": { "fr": "GRHQ — Géobase du Réseau Hydrographique du Québec", "en": "GRHQ — Quebec Hydrographic Network Geobase" },
+          "years": { "fr": "Données les plus récentes (2026)", "en": "Most recent MRNF data (2026)" },
+          "formats": [ { "label": "GeoJSON", "tag": "geojson" } ],
+          "match": [
+            { "api": "postgis", "idPattern": "^public\\.grhq" },
+            { "api": "parquet", "idPattern": "^grhq" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "eccc",
+      "category": "climate",
+      "type": "external",
+      "icon": "ECCC",
+      "org": "Environnement et Changement Climatique Canada",
+      "description": {
+        "fr": "Données météorologiques en temps réel et historiques du Service météorologique du Canada, accessibles via les standards OGC API. Fournit les données de précipitation journalière utilisées comme covariable climatique dans les modèles de prédiction du MOS.",
+        "en": "Real-time and historical meteorological data from the Meteorological Service of Canada, accessed via OGC API standards. Provides daily precipitation data used as a climate covariate in SOM prediction models."
+      },
+      "license": { "label": "ECCC Data Servers End-use Licence", "url": "https://eccc-msc.github.io/open-data/licence/readme_en/" },
+      "source": { "label": "eccc-msc.github.io", "url": "https://eccc-msc.github.io/open-data/" },
+      "datasets": [
+        {
+          "name": { "fr": "MSC GeoMet", "en": "MSC GeoMet" },
+          "years": { "fr": "Temps réel et historique", "en": "Real-time and historical" },
+          "formats": [ { "label": "OGC API – Features", "tag": "ogc" }, { "label": "OGC API – Coverages", "tag": "ogc" } ],
+          "match": [
+            { "api": "process", "idPattern": "^msc-observations$" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pavics",
+      "category": "climate",
+      "type": "external",
+      "icon": "OU",
+      "org": "Ouranos — PAVICS",
+      "description": {
+        "fr": "Sorties de simulations climatiques et données observationnelles de la plateforme PAVICS, accessibles via OPeNDAP. Fournit des données historiques (ERA5-Land, RDRSv2.1, CMIP6) pour l'entraînement des modèles à long terme et les projections climatiques futures.",
+        "en": "Climate simulation outputs and observational data from the PAVICS platform, accessed via OPeNDAP. Provides historical climate data (ERA5-Land, RDRSv2.1, CMIP6) for long-term model training and future climate projections."
+      },
+      "license": { "label": "C3S / ECCC / CC-BY 4.0", "url": "https://pavics.ouranos.ca/" },
+      "source": { "label": "pavics.ouranos.ca", "url": "https://pavics.ouranos.ca/" },
+      "datasets": [
+        {
+          "name": { "fr": "Thredds Data Server via OPeNDAP", "en": "Thredds Data Server via OPeNDAP" },
+          "years": { "fr": "Temps réel, historique et prévisionnel", "en": "Real-time, historical and forecast" },
+          "formats": [ { "label": "NetCDF", "tag": "nc" } ],
+          "match": [
+            { "api": "process", "idPattern": "^(weather-timeseries|climate-timeseries|climate-indicators)$" }
+          ]
+        }
+      ]
+    }
+  ]
+}

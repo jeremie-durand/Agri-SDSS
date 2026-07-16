@@ -112,7 +112,8 @@ The main page. Modules loaded via ES imports from `html/js/`:
 | `som.js` + `som_layers.js` | SOM analysis panel and boundary layers |
 | `aac.js` | Agriculture Canada crop layer (proxied via `/aac-identify/`) |
 | `grhq.js` | GRHQ hydrological network layer |
-| `catalog.js` | Data catalog sidebar (STAC + Parquet collections) |
+| `catalog.js` | Legacy catalog modal (dead code — nothing imports it) |
+| `data-catalog.js` | `/data` page: renders `catalog.json` (curated metadata) joined with live API collection lists |
 | `chat.js` | Chat panel toggle |
 | `chatbot-bridge.js` | postMessage relay between chatbot iframe and Leaflet map |
 | `nav-inject.js` | Shared nav bar injected into STAC Browser and Chatbot |

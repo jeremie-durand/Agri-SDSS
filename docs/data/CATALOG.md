@@ -4,6 +4,8 @@ Authoritative inventory of integrated data sources. This file intentionally cont
 
 All sources are published under open-government licenses that permit commercial use with attribution: [OGL-Québec](https://www.donneesquebec.ca/licence/) (OGL-Q) and [OGL-Canada](https://open.canada.ca/en/open-government-licence-canada). Software licenses are inventoried separately in [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md).
 
+The frontend `/data` page renders from [frontend/home/html/js/catalog.json](../../frontend/home/html/js/catalog.json) joined with the live API collection lists — update that file (entry + `match` pattern) whenever a source is added or renamed here. Ingested collections matching no entry appear automatically under "Other datasets in the backend".
+
 ## Internal Data
 
 | Source | Type | Source Format | CRS | Last Update | Status | License | Description | Details |

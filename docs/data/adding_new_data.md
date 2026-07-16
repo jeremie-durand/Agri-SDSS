@@ -60,6 +60,10 @@ Add entry to [docs/data/CATALOG.md](CATALOG.md):
 | NEW-SOURCE | vector/raster/tabular | .fmt | 4326 | freq | 🟡 Testing | [Link](sources/SOURCENAME.md) |
 ```
 
+### 1.4 Add to the frontend catalog
+
+Add an entry to [frontend/home/html/js/catalog.json](../../frontend/home/html/js/catalog.json) so the `/data` page shows the dataset with curated metadata (bilingual name/description, license, source link) and a live ingestion status. The `match[].idPattern` regexes link the entry to the live collection ids (`postgis` ids are `public.<table>`; `parquet` ids are the file stem; `stac` ids are the collection id). Datasets fetched on demand (not ingested) use `"type": "external"`. Ingested collections matching no entry appear automatically under "Other datasets in the backend".
+
 ## Step 2: Prepare Data
 
 ### 2.1 Download & Validate
@@ -250,6 +254,7 @@ docker compose run --rm gis-pipeline pytest gis_pipeline/test/ -k my_source -v
 - [ ] PostGIS tables verified
 - [ ] STAC metadata created
 - [ ] APIs tested (Vector/Raster/STAC)
+- [ ] Frontend catalog entry added (`frontend/home/html/js/catalog.json`)
 - [ ] Documentation completed
 - [ ] Tests pass
 - [ ] CATALOG updated

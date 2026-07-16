@@ -58,6 +58,15 @@
     .fmt-ogc     { background: #1e0f2a; color: #a78bfa; }
     .fmt-arc     { background: #2a1500; color: #f97316; }
     .fmt-pdf     { background: #1c1c24; color: #6b7280; }
+
+    .dataset-status { font-size: 0.72rem; margin-top: 0.4rem; color: var(--text-muted); }
+    .dataset-status--live     { color: #3ecf8e; }
+    .dataset-status--external { color: #38bdf8; }
+    .card-links { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.6rem; }
+    .card-links a { color: var(--text-muted); }
+    .section-cat-label--other,
+    .card-icon--other,
+    .card-badge--other { background: #1c1c24; color: #9ca3af; }
   </style>
 </head>
 <body>
@@ -86,6 +95,8 @@
 </header>
 
 <main>
+  <!-- Dataset cards are rendered by js/data-catalog.js from js/catalog.json
+       (curated metadata) joined with the live API collection lists. -->
 
   <!-- ── Section 1 : Suivi des cultures ─────────────────────────────────── -->
   <section class="data-section" aria-labelledby="section-crop-title">
@@ -93,93 +104,7 @@
       <span class="section-cat-label section-cat-label--crop" data-i18n="section-crop-badge">Suivi des cultures</span>
       <h2 class="section-cat-title" id="section-crop-title" data-i18n="section-crop-title">Sources de données — Suivi des cultures</h2>
     </div>
-
-    <div class="services-grid">
-
-      <!-- BDPPAD / FADQ -->
-      <article class="service-card" aria-label="BDPPAD">
-        <div class="card-header">
-          <div class="card-icon card-icon--crop" aria-hidden="true">FADQ</div>
-          <div class="card-title-group">
-            <div class="card-title">BDPPAD — La Financière Agricole du Québec</div>
-            <span class="card-badge card-badge--crop" data-i18n="section-crop-badge">Suivi des cultures</span>
-          </div>
-        </div>
-        <div class="datasets">
-          <div class="dataset-block">
-            <div class="dataset-name" data-i18n="bdppad-dataset">Parcelles et productions agricoles déclarées</div>
-            <div class="dataset-meta">
-              <span class="meta-years">2016 – 2025</span>
-              <div class="format-tags">
-                <span class="format-tag fmt-shp">Shapefile</span>
-                <span class="format-tag fmt-pdf">PDF</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p class="card-description" data-i18n="bdppad-desc">
-          Limites de parcelles agricoles et déclarations de cultures soumises à La Financière Agricole du Québec.
-          Utilisées pour associer les interventions agronomiques aux parcelles et analyser l'évolution
-          de l'occupation du sol.
-        </p>
-      </article>
-
-      <!-- AAC -->
-      <article class="service-card" aria-label="AAC">
-        <div class="card-header">
-          <div class="card-icon card-icon--crop" aria-hidden="true">AAC</div>
-          <div class="card-title-group">
-            <div class="card-title">Agriculture et Agroalimentaire Canada</div>
-            <span class="card-badge card-badge--crop" data-i18n="section-crop-badge">Suivi des cultures</span>
-          </div>
-        </div>
-        <div class="datasets">
-          <div class="dataset-block">
-            <div class="dataset-name" data-i18n="aac-dataset">Inventaire annuel des cultures</div>
-            <div class="dataset-meta">
-              <span class="meta-years" data-i18n="aac-years">2016 – 2024 (2025 non disponible)</span>
-              <div class="format-tags">
-                <span class="format-tag fmt-arc">ArcGIS REST</span>
-                <span class="format-tag fmt-csv">CSV</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p class="card-description" data-i18n="aac-desc">
-          Classification annuelle de l'utilisation des terres à une résolution de 30 m.
-          Identifie les types de cultures à l'échelle du Québec. Accès via ArcGIS ImageServer ;
-          métadonnées distribuées en CSV.
-        </p>
-      </article>
-
-      <!-- Copernicus / Sentinel-2 -->
-      <article class="service-card" aria-label="Sentinel-2">
-        <div class="card-header">
-          <div class="card-icon card-icon--crop" aria-hidden="true">ESA</div>
-          <div class="card-title-group">
-            <div class="card-title">Copernicus Data Space Ecosystem (ESA)</div>
-            <span class="card-badge card-badge--crop" data-i18n="section-crop-badge">Suivi des cultures</span>
-          </div>
-        </div>
-        <div class="datasets">
-          <div class="dataset-block">
-            <div class="dataset-name">Sentinel-2 L2A</div>
-            <div class="dataset-meta">
-              <span class="meta-years" data-i18n="sentinel-years">Juin 2015 – présent</span>
-              <div class="format-tags">
-                <span class="format-tag fmt-tif">GeoTIFF</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p class="card-description" data-i18n="sentinel-desc">
-          Imagerie de réflectance de surface Sentinel-2 Niveau-2A. Utilisée pour calculer
-          des indices spectraux de sol nu (BSI, NDTI, SWIR) comme covariables dans les
-          modèles de prédiction du MOS (2019–2023).
-        </p>
-      </article>
-
-    </div>
+    <div class="services-grid" id="grid-crop"></div>
   </section>
 
   <!-- ── Section 2 : Caractéristiques pédologiques ──────────────────────── -->
@@ -188,111 +113,7 @@
       <span class="section-cat-label section-cat-label--soil" data-i18n="section-soil-badge">Pédologie</span>
       <h2 class="section-cat-title" id="section-soil-title" data-i18n="section-soil-title">Sources de données — Caractéristiques pédologiques</h2>
     </div>
-
-    <div class="services-grid">
-
-      <!-- IRDA -->
-      <article class="service-card" aria-label="IRDA">
-        <div class="card-header">
-          <div class="card-icon card-icon--soil" aria-hidden="true">IRDA</div>
-          <div class="card-title-group">
-            <div class="card-title">Institut de Recherche et de Développement en Agroenvironnement</div>
-            <span class="card-badge card-badge--soil" data-i18n="section-soil-badge">Pédologie</span>
-          </div>
-        </div>
-        <div class="datasets">
-          <div class="dataset-block">
-            <div class="dataset-name" data-i18n="irda-dataset">Cartes pédologiques et séries de sols du Québec</div>
-            <div class="dataset-meta">
-              <span class="meta-years">2022</span>
-              <div class="format-tags">
-                <span class="format-tag fmt-shp">Shapefile</span>
-                <span class="format-tag fmt-csv">CSV</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p class="card-description" data-i18n="irda-desc">
-          Levés pédologiques et classification des séries de sols agricoles du Québec.
-          Fournit le type de sol utilisé comme covariable catégorielle dans les modèles
-          de prédiction du MOS, ainsi que les mesures de MOS issues des analyses de terrain.
-        </p>
-      </article>
-
-      <!-- Inventaire des Terres du Canada -->
-      <article class="service-card" aria-label="Inventaire des Terres du Canada">
-        <div class="card-header">
-          <div class="card-icon card-icon--soil" aria-hidden="true">ITC</div>
-          <div class="card-title-group">
-            <div class="card-title" data-i18n="itc-name">Inventaire des Terres du Canada — Province du Québec</div>
-            <span class="card-badge card-badge--soil" data-i18n="section-soil-badge">Pédologie</span>
-          </div>
-        </div>
-        <div class="datasets">
-          <div class="dataset-block">
-            <div class="dataset-name" data-i18n="itc-dataset">Capacité des terres agricoles du Québec</div>
-            <div class="dataset-meta">
-              <span class="meta-years">2025</span>
-              <div class="format-tags">
-                <span class="format-tag fmt-shp">Shapefile</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p class="card-description" data-i18n="itc-desc">
-          Classes de capacité des terres pour l'agriculture à l'échelle de la province
-          du Québec. Utilisé pour contextualiser les zones d'intervention agronomique
-          et pour la planification de l'utilisation des terres.
-        </p>
-      </article>
-
-      <!-- MRNF — 3 datasets -->
-      <article class="service-card" aria-label="MRNF">
-        <div class="card-header">
-          <div class="card-icon card-icon--soil" aria-hidden="true">MRNF</div>
-          <div class="card-title-group">
-            <div class="card-title">Ministère des Ressources Naturelles et des Forêts</div>
-            <span class="card-badge card-badge--soil" data-i18n="section-soil-badge">Pédologie</span>
-          </div>
-        </div>
-        <div class="datasets">
-          <div class="dataset-block">
-            <div class="dataset-name">SIIGSOL-100m — <span data-i18n="mrnf-siigsol-label">Cartes des propriétés du sol</span></div>
-            <div class="dataset-meta">
-              <span class="meta-years">2022</span>
-              <div class="format-tags">
-                <span class="format-tag fmt-tif">GeoTIFF</span>
-              </div>
-            </div>
-          </div>
-          <div class="dataset-block">
-            <div class="dataset-name" data-i18n="mrnf-lidar-label">Produits dérivés du lidar</div>
-            <div class="dataset-meta">
-              <span class="meta-years" data-i18n="mrnf-recent-years">Données les plus récentes (2026)</span>
-              <div class="format-tags">
-                <span class="format-tag fmt-tif">GeoTIFF</span>
-              </div>
-            </div>
-          </div>
-          <div class="dataset-block">
-            <div class="dataset-name">GRHQ — <span data-i18n="mrnf-grhq-label">Géobase du Réseau Hydrographique du Québec</span></div>
-            <div class="dataset-meta">
-              <span class="meta-years" data-i18n="mrnf-recent-years">Données les plus récentes (2026)</span>
-              <div class="format-tags">
-                <span class="format-tag fmt-geojson">GeoJSON</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p class="card-description" data-i18n="mrnf-desc">
-          Trois jeux de données spatiaux provinciaux : rasters des propriétés du sol
-          SIIGSOL-100m (carbone organique, pH, texture), produits dérivés du lidar
-          (MNT, pente, indice topographique), et le réseau hydrographique (GRHQ).
-          Tous utilisés comme covariables environnementales dans la modélisation du MOS.
-        </p>
-      </article>
-
-    </div>
+    <div class="services-grid" id="grid-soil"></div>
   </section>
 
   <!-- ── Section 3 : Météorologie et climatologie ───────────────────────── -->
@@ -301,65 +122,16 @@
       <span class="section-cat-label section-cat-label--climate" data-i18n="section-climate-badge">Météorologie</span>
       <h2 class="section-cat-title" id="section-climate-title" data-i18n="section-climate-title">Sources de données — Météorologie et climatologie</h2>
     </div>
+    <div class="services-grid" id="grid-climate"></div>
+  </section>
 
-    <div class="services-grid">
-
-      <!-- ECCC / MSC GeoMet -->
-      <article class="service-card" aria-label="MSC GeoMet">
-        <div class="card-header">
-          <div class="card-icon card-icon--climate" aria-hidden="true">ECCC</div>
-          <div class="card-title-group">
-            <div class="card-title">Environnement et Changement Climatique Canada</div>
-            <span class="card-badge card-badge--climate" data-i18n="section-climate-badge">Météorologie</span>
-          </div>
-        </div>
-        <div class="datasets">
-          <div class="dataset-block">
-            <div class="dataset-name">MSC GeoMet</div>
-            <div class="dataset-meta">
-              <span class="meta-years" data-i18n="eccc-years">Temps réel et historique</span>
-              <div class="format-tags">
-                <span class="format-tag fmt-ogc">OGC API – Features</span>
-                <span class="format-tag fmt-ogc">OGC API – Coverages</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p class="card-description" data-i18n="eccc-desc">
-          Données météorologiques en temps réel et historiques du Service météorologique du Canada,
-          accessibles via les standards OGC API. Fournit les données de précipitation journalière
-          utilisées comme covariable climatique dans les modèles de prédiction du MOS.
-        </p>
-      </article>
-
-      <!-- Ouranos / PAVICS -->
-      <article class="service-card" aria-label="PAVICS">
-        <div class="card-header">
-          <div class="card-icon card-icon--climate" aria-hidden="true">OU</div>
-          <div class="card-title-group">
-            <div class="card-title">Ouranos — PAVICS</div>
-            <span class="card-badge card-badge--climate" data-i18n="section-climate-badge">Météorologie</span>
-          </div>
-        </div>
-        <div class="datasets">
-          <div class="dataset-block">
-            <div class="dataset-name" data-i18n="pavics-dataset">Thredds Data Server via OPeNDAP</div>
-            <div class="dataset-meta">
-              <span class="meta-years" data-i18n="pavics-years">Temps réel, historique et prévisionnel</span>
-              <div class="format-tags">
-                <span class="format-tag fmt-nc">NetCDF</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p class="card-description" data-i18n="pavics-desc">
-          Sorties de simulations climatiques et données observationnelles de la plateforme PAVICS,
-          accessibles via OPeNDAP. Fournit des données historiques (ERA5-Land, RDRSv2.1, CMIP6)
-          pour l'entraînement des modèles à long terme et les projections climatiques futures.
-        </p>
-      </article>
-
+  <!-- ── Section 4 : Autres jeux de données du backend (auto-générée) ───── -->
+  <section class="data-section" id="section-other" aria-labelledby="section-other-title" hidden>
+    <div class="section-header">
+      <span class="section-cat-label section-cat-label--other" data-i18n="section-other-badge">Backend</span>
+      <h2 class="section-cat-title" id="section-other-title" data-i18n="section-other-title">Autres jeux de données dans le backend</h2>
     </div>
+    <div class="services-grid" id="grid-other"></div>
   </section>
 
 </main>
@@ -392,28 +164,8 @@
       'section-soil-title':    'Data sources — Soil properties',
       'section-climate-badge': 'Meteorology',
       'section-climate-title': 'Data sources — Meteorology & climatology',
-      'bdppad-dataset':        'Farm parcel and crop declarations',
-      'bdppad-desc':           'Farm parcel boundaries and crop declarations submitted to La Financière Agricole du Québec. Used to link agronomic interventions to field locations and track land use change over time.',
-      'aac-dataset':           'Annual crop inventory',
-      'aac-years':             '2016 – 2024 (2025 not available)',
-      'aac-desc':              'Annual land use classification at 30 m resolution from Agriculture and Agri-Food Canada. Identifies crop types across Quebec. Accessed via ArcGIS ImageServer; metadata distributed as CSV.',
-      'sentinel-years':        'June 2015 – present',
-      'sentinel-desc':         'Sentinel-2 Level-2A surface reflectance imagery. Used to derive bare-soil spectral indices (BSI, NDTI, SWIR) as covariates in SOM prediction models (2019–2023).',
-      'irda-dataset':          'Pedological maps and soil series of Quebec',
-      'irda-desc':             'Pedological survey maps and soil series classification for agricultural Quebec. Provides soil type as a categorical covariate in SOM prediction models, along with field-measured SOM values.',
-      'itc-name':              'Canada Land Inventory — Province of Quebec',
-      'itc-dataset':           'Agricultural land capability classes for Quebec',
-      'itc-desc':              'Land capability classes for agriculture at the provincial scale. Used to contextualize agronomic intervention zones and for land use planning.',
-      'mrnf-siigsol-label':    'Soil property maps',
-      'mrnf-lidar-label':      'LiDAR-derived products',
-      'mrnf-grhq-label':       'Quebec Hydrographic Network Geobase',
-      'mrnf-recent-years':     'Most recent MRNF data (2026)',
-      'mrnf-desc':             'Three provincial spatial datasets: SIIGSOL-100m soil property rasters (organic carbon, pH, texture), LiDAR-derived elevation products (DEM, slope, topographic index), and the provincial hydrographic network (GRHQ). All used as environmental covariates in SOM modelling.',
-      'eccc-years':            'Real-time and historical',
-      'eccc-desc':             'Real-time and historical meteorological data from the Meteorological Service of Canada, accessed via OGC API standards. Provides daily precipitation data used as a climate covariate in SOM prediction models.',
-      'pavics-dataset':        'Thredds Data Server via OPeNDAP',
-      'pavics-years':          'Real-time, historical and forecast',
-      'pavics-desc':           'Climate simulation outputs and observational data from the PAVICS platform, accessed via OPeNDAP. Provides historical climate data (ERA5-Land, RDRSv2.1, CMIP6) for long-term model training and future climate projections.',
+      'section-other-badge':   'Backend',
+      'section-other-title':   'Other datasets in the backend',
       'footer-text':           'Agri-SDSS Geospatial Tools · Mon Système Fourrager',
       'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant'
     },
@@ -425,28 +177,8 @@
       'section-soil-title':    'Sources de données — Caractéristiques pédologiques',
       'section-climate-badge': 'Météorologie',
       'section-climate-title': 'Sources de données — Météorologie et climatologie',
-      'bdppad-dataset':        'Parcelles et productions agricoles déclarées',
-      'bdppad-desc':           'Limites de parcelles agricoles et déclarations de cultures soumises à La Financière Agricole du Québec. Utilisées pour associer les interventions agronomiques aux parcelles et analyser l\'évolution de l\'occupation du sol.',
-      'aac-dataset':           'Inventaire annuel des cultures',
-      'aac-years':             '2016 – 2024 (2025 non disponible)',
-      'aac-desc':              'Classification annuelle de l\'utilisation des terres à une résolution de 30 m. Identifie les types de cultures à l\'échelle du Québec. Accès via ArcGIS ImageServer ; métadonnées distribuées en CSV.',
-      'sentinel-years':        'Juin 2015 – présent',
-      'sentinel-desc':         'Imagerie de réflectance de surface Sentinel-2 Niveau-2A. Utilisée pour calculer des indices spectraux de sol nu (BSI, NDTI, SWIR) comme covariables dans les modèles de prédiction du MOS (2019–2023).',
-      'irda-dataset':          'Cartes pédologiques et séries de sols du Québec',
-      'irda-desc':             'Levés pédologiques et classification des séries de sols agricoles du Québec. Fournit le type de sol utilisé comme covariable catégorielle dans les modèles de prédiction du MOS, ainsi que les mesures de MOS issues des analyses de terrain.',
-      'itc-name':              'Inventaire des Terres du Canada — Province du Québec',
-      'itc-dataset':           'Capacité des terres agricoles du Québec',
-      'itc-desc':              'Classes de capacité des terres pour l\'agriculture à l\'échelle de la province du Québec. Utilisé pour contextualiser les zones d\'intervention agronomique et pour la planification de l\'utilisation des terres.',
-      'mrnf-siigsol-label':    'Cartes des propriétés du sol',
-      'mrnf-lidar-label':      'Produits dérivés du lidar',
-      'mrnf-grhq-label':       'Géobase du Réseau Hydrographique du Québec',
-      'mrnf-recent-years':     'Données les plus récentes (2026)',
-      'mrnf-desc':             'Trois jeux de données spatiaux provinciaux : rasters des propriétés du sol SIIGSOL-100m (carbone organique, pH, texture), produits dérivés du lidar (MNT, pente, indice topographique), et le réseau hydrographique provincial (GRHQ). Tous utilisés comme covariables environnementales dans la modélisation du MOS.',
-      'eccc-years':            'Temps réel et historique',
-      'eccc-desc':             'Données météorologiques en temps réel et historiques du Service météorologique du Canada, accessibles via les standards OGC API. Fournit les données de précipitation journalière utilisées comme covariable climatique dans les modèles de prédiction du MOS.',
-      'pavics-dataset':        'Thredds Data Server via OPeNDAP',
-      'pavics-years':          'Temps réel, historique et prévisionnel',
-      'pavics-desc':           'Sorties de simulations climatiques et données observationnelles de la plateforme PAVICS, accessibles via OPeNDAP. Fournit des données historiques (ERA5-Land, RDRSv2.1, CMIP6) pour l\'entraînement des modèles à long terme et les projections climatiques futures.',
+      'section-other-badge':   'Backend',
+      'section-other-title':   'Autres jeux de données dans le backend',
       'footer-text':           'Outils géospatiaux Agri-SDSS · Mon Système Fourrager',
       'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA'
     }
@@ -469,6 +201,7 @@
     btn.textContent = l === 'en' ? 'FR' : 'EN';
     btn.setAttribute('aria-label', l === 'en' ? 'Changer la langue en français' : 'Switch to English');
     localStorage.setItem('sdss-lang', l);
+    document.dispatchEvent(new CustomEvent('sdss-lang-changed', { detail: l }));
   }
 
   document.getElementById('langToggle').addEventListener('click', function() {
@@ -478,5 +211,6 @@
   applyLang(lang);
 })();
 </script>
+<script type="module" src="js/data-catalog.js"></script>
 </body>
 </html>
