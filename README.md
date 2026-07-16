@@ -9,8 +9,29 @@ Currently specialized for Soil Organic Matter (SOM) potential mapping and decisi
 ```bash
 git clone https://github.com/jeremie-durand/Agri-SDSS.git
 cd Agri-SDSS && cp .env.example .env
+```
+
+```bash
+# Set the two required database passwords
+sed -i.bak -e "s|^POSTGRES_PASS=.*|POSTGRES_PASS=$(openssl rand -hex 24)|" \
+           -e "s|^DB_PASS=.*|DB_PASS=$(openssl rand -hex 24)|" .env && rm .env.bak
+```
+
+```bash
+# Build the app
+make build
+```
+
+`make build` downloads several GB on first run and retries automatically if the connection drops mid-download. May take several minutes.
+
+```bash
+# Start the app
 docker compose up -d
 ```
+
+The platform is now available at **[https://localhost](https://localhost)** — accept the browser's certificate warning (local self-signed TLS). The home page links to the interactive map, the STAC catalog browser, the AI assistant, and the APIs.
+
+### Adding data
 
 Drop files in `data/input/`, then run the pipeline:
 
@@ -18,11 +39,11 @@ Drop files in `data/input/`, then run the pipeline:
 docker compose exec gis-pipeline python3 -m gis_pipeline.main
 ```
 
-Data is now available across all APIs and frontends.
+Data is now available across all APIs and frontends. See **[https://localhost/data](https://localhost/data)**.
 
 ## Services
 
-Containerized services cover the full path from raw geodata to public APIs and frontends: the ETL pipeline (`gis-pipeline`), four standards-based APIs (`stac-api`, `vector-api`, `raster-api`, `process-api`), the AI assistant (`chatbot`), the `stac-browser` explorer, the unified `home` frontend, `caddy` for TLS, and the PostGIS `database`. The full service/port table and system diagram are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Containerized services cover the full path from raw geodata to public APIs and frontends: the ETL pipeline (`gis-pipeline`), four standards-based APIs (`stac-api`, `vector-api`, `raster-api`, `process-api`), the AI assistant (`chatbot`), the `stac-browser` explorer, the unified `home` frontend, `caddy` for TLS, and the PostGIS `database`.
 
 ## Documentation
 
@@ -57,7 +78,7 @@ Thanks to everyone who contributes code, issues, or reviews. All contributors ar
 
 ### Built on open-source projects
 
-This platform assembles and extends existing open-source work. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technology stack and links to upstream repositories.
+This project was inspired by [eoAPI](https://github.com/developmentseed/eoAPI) by [Development Seed](https://developmentseed.org/), whose STAC + raster + vector API architecture served as the starting point for this platform. This project assembles and extends existing open-source work — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technology stack and links to upstream repositories.
 
 ## License
 
