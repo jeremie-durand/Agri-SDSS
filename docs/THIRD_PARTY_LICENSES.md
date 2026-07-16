@@ -14,6 +14,7 @@ License inventory of the external open-source software Agri-SDSS builds on, and 
 | --- | --- | --- |
 | [PostgreSQL](https://www.postgresql.org/about/licence/) | Database | PostgreSQL License (permissive) |
 | [PostGIS](https://postgis.net/) | Spatial database extension | GPL-2.0-or-later ⚠️ |
+| [eoAPI](https://github.com/developmentseed/eoAPI) | Architecture blueprint the platform started from; its components (pgSTAC, stac-fastapi-pgstac, TiTiler, TiPg) are listed individually below | MIT |
 | [pgSTAC](https://github.com/stac-utils/pgstac) | STAC database schema (`database` image) | MIT |
 | [stac-fastapi / stac-fastapi-pgstac](https://github.com/stac-utils/stac-fastapi) | `stac-api` | MIT |
 | [TiTiler](https://github.com/developmentseed/titiler) | `raster-api` | MIT |
