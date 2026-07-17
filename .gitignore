@@ -197,6 +197,8 @@ data/output/*
 !data/output/raster_cog/
 data/output/raster_cog/*
 !data/output/raster_cog/.gitkeep
+data/demo/*
+!data/demo/bdppad/
 
 # OpenEO authentication tokens (sensitive)
 process-api/config/openeo-config/refresh-tokens.json
