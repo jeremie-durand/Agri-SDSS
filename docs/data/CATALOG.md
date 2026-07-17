@@ -17,6 +17,8 @@ The frontend `/data` page renders from [frontend/home/html/js/catalog.json](../.
 | SIIGSOL-100m | Raster | GeoTIFF (.tif) | 4326 | July 2026 | Prod | OGL-Q | Provincial soil properties grid at 100m resolution (MAPAQ) | [Details](sources/SIIGSOL.md) |
 | SERIES_SOLS_QUEBEC | Vector | CSV (linked tables) | N/A | July 2026 | Prod | OGL-Q | Relational soil series data with properties, textures, and organic matter studies linked to pedological maps (IRDA) | [Details](sources/SERIES_SOLS_QUEBEC.md) |
 
+A demo extract of BDPPAD (Les Maskoutains area, 2025, ~14,500 parcels, ~11 MB) is committed at `data/demo/bdppad/` so fresh installs can seed the map — see the README [Quick start](../../README.md#load-the-demo-data). It was built on 2026-07-17 from `BDPPAD_v03_AN_2025_s_20260713.shp` by selecting parcels intersecting bbox `(-73.2, 45.45, -72.7, 45.8)` (EPSG:4269) with geopandas; to regenerate for a new year, apply the same filter and name the file `bdppad_demo_an_<year>.gpkg` — the filename stem becomes the PostGIS table name and drives the year label in the map's BDPPAD panel. If you later ingest the full BDPPAD year, drop the demo table first (`DROP TABLE public.bdppad_demo_an_2025;`) to avoid two "2025" entries.
+
 ## Open API Data (External)
 
 Datasets fetched on demand from external open APIs — by the process-api processes or the map frontend — not ingested by the pipeline. All licenses permit commercial use with attribution.

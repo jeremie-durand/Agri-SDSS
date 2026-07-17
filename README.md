@@ -31,7 +31,19 @@ docker compose up -d
 
 The platform is now available at **[https://localhost](https://localhost)** — accept the browser's certificate warning (local self-signed TLS). The home page links to the interactive map, the STAC catalog browser, the AI assistant, and the APIs.
 
-### Adding data
+### Load the demo data
+
+A small BDPPAD extract (~14,500 FADQ farm parcels, Montérégie 2025) ships in
+the repo so the map has data out of the box:
+
+```bash
+cp data/demo/bdppad/bdppad_demo_an_2025.gpkg data/input/
+docker compose exec gis-pipeline python3 -m gis_pipeline.main
+```
+
+Reload the page, or run `docker compose restart vector-api` to see the result: Parcels now appear on the interactive map — open the **BDPPAD**  panel and select **2025**.
+
+### Adding more data
 
 Drop files in `data/input/`, then run the pipeline:
 
