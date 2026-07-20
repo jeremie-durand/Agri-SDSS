@@ -2,7 +2,7 @@ pygeoapi[processes]==0.21.0
 openeo==0.50.0
 rasterio==1.4.4
 shapely==2.1.2
-psycopg[binary]==3.2.10
+psycopg[binary]==3.3.4
 requests==2.33.1
 xarray==2024.11.0
 pydap==3.5.3
