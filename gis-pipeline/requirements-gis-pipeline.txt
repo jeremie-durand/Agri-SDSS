@@ -9,7 +9,7 @@ cligj==0.7.2
 colorama==0.4.6
 duckdb==1.4.4
 fiona==1.10.1
-geoalchemy2==0.18.3
+geoalchemy2==0.20.0
 geopandas==1.1.2
 greenlet==3.1.1
 idna==3.18
