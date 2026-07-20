@@ -13,7 +13,7 @@ geoalchemy2==0.18.3
 geopandas==1.1.2
 greenlet==3.1.1
 idna==3.18
-numpy==2.4.2 # numpy version here must match Dockerfile.gis-pipeline
+numpy==2.5.1 # numpy version here must match Dockerfile.gis-pipeline
 packaging==26.2
 pandas==3.0.3
 psycopg[binary]==3.2.10
