@@ -5,7 +5,7 @@ pydantic==2.11.9
 pydantic_core==2.33.2
 pystac==1.14.3
 requests==2.34.2
-SQLAlchemy==2.0.47
+SQLAlchemy==2.0.51
 stac-fastapi.api==6.3.2
 stac-fastapi.extensions==6.2.1
 stac-fastapi.pgstac==6.2.1
