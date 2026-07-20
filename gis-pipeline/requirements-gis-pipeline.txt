@@ -23,7 +23,7 @@ pydantic-settings==2.14.2
 pydantic_core==2.33.2
 pyparsing==3.3.2
 pyproj==3.7.2
-pygeoif==1.5.1
+pygeoif==1.6.0
 pystac==1.14.3
 python-dateutil==2.8.2
 pytz==2025.2
