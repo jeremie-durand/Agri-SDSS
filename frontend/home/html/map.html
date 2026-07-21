@@ -22,6 +22,7 @@
     <a class="unified-nav__link" href="/data" data-nav="data">Data</a>
     <a class="unified-nav__link" href="/stac/" data-nav="stac">STAC</a>
     <a class="unified-nav__link" href="/chatbot/" data-nav="chatbot">AI Assistant</a>
+    <a class="unified-nav__link" href="/report-bug" data-nav="report-bug">Report a bug</a>
   </div>
   <button class="unified-nav__lang" id="langToggle" type="button">FR</button>
 </nav>
@@ -392,7 +393,8 @@
       (nav === 'map'      && (path === '/' || path === '/map.html')) ||
       (nav === 'services' && (path === '/services' || path === '/index.html')) ||
       (nav === 'stac'     && path.startsWith('/stac/')) ||
-      (nav === 'chatbot'  && path.startsWith('/chatbot/'));
+      (nav === 'chatbot'  && path.startsWith('/chatbot/')) ||
+      (nav === 'report-bug' && (path === '/report-bug' || path === '/report-bug.html'));
     if (isActive) a.classList.add('active');
   });
 
@@ -549,7 +551,7 @@
       'som-help-scientist-metrics': 'R² and RMSE are computed on field-level aggregated predictions (mean over images per field). When the test set contains only 1 field, field-level R² is undefined; inner-validation R² is shown instead (*).',
       'som-help-scientist-gee':     'Training data from GEE: Sentinel-2 L2A, bare-soil masked (BSI &gt; 0), cloud filter &lt; 1% at tile level. Low image counts may reflect strict cloud filtering in high-cloud years or limited bare-soil exposure windows.',
       'aac-not-live':          'Note: The 2025 layer is not yet available from Agriculture Canada.',
-      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant'
+      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug'
     },
     fr: {
       'page-title':        'Système d\'aide à la décision spatiale - Carte',
@@ -703,7 +705,7 @@
       'som-layer-has-gee':     'Données d\'entraînement GEE',
       'som-layer-no-gee':      'Limite seulement',
       'som-pdf-water':         'Distance de l\'eau',
-      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA'
+      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug'
     }
   };
 

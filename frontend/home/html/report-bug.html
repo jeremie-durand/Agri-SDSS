@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agri-SDSS — Signaler un bug</title>
+  <link rel="stylesheet" href="css/index.css" />
+  <style>
+    .report-section { margin-bottom: 2.5rem; }
+    .report-section:last-child { margin-bottom: 0; }
+    .report-section h2 {
+      font-size: 1rem; font-weight: 600; color: var(--text-primary);
+      margin-bottom: 0.85rem;
+    }
+    .report-section p { color: var(--text-secondary); line-height: 1.65; }
+    .report-list {
+      list-style: none; padding: 0; margin: 0;
+      display: flex; flex-direction: column; gap: 0.6rem;
+    }
+    .report-list li {
+      display: flex; gap: 0.65rem; align-items: flex-start;
+      font-size: 0.9rem; color: var(--text-secondary); line-height: 1.55;
+    }
+    .report-list li strong { color: var(--text-primary); font-weight: 600; }
+    .report-list li::before {
+      content: '—'; color: var(--accent); flex-shrink: 0;
+    }
+    .report-actions {
+      display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+
+<nav class="unified-nav" role="navigation">
+  <a class="unified-nav__brand" href="/">Agri<span>-SDSS</span></a>
+  <div class="unified-nav__links">
+    <a class="unified-nav__link" href="/" data-nav="map">Map</a>
+    <a class="unified-nav__link" href="/services" data-nav="services">Services</a>
+    <a class="unified-nav__link" href="/data" data-nav="data">Data</a>
+    <a class="unified-nav__link" href="/stac/" data-nav="stac">STAC</a>
+    <a class="unified-nav__link" href="/chatbot/" data-nav="chatbot">AI Assistant</a>
+    <a class="unified-nav__link active" href="/report-bug" data-nav="report-bug">Report a bug</a>
+  </div>
+  <button class="unified-nav__lang" id="langToggle" type="button" aria-label="Switch to English">EN</button>
+</nav>
+
+<header aria-label="Agri-SDSS — Report a bug">
+  <div class="header-left">
+    <div class="header-wordmark" aria-hidden="true">Agri<span>-SDSS</span></div>
+    <p data-i18n="header-desc">
+      Agri-SDSS est encore en développement actif : des bugs et des fonctionnalités
+      incomplètes sont à prévoir. Merci de nous aider à les corriger en les signalant.
+    </p>
+  </div>
+</header>
+
+<main>
+  <section class="report-section">
+    <h2 data-i18n="guide-title">Avant de signaler un problème</h2>
+    <p data-i18n="guide-intro">
+      Vérifiez d'abord si le problème a déjà été signalé en consultant la liste des
+      problèmes existants. Si ce n'est pas le cas, ouvrez un nouveau signalement en
+      incluant autant de détails que possible :
+    </p>
+    <ul class="report-list">
+      <li><span><strong data-i18n="guide-item-1-title">Étapes de reproduction</strong> — <span data-i18n="guide-item-1-desc">comment reproduire le problème, étape par étape.</span></span></li>
+      <li><span><strong data-i18n="guide-item-2-title">Comportement attendu vs observé</strong> — <span data-i18n="guide-item-2-desc">ce que vous attendiez, et ce qui s'est réellement passé.</span></span></li>
+      <li><span><strong data-i18n="guide-item-3-title">Page ou fonctionnalité</strong> — <span data-i18n="guide-item-3-desc">par exemple la Carte, le Catalogue de données, ou l'Assistant IA.</span></span></li>
+      <li><span><strong data-i18n="guide-item-4-title">Navigateur et système</strong> — <span data-i18n="guide-item-4-desc">par exemple Chrome 128 sur Windows 11, ou Firefox 130 sur Ubuntu 24.04.</span></span></li>
+      <li><span><strong data-i18n="guide-item-5-title">Captures d'écran</strong> — <span data-i18n="guide-item-5-desc">si applicable, une image vaut mille mots.</span></span></li>
+    </ul>
+    <div class="report-actions">
+      <a class="btn btn-primary" href="https://github.com/jeremie-durand/Agri-SDSS/issues/new?template=bug_report.md" target="_blank" rel="noopener" data-i18n="btn-new-issue">Signaler un nouveau bug</a>
+      <a class="btn btn-ghost" href="https://github.com/jeremie-durand/Agri-SDSS/issues" target="_blank" rel="noopener" data-i18n="btn-browse-issues">Voir les problèmes existants</a>
+    </div>
+  </section>
+
+  <section class="report-section">
+    <h2 data-i18n="version-title">Version actuelle</h2>
+    <p data-i18n="version-desc">Cette plateforme est actuellement en version 1.0.0.</p>
+  </section>
+</main>
+
+<footer>
+  <p data-i18n="footer-text">Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager</p>
+  <p><a href="https://github.com/jeremie-durand/Agri-SDSS" target="_blank" rel="noopener">GitHub →</a></p>
+</footer>
+
+<script>
+(function() {
+  var path = window.location.pathname;
+  document.querySelectorAll('.unified-nav__link').forEach(function(a) {
+    var nav = a.getAttribute('data-nav');
+    var isActive =
+      (nav === 'map'         && (path === '/' || path === '/map.html')) ||
+      (nav === 'services'    && (path === '/services' || path === '/index.html')) ||
+      (nav === 'data'        && (path === '/data' || path === '/data.html')) ||
+      (nav === 'stac'        && path.startsWith('/stac/')) ||
+      (nav === 'chatbot'     && path.startsWith('/chatbot/')) ||
+      (nav === 'report-bug'  && (path === '/report-bug' || path === '/report-bug.html'));
+    a.classList.toggle('active', isActive);
+  });
+
+  var T = {
+    en: {
+      'header-desc': 'Agri-SDSS is still in active development — bugs and unfinished features are expected. Thank you for helping us fix them by reporting what you find.',
+      'guide-title': 'Before reporting a problem',
+      'guide-intro': 'First check whether the problem has already been reported by browsing existing issues. If not, open a new one with as much detail as possible:',
+      'guide-item-1-title': 'Steps to reproduce',
+      'guide-item-1-desc': 'how to trigger the problem, step by step.',
+      'guide-item-2-title': 'Expected vs. actual behavior',
+      'guide-item-2-desc': 'what you expected to happen, and what actually happened.',
+      'guide-item-3-title': 'Page or feature',
+      'guide-item-3-desc': 'e.g. the Map, the Data catalog, or the AI Assistant.',
+      'guide-item-4-title': 'Browser and OS',
+      'guide-item-4-desc': 'e.g. Chrome 128 on Windows 11, or Firefox 130 on Ubuntu 24.04.',
+      'guide-item-5-title': 'Screenshots',
+      'guide-item-5-desc': 'if applicable, a picture is worth a thousand words.',
+      'btn-new-issue': 'Report a new bug',
+      'btn-browse-issues': 'Browse existing issues',
+      'version-title': 'Current version',
+      'version-desc': 'This platform is currently at version 1.0.0.',
+      'footer-text': 'Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager',
+      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug'
+    },
+    fr: {
+      'header-desc': 'Agri-SDSS est encore en développement actif : des bugs et des fonctionnalités incomplètes sont à prévoir. Merci de nous aider à les corriger en les signalant.',
+      'guide-title': 'Avant de signaler un problème',
+      'guide-intro': "Vérifiez d'abord si le problème a déjà été signalé en consultant la liste des problèmes existants. Si ce n'est pas le cas, ouvrez un nouveau signalement en incluant autant de détails que possible :",
+      'guide-item-1-title': 'Étapes de reproduction',
+      'guide-item-1-desc': 'comment reproduire le problème, étape par étape.',
+      'guide-item-2-title': 'Comportement attendu vs observé',
+      'guide-item-2-desc': "ce que vous attendiez, et ce qui s'est réellement passé.",
+      'guide-item-3-title': 'Page ou fonctionnalité',
+      'guide-item-3-desc': "par exemple la Carte, le Catalogue de données, ou l'Assistant IA.",
+      'guide-item-4-title': 'Navigateur et système',
+      'guide-item-4-desc': 'par exemple Chrome 128 sur Windows 11, ou Firefox 130 sur Ubuntu 24.04.',
+      'guide-item-5-title': "Captures d'écran",
+      'guide-item-5-desc': 'si applicable, une image vaut mille mots.',
+      'btn-new-issue': 'Signaler un nouveau bug',
+      'btn-browse-issues': 'Voir les problèmes existants',
+      'version-title': 'Version actuelle',
+      'version-desc': 'Cette plateforme est actuellement en version 1.0.0.',
+      'footer-text': 'Outils géospatiaux Agri-SDSS · Université de Sherbrooke · Mon Système Fourrager',
+      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug'
+    }
+  };
+
+  var lang = localStorage.getItem('sdss-lang') || 'fr';
+
+  function applyLang(l) {
+    lang = l;
+    document.documentElement.lang = l;
+    document.querySelectorAll('[data-i18n]').forEach(function(el) {
+      var k = el.getAttribute('data-i18n');
+      if (T[l][k] !== undefined) el.innerHTML = T[l][k];
+    });
+    document.querySelectorAll('[data-nav]').forEach(function(el) {
+      var k = 'nav-' + el.getAttribute('data-nav');
+      if (T[l][k] !== undefined) el.textContent = T[l][k];
+    });
+    var btn = document.getElementById('langToggle');
+    btn.textContent = l === 'en' ? 'FR' : 'EN';
+    btn.setAttribute('aria-label', l === 'en' ? 'Changer la langue en français' : 'Switch to English');
+    localStorage.setItem('sdss-lang', l);
+  }
+
+  document.getElementById('langToggle').addEventListener('click', function() {
+    applyLang(lang === 'en' ? 'fr' : 'en');
+  });
+
+  applyLang(lang);
+})();
+</script>
+<script src="js/welcome-modal.js"></script>
+</body>
+</html>

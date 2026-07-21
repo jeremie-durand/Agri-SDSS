@@ -16,6 +16,7 @@
     <a class="unified-nav__link" href="/data" data-nav="data">Data</a>
     <a class="unified-nav__link" href="/stac/" data-nav="stac">STAC</a>
     <a class="unified-nav__link" href="/chatbot/" data-nav="chatbot">AI Assistant</a>
+    <a class="unified-nav__link" href="/report-bug" data-nav="report-bug">Report a bug</a>
   </div>
   <button class="unified-nav__lang" id="langToggle" type="button" aria-label="Switch to English">EN</button>
 </nav>
@@ -200,7 +201,7 @@
 </main>
 
 <footer>
-    <p data-i18n="footer-text">Agri-SDSS Geospatial Tools  · Mon Système Fourrager</p>
+    <p data-i18n="footer-text">Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager</p>
     <p>
         <a href="https://github.com/jeremie-durand/Agri-SDSS" target="_blank" rel="noopener">GitHub →</a>
     </p>
@@ -216,7 +217,8 @@
       (nav === 'services' && (path === '/services' || path === '/index.html')) ||
       (nav === 'data'     && (path === '/data' || path === '/data.html')) ||
       (nav === 'stac'     && path.startsWith('/stac/')) ||
-      (nav === 'chatbot'  && path.startsWith('/chatbot/'));
+      (nav === 'chatbot'  && path.startsWith('/chatbot/')) ||
+      (nav === 'report-bug' && (path === '/report-bug' || path === '/report-bug.html'));
     if (isActive) a.classList.add('active');
   });
 
@@ -229,8 +231,8 @@
       'vector-desc': 'OGC API Features-compliant vector data API (TiPg). Access to PostGIS and GeoParquet layers, MVT vector tiles.',
       'pygeoapi-desc': '<strong>OGC API - Processes</strong> server (pygeoapi) for running standardized geoprocessing jobs via HTTP requests.',
       'chatbot-desc': 'LLM-powered chatbot for querying geospatial data in natural language.',
-      'footer-text': 'Agri-SDSS Geospatial Tools  · Mon Système Fourrager',
-      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant'
+      'footer-text': 'Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager',
+      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug'
     },
     fr: {
       'header-desc': 'Plateforme de données géospatiales complète automatisant le traitement, l’indexation et la publication de données SIG depuis de multiples sources dans un écosystème d’API distribué, basé sur les standards ouverts et une architecture cloud-native modulaire, appliquée à l’optimisation de la Matière Organique des Sols (MOS) au Québec.',
@@ -240,8 +242,8 @@
       'vector-desc': 'API de données vectorielles (TiPg) conforme OGC API Features. Accès aux couches PostGIS et GeoParquet, tuiles vectorielles MVT.',
       'pygeoapi-desc': 'Serveur <strong>OGC API - Processes</strong> (pygeoapi) permettant l’exécution de géotraitements standardisés via des requêtes HTTP.',
       'chatbot-desc': 'Chatbot alimenté par un modèle de langage (LLM) pour l\'interrogation en langage naturel des données géospatiales.',
-      'footer-text': 'Outils géospatiaux Agri-SDSS  · Mon Système Fourrager',
-      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA'
+      'footer-text': 'Outils géospatiaux Agri-SDSS · Université de Sherbrooke · Mon Système Fourrager',
+      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug'
     }
   };
 

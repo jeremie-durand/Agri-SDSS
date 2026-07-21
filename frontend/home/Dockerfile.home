@@ -4,6 +4,7 @@ FROM nginx:alpine
 COPY --chmod=644 html/index.html /usr/share/nginx/html/index.html.template
 COPY --chmod=644 html/map.html /usr/share/nginx/html/map.html
 COPY --chmod=644 html/data.html /usr/share/nginx/html/data.html
+COPY --chmod=644 html/report-bug.html /usr/share/nginx/html/report-bug.html
 COPY html/css /usr/share/nginx/html/css
 COPY html/js /usr/share/nginx/html/js
 COPY --chmod=755 scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
