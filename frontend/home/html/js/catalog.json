@@ -2,7 +2,11 @@
   "version": 1,
   "exclude": [
     { "api": "postgis", "idPattern": "^public\\.(postgis_srs|st_|spatial_ref_sys)" },
-    { "api": "stac", "idPattern": "^test-" }
+    { "api": "stac", "idPattern": "^test-" },
+    { "api": "parquet", "idPattern": "^bench_bidon$" },
+    { "api": "parquet", "idPattern": "^courbes_31h01se_layer_styles$" },
+    { "api": "parquet", "idPattern": "^index_telechargement_grhq_hr$" },
+    { "api": "parquet", "idPattern": "^index_inferences_json$" }
   ],
   "datasets": [
     {
@@ -88,12 +92,92 @@
       "source": { "label": "irda.qc.ca", "url": "https://www.irda.qc.ca/fr/services/protection-ressources/sante-sols/information-sols/etudes-pedologiques/" },
       "datasets": [
         {
+          "name": { "fr": "Couverture pédologique 2026-01 — Version pédologique (principale)", "en": "2026-01 pedological cover — Pedology version (primary)" },
+          "years": { "fr": "2026", "en": "2026" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^couverture_pedologique_2026_01_pedologie_version$" }
+          ]
+        },
+        {
           "name": { "fr": "Cartes pédologiques et séries de sols du Québec", "en": "Pedological maps and soil series of Quebec" },
           "years": { "fr": "2022", "en": "2022" },
           "formats": [ { "label": "Shapefile", "tag": "shp" }, { "label": "CSV", "tag": "csv" } ],
           "match": [
             { "api": "postgis", "idPattern": "^public\\.(pedo_|carte_pedo|series_sols)" },
             { "api": "parquet", "idPattern": "^(pedo_|carte_pedo|series_sols)" }
+          ]
+        },
+        {
+          "name": { "fr": "Couverture pédologique 2026-01 — BDHP", "en": "2026-01 pedological cover — BDHP" },
+          "years": { "fr": "2026", "en": "2026" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^couverture_pedologique_2026_01_bdhp_2026$" }
+          ]
+        },
+        {
+          "name": { "fr": "Couverture pédologique 2026-01 — Couverture PPS", "en": "2026-01 pedological cover — PPS cover" },
+          "years": { "fr": "2026", "en": "2026" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^couverture_pedologique_2026_01_couverture_pps$" }
+          ]
+        },
+        {
+          "name": { "fr": "Couverture pédologique 2026-01 — Étude pédologique", "en": "2026-01 pedological cover — Pedological study" },
+          "years": { "fr": "2026", "en": "2026" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^couverture_pedologique_2026_01_etude_pedologique$" }
+          ]
+        },
+        {
+          "name": { "fr": "Couverture pédologique 2026-01 — PPC EESSAQ", "en": "2026-01 pedological cover — PPC EESSAQ" },
+          "years": { "fr": "2026", "en": "2026" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^couverture_pedologique_2026_01_ppc_eessaq$" }
+          ]
+        },
+        {
+          "name": { "fr": "Couverture pédologique 2026-01 — PPC Inventaire 1990", "en": "2026-01 pedological cover — PPC Inventory 1990" },
+          "years": { "fr": "2026", "en": "2026" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^couverture_pedologique_2026_01_ppc_inventaire_1990$" }
+          ]
+        },
+        {
+          "name": { "fr": "Couverture pédologique 2026-01 — Propriétés P B18670", "en": "2026-01 pedological cover — Properties P B18670" },
+          "years": { "fr": "2026", "en": "2026" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^couverture_pedologique_2026_01_proprietes_p_b18670$" }
+          ]
+        },
+        {
+          "name": { "fr": "Couverture pédologique 2022 (version précédente)", "en": "Pedological cover 2022 (previous version)" },
+          "years": { "fr": "2022", "en": "2022" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^couverture_pedo_2022$" }
+          ]
+        },
+        {
+          "name": { "fr": "PPC par couche de sol (1990)", "en": "PPC by soil layer (1990)" },
+          "years": { "fr": "1990", "en": "1990" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^irda_ppc_parcouchesol_1990$" }
+          ]
+        },
+        {
+          "name": { "fr": "PPSD (novembre 2023)", "en": "PPSD (November 2023)" },
+          "years": { "fr": "2023", "en": "2023" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^irda_ppsd_2023_novembre$" }
           ]
         }
       ]
@@ -131,8 +215,8 @@
       "icon": "MRNF",
       "org": "Ministère des Ressources Naturelles et des Forêts",
       "description": {
-        "fr": "Trois jeux de données spatiaux provinciaux : rasters des propriétés du sol SIIGSOL-100m (carbone organique, pH, texture), produits dérivés du lidar (MNT, pente, indice topographique), et le réseau hydrographique provincial (GRHQ). Tous utilisés comme covariables environnementales dans la modélisation du MOS.",
-        "en": "Three provincial spatial datasets: SIIGSOL-100m soil property rasters (organic carbon, pH, texture), LiDAR-derived elevation products (DEM, slope, topographic index), and the provincial hydrographic network (GRHQ). All used as environmental covariates in SOM modelling."
+        "fr": "Cinq jeux de données spatiaux provinciaux : rasters des propriétés du sol SIIGSOL-100m (carbone organique, pH, texture), produits dérivés du lidar (MNT, pente, indice topographique), le réseau hydrographique provincial (GRHQ), des courbes de niveau topographiques et les stations hydrométriques. Les trois premiers sont utilisés comme covariables environnementales dans la modélisation du MOS.",
+        "en": "Five provincial spatial datasets: SIIGSOL-100m soil property rasters (organic carbon, pH, texture), LiDAR-derived elevation products (DEM, slope, topographic index), the provincial hydrographic network (GRHQ), topographic contour lines, and hydrometric stations. The first three are used as environmental covariates in SOM modelling."
       },
       "license": { "label": "OGL-Québec", "url": "https://www.donneesquebec.ca/licence/" },
       "source": { "label": "donneesquebec.ca", "url": "https://www.donneesquebec.ca/" },
@@ -142,16 +226,17 @@
           "years": { "fr": "2022", "en": "2022" },
           "formats": [ { "label": "GeoTIFF", "tag": "tif" } ],
           "match": [
-            { "api": "stac", "idPattern": "siigsol" }
+            { "api": "stac", "idPattern": "siigsol" },
+            { "api": "raster", "idPattern": "_siigsol_cog$" }
           ]
         },
         {
           "name": { "fr": "Produits dérivés du lidar", "en": "LiDAR-derived products" },
           "years": { "fr": "Données les plus récentes (2026)", "en": "Most recent MRNF data (2026)" },
           "formats": [ { "label": "GeoTIFF", "tag": "tif" } ],
-          "type": "external",
           "match": [
-            { "api": "process", "idPattern": "^lidar-fetch$" }
+            { "api": "process", "idPattern": "^lidar-fetch$" },
+            { "api": "stac", "idPattern": "^lidar_quebec$" }
           ]
         },
         {
@@ -161,6 +246,22 @@
           "match": [
             { "api": "postgis", "idPattern": "^public\\.grhq" },
             { "api": "parquet", "idPattern": "^grhq" }
+          ]
+        },
+        {
+          "name": { "fr": "Courbes de niveau (feuillet 31H01SE)", "en": "Contour lines (sheet 31H01SE)" },
+          "years": { "fr": "Non daté", "en": "Undated" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^courbes_31h01se_courbes_31h01se$" }
+          ]
+        },
+        {
+          "name": { "fr": "Stations hydrométriques", "en": "Hydrometric stations" },
+          "years": { "fr": "Non daté", "en": "Undated" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^stations_hydrometriques$" }
           ]
         }
       ]
@@ -185,6 +286,14 @@
           "match": [
             { "api": "process", "idPattern": "^msc-observations$" }
           ]
+        },
+        {
+          "name": { "fr": "Réseau agrométéorologique", "en": "Agrometeorological network" },
+          "years": { "fr": "Données les plus récentes", "en": "Most recent data" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^reseau_agrometeo_\\d{8}_\\d{6}$" }
+          ]
         }
       ]
     },
@@ -207,6 +316,67 @@
           "formats": [ { "label": "NetCDF", "tag": "nc" } ],
           "match": [
             { "api": "process", "idPattern": "^(weather-timeseries|climate-timeseries|climate-indicators)$" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "som",
+      "category": "model",
+      "type": "ingested",
+      "icon": "MOS",
+      "org": { "fr": "Agri-SDSS — Modèle de prédiction du MOS", "en": "Agri-SDSS — SOM prediction model" },
+      "description": {
+        "fr": "Champs, échantillons et prédictions du modèle de prédiction de la matière organique du sol (MOS), développé à partir des covariables spectrales (Sentinel-2), pédologiques (IRDA) et climatiques du pipeline Agri-SDSS. Regroupe les données d'entraînement, les statistiques cibles et les sorties du modèle Random Forest.",
+        "en": "Field boundaries, soil samples, and predictions from the Agri-SDSS soil organic matter (SOM) prediction model, built from spectral (Sentinel-2), pedological (IRDA), and climate covariates. Includes training data, target statistics, and Random Forest model outputs."
+      },
+      "datasets": [
+        {
+          "name": { "fr": "Covariables spectrales sol nu (BareSoil TOPCLI)", "en": "Bare-soil spectral covariates (BareSoil TOPCLI)" },
+          "years": { "fr": "2019 – 2023", "en": "2019 – 2023" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^BareSoil_TOPCLI_\\d{4}_Part\\d{2}$" }
+          ]
+        },
+        {
+          "name": { "fr": "Limites des champs", "en": "Field boundaries" },
+          "years": { "fr": "Non daté", "en": "Undated" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^som_field_boundaries$" }
+          ]
+        },
+        {
+          "name": { "fr": "Échantillons de sol", "en": "Soil samples" },
+          "years": { "fr": "Non daté", "en": "Undated" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^som_soil_samples$" }
+          ]
+        },
+        {
+          "name": { "fr": "Analyses de sol", "en": "Soil analysis" },
+          "years": { "fr": "Non daté", "en": "Undated" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^som_soil_analysis$" }
+          ]
+        },
+        {
+          "name": { "fr": "Statistiques MOS par champ (cible)", "en": "Target SOM stats per field" },
+          "years": { "fr": "Non daté", "en": "Undated" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^Field_SOM_Stats_Filtered$" }
+          ]
+        },
+        {
+          "name": { "fr": "Prédictions Random Forest", "en": "Random Forest predictions" },
+          "years": { "fr": "2019 – 2023", "en": "2019 – 2023" },
+          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
+          "match": [
+            { "api": "parquet", "idPattern": "^preds_RandomForest_S3_spec_soil_topo_clim$" }
           ]
         }
       ]

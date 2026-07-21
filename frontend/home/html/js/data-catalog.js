@@ -11,10 +11,11 @@ const ENDPOINTS = {
     postgis: '/vector-api/postgis/collections?f=json&limit=500',
     parquet: '/vector-api/parquet/collections?f=json',
     stac:    '/stac-api/collections?f=json',
+    raster:  '/raster-api/collections?f=json',
     process: '/process-api/processes?f=json',
 };
 
-const DATA_APIS = ['postgis', 'parquet', 'stac'];
+const DATA_APIS = ['postgis', 'parquet', 'stac', 'raster'];
 
 const L = {
     en: {
@@ -23,8 +24,9 @@ const L = {
         external: 'external source — fetched on demand',
         otherBadge: 'Backend', license: 'License', source: 'Source',
         loadError: 'Unable to load the data catalog.',
-        apiName: { postgis: 'PostGIS', parquet: 'GeoParquet', stac: 'STAC' },
-        catBadge: { crop: 'Crop monitoring', soil: 'Soil properties', climate: 'Meteorology', other: 'Backend' },
+        loading: 'Loading data…',
+        apiName: { postgis: 'PostGIS', parquet: 'GeoParquet', stac: 'STAC', raster: 'Raster (COG)' },
+        catBadge: { crop: 'Crop monitoring', soil: 'Soil properties', climate: 'Meteorology', model: 'Prediction model', other: 'Backend' },
     },
     fr: {
         live: 'dans le backend', collection: 'collection', collections: 'collections',
@@ -32,8 +34,9 @@ const L = {
         external: 'source externe — accès à la demande',
         otherBadge: 'Backend', license: 'Licence', source: 'Source',
         loadError: 'Impossible de charger le catalogue de données.',
-        apiName: { postgis: 'PostGIS', parquet: 'GeoParquet', stac: 'STAC' },
-        catBadge: { crop: 'Suivi des cultures', soil: 'Pédologie', climate: 'Météorologie', other: 'Backend' },
+        loading: 'Chargement des données…',
+        apiName: { postgis: 'PostGIS', parquet: 'GeoParquet', stac: 'STAC', raster: 'Raster (COG)' },
+        catBadge: { crop: 'Suivi des cultures', soil: 'Pédologie', climate: 'Météorologie', model: 'Modèle de prédiction', other: 'Backend' },
     },
 };
 
@@ -278,6 +281,7 @@ function renderAll() {
         crop: document.getElementById('grid-crop'),
         soil: document.getElementById('grid-soil'),
         climate: document.getElementById('grid-climate'),
+        model: document.getElementById('grid-model'),
     };
     Object.values(grids).forEach((g) => { if (g) g.innerHTML = ''; });
 
@@ -299,13 +303,33 @@ function renderAll() {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
+const GRID_IDS = ['grid-crop', 'grid-soil', 'grid-climate', 'grid-model'];
+
+function showLoading() {
+    const lang = getLang();
+    for (const id of GRID_IDS) {
+        const grid = document.getElementById(id);
+        if (grid) grid.appendChild(el('p', 'card-description', L[lang].loading));
+    }
+}
+
+function showLoadError() {
+    const lang = getLang();
+    for (const id of GRID_IDS) {
+        const grid = document.getElementById(id);
+        if (!grid) continue;
+        grid.innerHTML = '';
+        grid.appendChild(el('p', 'card-description', L[lang].loadError));
+    }
+}
+
 async function main() {
+    showLoading();
     let registry;
     try {
         registry = await fetchRegistry();
     } catch (e) {
-        const grid = document.getElementById('grid-crop');
-        if (grid) grid.appendChild(el('p', 'card-description', L[getLang()].loadError));
+        showLoadError();
         console.error('data-catalog: registry load failed — ' + e.message);
         return;
     }

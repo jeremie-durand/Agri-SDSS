@@ -58,12 +58,16 @@
     .fmt-ogc     { background: #1e0f2a; color: #a78bfa; }
     .fmt-arc     { background: #2a1500; color: #f97316; }
     .fmt-pdf     { background: #1c1c24; color: #6b7280; }
+    .fmt-parquet { background: #0f3d33; color: #2dd4bf; }
 
     .dataset-status { font-size: 0.72rem; margin-top: 0.4rem; color: var(--text-muted); }
     .dataset-status--live     { color: #3ecf8e; }
     .dataset-status--external { color: #38bdf8; }
     .card-links { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.6rem; }
     .card-links a { color: var(--text-muted); }
+    .section-cat-label--model,
+    .card-icon--model,
+    .card-badge--model { background: #1a0f35; color: #8b5cf6; }
     .section-cat-label--other,
     .card-icon--other,
     .card-badge--other { background: #1c1c24; color: #9ca3af; }
@@ -125,7 +129,16 @@
     <div class="services-grid" id="grid-climate"></div>
   </section>
 
-  <!-- ── Section 4 : Autres jeux de données du backend (auto-générée) ───── -->
+  <!-- ── Section 4 : Modèle de prédiction (MOS) ─────────────────────────── -->
+  <section class="data-section" aria-labelledby="section-model-title">
+    <div class="section-header">
+      <span class="section-cat-label section-cat-label--model" data-i18n="section-model-badge">Modèle</span>
+      <h2 class="section-cat-title" id="section-model-title" data-i18n="section-model-title">Sources de données — Modèle de prédiction</h2>
+    </div>
+    <div class="services-grid" id="grid-model"></div>
+  </section>
+
+  <!-- ── Section 5 : Autres jeux de données du backend (auto-générée) ───── -->
   <section class="data-section" id="section-other" aria-labelledby="section-other-title" hidden>
     <div class="section-header">
       <span class="section-cat-label section-cat-label--other" data-i18n="section-other-badge">Backend</span>
@@ -164,6 +177,8 @@
       'section-soil-title':    'Data sources — Soil properties',
       'section-climate-badge': 'Meteorology',
       'section-climate-title': 'Data sources — Meteorology & climatology',
+      'section-model-badge':   'Model',
+      'section-model-title':   'Data sources — Prediction model',
       'section-other-badge':   'Backend',
       'section-other-title':   'Other datasets in the backend',
       'footer-text':           'Agri-SDSS Geospatial Tools · Mon Système Fourrager',
@@ -177,6 +192,8 @@
       'section-soil-title':    'Sources de données — Caractéristiques pédologiques',
       'section-climate-badge': 'Météorologie',
       'section-climate-title': 'Sources de données — Météorologie et climatologie',
+      'section-model-badge':   'Modèle',
+      'section-model-title':   'Sources de données — Modèle de prédiction',
       'section-other-badge':   'Backend',
       'section-other-title':   'Autres jeux de données dans le backend',
       'footer-text':           'Outils géospatiaux Agri-SDSS · Mon Système Fourrager',
