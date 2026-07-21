@@ -246,7 +246,15 @@ main {
     display: flex;
     flex-direction: column;
     gap: 0.3rem;
+    max-height: 7.2rem;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
 }
+.vector-list::-webkit-scrollbar { width: 6px; }
+.vector-list::-webkit-scrollbar-track { background: transparent; }
+.vector-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.vector-list::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
 .vector-row {
     display: grid;
