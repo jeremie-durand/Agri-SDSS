@@ -214,6 +214,7 @@ services:
       - APP_ROOT_PATH=/raster-api
       - WEB_CONCURRENCY=2
       - GDAL_CACHEMAX=200
+      - RASTER_COG_DIR=/data
     working_dir: /app
     volumes:
       - ./data/output/raster_cog:/data
