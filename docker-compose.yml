@@ -38,6 +38,7 @@ services:
       - ./frontend/home/html/map.html:/usr/share/nginx/html/map.html:ro
       - ./frontend/home/html/data.html:/usr/share/nginx/html/data.html:ro
       - ./frontend/home/html/report-bug.html:/usr/share/nginx/html/report-bug.html:ro
+      - ./frontend/home/html/about.html:/usr/share/nginx/html/about.html:ro
     environment:
       - HOST_PROTOCOL=${HOST_PROTOCOL:-http}
       - HOST_URL=${HOST_URL:-localhost}
