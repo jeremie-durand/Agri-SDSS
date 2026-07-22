@@ -4,9 +4,15 @@
     { "api": "postgis", "idPattern": "^public\\.(postgis_srs|st_|spatial_ref_sys)" },
     { "api": "stac", "idPattern": "^test-" },
     { "api": "parquet", "idPattern": "^bench_bidon$" },
+    { "api": "postgis", "idPattern": "^public\\.bench_bidon$" },
     { "api": "parquet", "idPattern": "^courbes_31h01se_layer_styles$" },
     { "api": "parquet", "idPattern": "^index_telechargement_grhq_hr$" },
-    { "api": "parquet", "idPattern": "^index_inferences_json$" }
+    { "api": "postgis", "idPattern": "^public\\.index_telechargement_grhq_hr$" },
+    { "api": "parquet", "idPattern": "^index_inferences_json$" },
+    { "api": "postgis", "idPattern": "^public\\.[Ii]ndex_[Ii]nferences_json$" },
+    { "api": "postgis", "idPattern": "^public\\.test_id_column$" },
+    { "api": "postgis", "idPattern": "^public\\.test_station_id$" },
+    { "api": "postgis", "idPattern": "^public\\.sud_du_quebec_4326$" }
   ],
   "datasets": [
     {
@@ -73,7 +79,8 @@
           "formats": [ { "label": "GeoTIFF", "tag": "tif" } ],
           "match": [
             { "api": "stac", "idPattern": "sentinel2" },
-            { "api": "process", "idPattern": "^sentinel-fetch$" }
+            { "api": "process", "idPattern": "^sentinel-fetch$" },
+            { "api": "raster", "idPattern": "^sentinel2_" }
           ]
         }
       ]
@@ -96,7 +103,8 @@
           "years": { "fr": "2026", "en": "2026" },
           "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
           "match": [
-            { "api": "parquet", "idPattern": "^couverture_pedologique_2026_01_pedologie_version$" }
+            { "api": "parquet", "idPattern": "^couverture_pedologique_2026_01_pedologie_version$" },
+            { "api": "postgis", "idPattern": "^public\\.couverture_pedologique_2026_01_" }
           ]
         },
         {
@@ -161,7 +169,8 @@
           "years": { "fr": "2022", "en": "2022" },
           "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
           "match": [
-            { "api": "parquet", "idPattern": "^couverture_pedo_2022$" }
+            { "api": "parquet", "idPattern": "^couverture_pedo_2022$" },
+            { "api": "postgis", "idPattern": "^public\\.couverture_pedo_2022$" }
           ]
         },
         {
@@ -236,7 +245,8 @@
           "formats": [ { "label": "GeoTIFF", "tag": "tif" } ],
           "match": [
             { "api": "process", "idPattern": "^lidar-fetch$" },
-            { "api": "stac", "idPattern": "^lidar_quebec$" }
+            { "api": "stac", "idPattern": "^lidar_quebec$" },
+            { "api": "raster", "idPattern": "^lidar_dtm_geom_" }
           ]
         },
         {
@@ -261,7 +271,8 @@
           "years": { "fr": "Non daté", "en": "Undated" },
           "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
           "match": [
-            { "api": "parquet", "idPattern": "^stations_hydrometriques$" }
+            { "api": "parquet", "idPattern": "^stations_hydrometriques$" },
+            { "api": "postgis", "idPattern": "^public\\.stations_hydrometriques$" }
           ]
         }
       ]
@@ -292,7 +303,8 @@
           "years": { "fr": "Données les plus récentes", "en": "Most recent data" },
           "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
           "match": [
-            { "api": "parquet", "idPattern": "^reseau_agrometeo_\\d{8}_\\d{6}$" }
+            { "api": "parquet", "idPattern": "^reseau_agrometeo_\\d{8}_\\d{6}$" },
+            { "api": "postgis", "idPattern": "^public\\.reseau_agrometeo_\\d{8}_\\d{6}$" }
           ]
         }
       ]
@@ -344,7 +356,8 @@
           "years": { "fr": "Non daté", "en": "Undated" },
           "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
           "match": [
-            { "api": "parquet", "idPattern": "^som_field_boundaries$" }
+            { "api": "parquet", "idPattern": "^som_field_boundaries$" },
+            { "api": "postgis", "idPattern": "^public\\.som_field_boundaries$" }
           ]
         },
         {
@@ -352,7 +365,8 @@
           "years": { "fr": "Non daté", "en": "Undated" },
           "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
           "match": [
-            { "api": "parquet", "idPattern": "^som_soil_samples$" }
+            { "api": "parquet", "idPattern": "^som_soil_samples$" },
+            { "api": "postgis", "idPattern": "^public\\.som_soil_samples$" }
           ]
         },
         {
@@ -360,7 +374,8 @@
           "years": { "fr": "Non daté", "en": "Undated" },
           "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
           "match": [
-            { "api": "parquet", "idPattern": "^som_soil_analysis$" }
+            { "api": "parquet", "idPattern": "^som_soil_analysis$" },
+            { "api": "postgis", "idPattern": "^public\\.som_soil_analysis$" }
           ]
         },
         {
