@@ -24,10 +24,16 @@ window.STAC_BROWSER_CONFIG = {
         if (stac.type === 'Catalog' || !stac.type) {
             stac.title = fr ? 'Catalogue STAC' : 'STAC Catalog';
             stac.description = fr
-                ? 'Données géospatiales agricoles et environnementales pour la recherche en agriculture durable au Québec. ' +
-                  'Collections incluant l\'imagerie satellitaire (MODIS, Sentinel-2), LiDAR, cartes des sols et données climatiques.'
-                : 'Agricultural and environmental geospatial data for Quebec sustainable agriculture research. ' +
-                  'Collections include satellite imagery (MODIS, Sentinel-2), LiDAR, soil maps, and climate datasets.';
+                ? 'Un catalogue STAC (SpatioTemporal Asset Catalog) organise les données géospatiales selon deux axes : ' +
+                  'l\'espace (où : l\'emprise géographique de chaque image ou couche) et le temps (quand : sa date d\'acquisition). ' +
+                  'Cette structure spatio-temporelle permet de rechercher et de filtrer les données par zone géographique et ' +
+                  'par période, plutôt que de parcourir les fichiers un à un. Ce catalogue rassemble les données géospatiales ' +
+                  'agricoles et environnementales pour la recherche en agriculture durable au Québec'
+                : 'A STAC catalog (SpatioTemporal Asset Catalog) organizes geospatial data along two axes: space (where:' +
+                  'the geographic extent of each image or layer) and time (when: its acquisition date). This spatio-temporal ' +
+                  'structure lets you search and filter data by geographic area and time period, rather than browsing files ' +
+                  'one by one. This catalog brings together agricultural and environmental geospatial data for Quebec ' +
+                  'sustainable agriculture research.';
         }
 
         // Collections: translate description only (titles are technical names, kept as-is)
