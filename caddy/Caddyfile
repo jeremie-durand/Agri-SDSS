@@ -5,8 +5,8 @@
 #   A single "docker compose restart caddy" is enough after these two changes.
 #   CORS (VECTOR_API_CORS_ORIGINS) updates automatically via HOST_PROTOCOL + HOST_URL.
 
-localhost, agri-sdss.local {
-	tls internal
+{$SITE_ADDRESS:localhost, agri-sdss.local} {
+	tls {$ACME_EMAIL:internal}
 
 	# ── Rate limiting PyGeoAPI ────────────────────────────────────────────────
 	# Heavy processes (Sentinel fetch, SOM predict, LiDAR): POST /execution

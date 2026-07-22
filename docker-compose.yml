@@ -12,6 +12,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      - SITE_ADDRESS=${SITE_ADDRESS:-localhost, agri-sdss.local}
+      - ACME_EMAIL=${ACME_EMAIL:-internal}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data      # persistent TLS certificates — do not delete this volume
@@ -414,7 +417,7 @@ services:
       - "127.0.0.1:${POSTGRES_LOCAL_PORT}:${POSTGRES_PORT}"
     command: postgres -c max_connections=500 -c shared_buffers=1536MB -c effective_cache_size=4GB -c work_mem=64MB
     volumes:
-      - ./data/pg/.pgdata:/var/lib/postgresql/data
+      - ${PGDATA_PATH:-./data/pg/.pgdata}:/var/lib/postgresql/data
       - ./scripts/create_app_role.sh:/docker-entrypoint-initdb.d/create_app_role.sh
     restart: unless-stopped
     healthcheck:
