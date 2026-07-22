@@ -84,6 +84,7 @@
     <a class="unified-nav__link" href="/stac/" data-nav="stac">STAC</a>
     <a class="unified-nav__link" href="/chatbot/" data-nav="chatbot">AI Assistant</a>
     <a class="unified-nav__link" href="/report-bug" data-nav="report-bug">Report a bug</a>
+    <a class="unified-nav__link" href="/about" data-nav="about">About</a>
   </div>
   <button class="unified-nav__lang" id="langToggle" type="button" aria-label="Switch to English">EN</button>
 </nav>
@@ -166,7 +167,8 @@
       (nav === 'data'     && (path === '/data' || path === '/data.html')) ||
       (nav === 'stac'     && path.startsWith('/stac/')) ||
       (nav === 'chatbot'  && path.startsWith('/chatbot/')) ||
-      (nav === 'report-bug' && (path === '/report-bug' || path === '/report-bug.html'));
+      (nav === 'report-bug' && (path === '/report-bug' || path === '/report-bug.html')) ||
+      (nav === 'about'      && (path === '/about' || path === '/about.html'));
     a.classList.toggle('active', isActive);
   });
 
@@ -184,7 +186,7 @@
       'section-other-badge':   'Backend',
       'section-other-title':   'Other datasets in the backend',
       'footer-text':           'Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager',
-      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug'
+      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug', 'nav-about': 'About'
     },
     fr: {
       'header-desc':           'Catalogue des données sources intégrées dans la plateforme Agri-SDSS. Chaque source est ingérée, validée et publiée via le pipeline géospatial vers les API PostGIS, Parquet et STAC.',
@@ -199,7 +201,7 @@
       'section-other-badge':   'Backend',
       'section-other-title':   'Autres jeux de données dans le backend',
       'footer-text':           'Outils géospatiaux Agri-SDSS · Université de Sherbrooke · Mon Système Fourrager',
-      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug'
+      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug', 'nav-about': 'À propos'
     }
   };
 

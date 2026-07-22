@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agri-SDSS — À propos</title>
+  <link rel="stylesheet" href="css/index.css" />
+  <style>
+    .about-section { margin-bottom: 2.5rem; }
+    .about-section:last-child { margin-bottom: 0; }
+    .about-section h2 {
+      font-size: 1rem; font-weight: 600; color: var(--text-primary);
+      margin-bottom: 0.85rem;
+    }
+    .about-section p { color: var(--text-secondary); line-height: 1.65; }
+    .about-section p + p { margin-top: 0.85rem; }
+  </style>
+</head>
+<body>
+
+<nav class="unified-nav" role="navigation">
+  <a class="unified-nav__brand" href="/">Agri<span>-SDSS</span></a>
+  <div class="unified-nav__links">
+    <a class="unified-nav__link" href="/" data-nav="map">Map</a>
+    <a class="unified-nav__link" href="/services" data-nav="services">Services</a>
+    <a class="unified-nav__link" href="/data" data-nav="data">Data</a>
+    <a class="unified-nav__link" href="/stac/" data-nav="stac">STAC</a>
+    <a class="unified-nav__link" href="/chatbot/" data-nav="chatbot">AI Assistant</a>
+    <a class="unified-nav__link" href="/report-bug" data-nav="report-bug">Report a bug</a>
+    <a class="unified-nav__link active" href="/about" data-nav="about">About</a>
+  </div>
+  <button class="unified-nav__lang" id="langToggle" type="button" aria-label="Switch to English">EN</button>
+</nav>
+
+<header aria-label="Agri-SDSS — About">
+  <div class="header-left">
+    <div class="header-wordmark" aria-hidden="true">Agri<span>-SDSS</span></div>
+    <p data-i18n="header-desc">
+      Plateforme de données géospatiales pour la recherche en agriculture durable au Québec.
+      Pipeline automatisé, des données brutes jusqu'aux API conformes OGC, un catalogue STAC,
+      et un assistant IA.
+    </p>
+  </div>
+</header>
+
+<main>
+  <section class="about-section">
+    <h2 data-i18n="what-title">Qu'est-ce qu'Agri-SDSS ?</h2>
+    <p data-i18n="what-body-1">
+      Agri-SDSS est actuellement spécialisée dans la cartographie du potentiel de la matière
+      organique du sol (MOS) et l'aide à la décision pour les parcelles agricoles du Québec.
+    </p>
+    <p data-i18n="what-body-2">
+      L'architecture modulaire basée sur des microservices et Docker rend chaque composant
+      indépendamment réutilisable — le pipeline, les API, le frontend et le chatbot peuvent être
+      adaptés ou remplacés pour d'autres cas d'usage géospatiaux.
+    </p>
+    <p data-i18n="what-body-3">
+      Agri-SDSS est un projet de recherche, développé dans le cadre d'une maîtrise à
+      l'Université de Sherbrooke avec un stage de recherche chez Mon Système Fourrager.
+      Il s'agit d'une contribution open source au
+      <a href="https://rqrad.com/projet/developpement-dun-systeme-daide-a-la-decision-pour-determiner-le-potentiel-daccumulation-de-matiere-organique-du-sol-au-quebec-et-les-pratiques-pour-latteindre/" target="_blank" rel="noopener">projet de système d'aide à la décision MOS du RQRAD</a>.
+    </p>
+  </section>
+
+  <section class="about-section">
+    <h2 data-i18n="architecture-title">Architecture</h2>
+    <p data-i18n="architecture-body">
+      La plateforme suit un flux pipeline → stockage → API → frontend : le pipeline géospatial
+      (<code>gis-pipeline</code>) ingère et valide les données sources, les publie dans PostGIS,
+      DuckDB/GeoParquet et des fichiers COG, puis les expose via des API conformes aux standards
+      OGC (STAC, OGC API Features, OGC API Processes) consommées par la carte interactive, le
+      catalogue de données et l'assistant IA.
+    </p>
+  </section>
+
+  <section class="about-section">
+    <h2 data-i18n="oss-title">Standards ouverts et remerciements</h2>
+    <p data-i18n="oss-body">
+      Ce projet s'appuie sur des standards ouverts (OGC API Features, STAC) et des logiciels
+      libres. Il s'inspire d'<a href="https://github.com/developmentseed/eoAPI" target="_blank" rel="noopener">eoAPI</a>
+      (Development Seed), dont l'architecture d'API STAC, raster et vectorielle a servi de point
+      de départ.
+    </p>
+  </section>
+</main>
+
+<footer>
+  <p data-i18n="footer-text">Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager</p>
+  <p><a href="https://github.com/jeremie-durand/Agri-SDSS" target="_blank" rel="noopener">GitHub →</a></p>
+</footer>
+
+<script>
+(function() {
+  var path = window.location.pathname;
+  document.querySelectorAll('.unified-nav__link').forEach(function(a) {
+    var nav = a.getAttribute('data-nav');
+    var isActive =
+      (nav === 'map'         && (path === '/' || path === '/map.html')) ||
+      (nav === 'services'    && (path === '/services' || path === '/index.html')) ||
+      (nav === 'data'        && (path === '/data' || path === '/data.html')) ||
+      (nav === 'stac'        && path.startsWith('/stac/')) ||
+      (nav === 'chatbot'     && path.startsWith('/chatbot/')) ||
+      (nav === 'report-bug'  && (path === '/report-bug' || path === '/report-bug.html')) ||
+      (nav === 'about'       && (path === '/about' || path === '/about.html'));
+    a.classList.toggle('active', isActive);
+  });
+
+  var T = {
+    en: {
+      'header-desc': 'A geospatial data platform for sustainable agriculture research in Quebec. Automated pipeline from raw geodata to OGC-compliant APIs, a STAC catalog, and an AI assistant.',
+      'what-title': 'What is Agri-SDSS?',
+      'what-body-1': 'Agri-SDSS is currently specialized in Soil Organic Matter (SOM) potential mapping and decision support for Quebec agricultural parcels.',
+      'what-body-2': "The modular architecture, based on microservices and Docker, makes each component independently reusable — the pipeline, the APIs, the frontend, and the chatbot can be adapted or replaced for other geospatial use cases.",
+      'what-body-3': 'Agri-SDSS is a research project, developed as part of a master\'s degree at Université de Sherbrooke with a research internship at Mon Système Fourrager. It is an open-source contribution to the <a href="https://rqrad.com/projet/developpement-dun-systeme-daide-a-la-decision-pour-determiner-le-potentiel-daccumulation-de-matiere-organique-du-sol-au-quebec-et-les-pratiques-pour-latteindre/" target="_blank" rel="noopener">RQRAD Spatial Decision Support System SOM project</a>.',
+      'architecture-title': 'Architecture',
+      'architecture-body': 'The platform follows a pipeline → storage → API → frontend flow: the geospatial pipeline (<code>gis-pipeline</code>) ingests and validates source data, publishes it to PostGIS, DuckDB/GeoParquet, and COG files, then exposes it through OGC-standard APIs (STAC, OGC API Features, OGC API Processes) consumed by the interactive map, the data catalog, and the AI assistant.',
+      'oss-title': 'Open standards & acknowledgments',
+      'oss-body': 'This project is built on open standards (OGC API Features, STAC) and open-source software. It was inspired by <a href="https://github.com/developmentseed/eoAPI" target="_blank" rel="noopener">eoAPI</a> (Development Seed), whose STAC + raster + vector API architecture served as the starting point.',
+      'footer-text': 'Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager',
+      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug', 'nav-about': 'About'
+    },
+    fr: {
+      'header-desc': "Plateforme de données géospatiales pour la recherche en agriculture durable au Québec. Pipeline automatisé, des données brutes jusqu'aux API conformes OGC, un catalogue STAC, et un assistant IA.",
+      'what-title': "Qu'est-ce qu'Agri-SDSS ?",
+      'what-body-1': "Agri-SDSS est actuellement spécialisée dans la cartographie du potentiel de la matière organique du sol (MOS) et l'aide à la décision pour les parcelles agricoles du Québec.",
+      'what-body-2': "L'architecture modulaire basée sur des microservices et Docker rend chaque composant indépendamment réutilisable — le pipeline, les API, le frontend et le chatbot peuvent être adaptés ou remplacés pour d'autres cas d'usage géospatiaux.",
+      'what-body-3': "Agri-SDSS est un projet de recherche, développé dans le cadre d'une maîtrise à l'Université de Sherbrooke avec un stage de recherche chez Mon Système Fourrager. Il s'agit d'une contribution open source au <a href=\"https://rqrad.com/projet/developpement-dun-systeme-daide-a-la-decision-pour-determiner-le-potentiel-daccumulation-de-matiere-organique-du-sol-au-quebec-et-les-pratiques-pour-latteindre/\" target=\"_blank\" rel=\"noopener\">projet de système d'aide à la décision MOS du RQRAD</a>.",
+      'architecture-title': 'Architecture',
+      'architecture-body': "La plateforme suit un flux pipeline → stockage → API → frontend : le pipeline géospatial (<code>gis-pipeline</code>) ingère et valide les données sources, les publie dans PostGIS, DuckDB/GeoParquet et des fichiers COG, puis les expose via des API conformes aux standards OGC (STAC, OGC API Features, OGC API Processes) consommées par la carte interactive, le catalogue de données et l'assistant IA.",
+      'oss-title': 'Standards ouverts et remerciements',
+      'oss-body': "Ce projet s'appuie sur des standards ouverts (OGC API Features, STAC) et des logiciels libres. Il s'inspire d'<a href=\"https://github.com/developmentseed/eoAPI\" target=\"_blank\" rel=\"noopener\">eoAPI</a> (Development Seed), dont l'architecture d'API STAC, raster et vectorielle a servi de point de départ.",
+      'footer-text': 'Outils géospatiaux Agri-SDSS · Université de Sherbrooke · Mon Système Fourrager',
+      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug', 'nav-about': 'À propos'
+    }
+  };
+
+  var lang = localStorage.getItem('sdss-lang') || 'fr';
+
+  function applyLang(l) {
+    lang = l;
+    document.documentElement.lang = l;
+    document.querySelectorAll('[data-i18n]').forEach(function(el) {
+      var k = el.getAttribute('data-i18n');
+      if (T[l][k] !== undefined) el.innerHTML = T[l][k];
+    });
+    document.querySelectorAll('[data-nav]').forEach(function(el) {
+      var k = 'nav-' + el.getAttribute('data-nav');
+      if (T[l][k] !== undefined) el.textContent = T[l][k];
+    });
+    var btn = document.getElementById('langToggle');
+    btn.textContent = l === 'en' ? 'FR' : 'EN';
+    btn.setAttribute('aria-label', l === 'en' ? 'Changer la langue en français' : 'Switch to English');
+    localStorage.setItem('sdss-lang', l);
+  }
+
+  document.getElementById('langToggle').addEventListener('click', function() {
+    applyLang(lang === 'en' ? 'fr' : 'en');
+  });
+
+  applyLang(lang);
+})();
+</script>
+<script src="js/welcome-modal.js"></script>
+</body>
+</html>

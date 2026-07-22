@@ -1,7 +1,7 @@
 (function () {
   var T = {
-    en: { map: 'Map', services: 'Services', data: 'Data',     stac: 'STAC', chatbot: 'AI Assistant', reportBug: 'Report a bug' },
-    fr: { map: 'Carte', services: 'Services', data: 'Données', stac: 'STAC', chatbot: 'Assistant IA', reportBug: 'Signaler un bug' }
+    en: { map: 'Map', services: 'Services', data: 'Data',     stac: 'STAC', chatbot: 'AI Assistant', reportBug: 'Report a bug', about: 'About' },
+    fr: { map: 'Carte', services: 'Services', data: 'Données', stac: 'STAC', chatbot: 'Assistant IA', reportBug: 'Signaler un bug', about: 'À propos' }
   };
 
   function inject() {
@@ -43,7 +43,8 @@
       { href: '/data',     key: 'data',      nav: 'data'     },
       { href: '/stac/',    key: 'stac',      nav: 'stac'     },
       { href: '/chatbot/', key: 'chatbot',   nav: 'chatbot'  },
-      { href: '/report-bug', key: 'reportBug', nav: 'report-bug' }
+      { href: '/report-bug', key: 'reportBug', nav: 'report-bug' },
+      { href: '/about', key: 'about', nav: 'about' }
     ];
 
     function renderNav(l) {
@@ -55,7 +56,8 @@
           (link.nav === 'data'     && (path === '/data' || path === '/data.html')) ||
           (link.nav === 'stac'     && path.startsWith('/stac/')) ||
           (link.nav === 'chatbot'  && path.startsWith('/chatbot/')) ||
-          (link.nav === 'report-bug' && (path === '/report-bug' || path === '/report-bug.html'));
+          (link.nav === 'report-bug' && (path === '/report-bug' || path === '/report-bug.html')) ||
+          (link.nav === 'about' && (path === '/about' || path === '/about.html'));
         return '<a href="' + link.href + '"' + (isActive ? ' class="active"' : '') + '>' + tr[link.key] + '</a>';
       }).join('');
 

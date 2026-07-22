@@ -41,6 +41,7 @@
     <a class="unified-nav__link" href="/stac/" data-nav="stac">STAC</a>
     <a class="unified-nav__link" href="/chatbot/" data-nav="chatbot">AI Assistant</a>
     <a class="unified-nav__link active" href="/report-bug" data-nav="report-bug">Report a bug</a>
+    <a class="unified-nav__link" href="/about" data-nav="about">About</a>
   </div>
   <button class="unified-nav__lang" id="langToggle" type="button" aria-label="Switch to English">EN</button>
 </nav>
@@ -98,7 +99,8 @@
       (nav === 'data'        && (path === '/data' || path === '/data.html')) ||
       (nav === 'stac'        && path.startsWith('/stac/')) ||
       (nav === 'chatbot'     && path.startsWith('/chatbot/')) ||
-      (nav === 'report-bug'  && (path === '/report-bug' || path === '/report-bug.html'));
+      (nav === 'report-bug'  && (path === '/report-bug' || path === '/report-bug.html')) ||
+      (nav === 'about'       && (path === '/about' || path === '/about.html'));
     a.classList.toggle('active', isActive);
   });
 
@@ -122,7 +124,7 @@
       'version-title': 'Current version',
       'version-desc': 'This platform is currently at version 1.0.0.',
       'footer-text': 'Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager',
-      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug'
+      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug', 'nav-about': 'About'
     },
     fr: {
       'header-desc': 'Agri-SDSS est encore en développement actif : des bugs et des fonctionnalités incomplètes sont à prévoir. Merci de nous aider à les corriger en les signalant.',
@@ -143,7 +145,7 @@
       'version-title': 'Version actuelle',
       'version-desc': 'Cette plateforme est actuellement en version 1.0.0.',
       'footer-text': 'Outils géospatiaux Agri-SDSS · Université de Sherbrooke · Mon Système Fourrager',
-      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug'
+      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug', 'nav-about': 'À propos'
     }
   };
 

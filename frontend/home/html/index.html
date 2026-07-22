@@ -17,6 +17,7 @@
     <a class="unified-nav__link" href="/stac/" data-nav="stac">STAC</a>
     <a class="unified-nav__link" href="/chatbot/" data-nav="chatbot">AI Assistant</a>
     <a class="unified-nav__link" href="/report-bug" data-nav="report-bug">Report a bug</a>
+    <a class="unified-nav__link" href="/about" data-nav="about">About</a>
   </div>
   <button class="unified-nav__lang" id="langToggle" type="button" aria-label="Switch to English">EN</button>
 </nav>
@@ -218,7 +219,8 @@
       (nav === 'data'     && (path === '/data' || path === '/data.html')) ||
       (nav === 'stac'     && path.startsWith('/stac/')) ||
       (nav === 'chatbot'  && path.startsWith('/chatbot/')) ||
-      (nav === 'report-bug' && (path === '/report-bug' || path === '/report-bug.html'));
+      (nav === 'report-bug' && (path === '/report-bug' || path === '/report-bug.html')) ||
+      (nav === 'about'      && (path === '/about' || path === '/about.html'));
     if (isActive) a.classList.add('active');
   });
 
@@ -232,7 +234,7 @@
       'pygeoapi-desc': '<strong>OGC API - Processes</strong> server (pygeoapi) for running standardized geoprocessing jobs via HTTP requests.',
       'chatbot-desc': 'LLM-powered chatbot for querying geospatial data in natural language.',
       'footer-text': 'Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager',
-      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug'
+      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug', 'nav-about': 'About'
     },
     fr: {
       'header-desc': 'Plateforme de données géospatiales complète automatisant le traitement, l’indexation et la publication de données SIG depuis de multiples sources dans un écosystème d’API distribué, basé sur les standards ouverts et une architecture cloud-native modulaire, appliquée à l’optimisation de la Matière Organique des Sols (MOS) au Québec.',
@@ -243,7 +245,7 @@
       'pygeoapi-desc': 'Serveur <strong>OGC API - Processes</strong> (pygeoapi) permettant l’exécution de géotraitements standardisés via des requêtes HTTP.',
       'chatbot-desc': 'Chatbot alimenté par un modèle de langage (LLM) pour l\'interrogation en langage naturel des données géospatiales.',
       'footer-text': 'Outils géospatiaux Agri-SDSS · Université de Sherbrooke · Mon Système Fourrager',
-      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug'
+      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug', 'nav-about': 'À propos'
     }
   };
 

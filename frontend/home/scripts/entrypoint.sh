@@ -22,6 +22,7 @@ server {
     location = /services   { try_files /index.html =404; }
     location = /data       { try_files /data.html =404; }
     location = /report-bug { try_files /report-bug.html =404; }
+    location = /about      { try_files /about.html =404; }
 
     # Serve local files first; fall back to stac-browser for webpack lazy chunks
     # (publicPath "/" is baked into the upstream image build, cannot be changed)
