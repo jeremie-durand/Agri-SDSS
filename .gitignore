@@ -220,3 +220,6 @@ openspec/
 
 # Frontend development
 frontend/veda-ui/
+
+# Git worktrees (used by superpowers agentic workflows)
+.worktrees/
