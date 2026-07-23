@@ -16,12 +16,14 @@ import os
 import re
 import subprocess
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import numpy as np
 import psycopg
 import rasterio
 import requests
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
+from rasterio.features import geometry_mask
 from shapely.geometry import shape
 
 from .config import ApiConfig, DatabaseConfig, FarmConfig, StorageConfig
@@ -56,6 +58,15 @@ class LidarFetchProcessor(BaseProcessor):
     STAC_SPATIAL_EXTENT_BBOX: List[float] = [-79.75, 41.75, -56.0, 63.0]
     # Approximate acquisition start; MRNF campaigns began ~2015
     STAC_TEMPORAL_START: str = "2015-01-01T00:00:00Z"
+
+    # Derived (non-MRNF) product and the MRNF product it's derived from
+    ASPECT_PRODUCT: str = "aspect"
+    ASPECT_SOURCE_PRODUCT: str = "dtm"
+
+    # Default products when the caller omits 'products' — matches
+    # PROCESS_METADATA["inputs"]["products"]["schema"]["default"]; excludes
+    # aspect (opt-in only, since it triggers an extra gdaldem computation).
+    DEFAULT_PRODUCTS: List[str] = ["dtm", "chm", "hillshade", "slope"]
 
     # Geographic calculation constants
     KM_PER_DEGREE: float = 111.32
@@ -97,7 +108,7 @@ class LidarFetchProcessor(BaseProcessor):
         try:
             farm_geometry: Optional[Dict[str, Any]] = data.get("farm_geometry")
             farm_id: Optional[int] = data.get("farm_id")
-            products: List[str] = data.get("products", VALID_PRODUCTS)
+            products: List[str] = data.get("products", self.DEFAULT_PRODUCTS)
 
             # ----------------------------------------------------------
             # Input validation
@@ -155,10 +166,19 @@ class LidarFetchProcessor(BaseProcessor):
             # ----------------------------------------------------------
             # Tile lookup
             # ----------------------------------------------------------
-            tile_index = LidarTileIndex()
-            tile_urls = tile_index.get_tile_urls(bbox, products)
+            fetch_products: List[str] = [
+                p for p in products if p != self.ASPECT_PRODUCT
+            ]
+            if (
+                self.ASPECT_PRODUCT in products
+                and self.ASPECT_SOURCE_PRODUCT not in fetch_products
+            ):
+                fetch_products.append(self.ASPECT_SOURCE_PRODUCT)
 
-            missing = set(products) - set(tile_urls)
+            tile_index = LidarTileIndex()
+            tile_urls = tile_index.get_tile_urls(bbox, fetch_products)
+
+            missing = set(fetch_products) - set(tile_urls)
             if missing:
                 logger.warning(
                     "No LiDAR tiles found for products %s within bbox %s",
@@ -170,12 +190,22 @@ class LidarFetchProcessor(BaseProcessor):
                     f"No LiDAR tiles found for the supplied geometry "
                     f"(bbox={bbox}). The area may not be covered by MRNF LiDAR data."
                 )
+            if (
+                self.ASPECT_PRODUCT in products
+                and self.ASPECT_SOURCE_PRODUCT not in tile_urls
+            ):
+                raise ProcessorExecuteError(
+                    "Cannot compute 'aspect': no DTM tiles found for the "
+                    f"supplied geometry (bbox={bbox}). Aspect is derived "
+                    "from DTM."
+                )
 
             # ----------------------------------------------------------
-            # Stream → clip → COG → STAC for each product
+            # Stream → clip → COG → STAC for each fetched product
             # ----------------------------------------------------------
             stac_items: List[Dict[str, Any]] = []
             assets: Dict[str, Dict[str, Any]] = {}
+            cog_paths: Dict[str, str] = {}
 
             for product, urls in tile_urls.items():
                 logger.info(
@@ -189,51 +219,76 @@ class LidarFetchProcessor(BaseProcessor):
                 cog_filename = f"lidar_{product}_{farm_identifier}.tif"
                 cog_path = os.path.join(self.output_dir, cog_filename)
 
-                if os.path.exists(cog_path):
-                    logger.info(
-                        "Cache hit: reusing existing COG for '%s': %s",
-                        product,
-                        cog_path,
-                    )
-                else:
-                    self._clip_and_convert_to_cog(vsicurl_paths, cog_path, bbox)
-
-                # Extract raster metadata and compute band statistics
-                with rasterio.open(cog_path) as src:
-                    data_type = str(src.dtypes[0])
-                    band = src.read(1, masked=True)
-                    mean_val = float(band.mean()) if band.count() > 0 else None
-
-                assets[product] = {
-                    "href": cog_path,
-                    "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-                    "roles": ["data"],
-                    "title": self._get_product_title(product),
-                    "statistics": {"mean": mean_val},
-                    "raster:bands": [
-                        {
-                            "nodata": self.DEFAULT_NODATA,
-                            "data_type": data_type,
-                            "description": self._get_product_description(product),
-                        }
-                    ],
-                }
-
-                # Publish one STAC item per product
-                stac_item = self._create_stac_item(
-                    item_id=f"lidar_{product}_{farm_identifier}",
-                    geometry=geometry_geojson,
-                    bbox=tuple(bbox),
-                    product=product,
-                    asset=assets[product],
+                self._get_or_build_cog(
+                    cog_path,
+                    product,
+                    lambda: self._clip_and_convert_to_cog(
+                        vsicurl_paths, cog_path, bbox
+                    ),
                 )
-                stac_items.append(stac_item)
+
+                cog_paths[product] = cog_path
+
+                if product not in products:
+                    # Fetched only as an input dependency (DTM for aspect
+                    # derivation) — not a product the caller asked for.
+                    continue
+
+                self._add_product_asset(
+                    assets=assets,
+                    stac_items=stac_items,
+                    product=product,
+                    cog_path=cog_path,
+                    geometry_geojson=geometry_geojson,
+                    bbox=bbox,
+                    farm_identifier=farm_identifier,
+                )
+
+            # ----------------------------------------------------------
+            # Derive aspect from DTM, if requested
+            # ----------------------------------------------------------
+            if self.ASPECT_PRODUCT in products:
+                dtm_cog_path = cog_paths[self.ASPECT_SOURCE_PRODUCT]
+                aspect_filename = (
+                    f"lidar_{self.ASPECT_PRODUCT}_{farm_identifier}.tif"
+                )
+                aspect_cog_path = os.path.join(self.output_dir, aspect_filename)
+
+                self._get_or_build_cog(
+                    aspect_cog_path,
+                    self.ASPECT_PRODUCT,
+                    lambda: self._compute_aspect_cog(dtm_cog_path, aspect_cog_path),
+                )
+
+                self._add_product_asset(
+                    assets=assets,
+                    stac_items=stac_items,
+                    product=self.ASPECT_PRODUCT,
+                    cog_path=aspect_cog_path,
+                    geometry_geojson=geometry_geojson,
+                    bbox=bbox,
+                    farm_identifier=farm_identifier,
+                )
+
+            # ----------------------------------------------------------
+            # Build response: existing assets/stac_items structure, plus a
+            # flat slope/aspect summary for callers that don't need to
+            # parse STAC asset internals (e.g. external integrations).
+            # ----------------------------------------------------------
+            summary: Dict[str, Any] = {}
+            if "slope" in assets:
+                summary["slope"] = assets["slope"]["statistics"]
+            if self.ASPECT_PRODUCT in assets:
+                summary[self.ASPECT_PRODUCT] = assets[self.ASPECT_PRODUCT][
+                    "statistics"
+                ]
 
             return mimetype, {
                 "stac_items": [item["id"] for item in stac_items],
                 "assets": assets,
                 "bbox": list(bbox),
-                "products": list(tile_urls.keys()),
+                "products": list(assets.keys()),
+                **summary,
             }
 
         except ProcessorExecuteError:
@@ -315,6 +370,21 @@ class LidarFetchProcessor(BaseProcessor):
     # Raster processing
     # ------------------------------------------------------------------
 
+    def _get_or_build_cog(
+        self, cog_path: str, product: str, build: Callable[[], None]
+    ) -> None:
+        """
+        Reuse an existing COG at cog_path, or build it via the supplied
+        callback. Shared by the tile-fetch loop and the aspect-derivation
+        step, which both cache by output path.
+        """
+        if os.path.exists(cog_path):
+            logger.info(
+                "Cache hit: reusing existing COG for '%s': %s", product, cog_path
+            )
+        else:
+            build()
+
     def _clip_and_convert_to_cog(
         self,
         input_paths: List[str],
@@ -364,9 +434,153 @@ class LidarFetchProcessor(BaseProcessor):
                 f"gdalwarp clip/COG conversion failed: {result.stderr}"
             )
 
+    def _compute_aspect_cog(self, dtm_path: str, output_path: str) -> None:
+        """
+        Derive an aspect raster (compass bearing in degrees, 0=North) from a
+        clipped DTM COG. Aspect is not a native MRNF product, so it's
+        computed locally instead of fetched from a tile URL. Flat cells get
+        nodata (-9999) by default, which _masked_zonal_values excludes.
+        """
+        cmd: List[str] = [
+            "gdaldem",
+            "aspect",
+            dtm_path,
+            output_path,
+            "-of",
+            "COG",
+            "-co",
+            f"COMPRESS={self.COG_COMPRESSION}",
+            "-co",
+            "NUM_THREADS=ALL_CPUS",
+            "-co",
+            f"OVERVIEWS={self.COG_OVERVIEWS}",
+            "-co",
+            f"BLOCKSIZE={self.COG_BLOCKSIZE}",
+        ]
+        result: subprocess.CompletedProcess = subprocess.run(
+            cmd, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            raise ProcessorExecuteError(
+                f"gdaldem aspect computation failed: {result.stderr}"
+            )
+
+    # ------------------------------------------------------------------
+    # Zonal statistics (exact polygon, not bounding box)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _masked_zonal_values(cog_path: str, geometry: Dict[str, Any]) -> np.ndarray:
+        """
+        Return raster values at pixels that are both valid (not nodata) and
+        inside the exact polygon geometry — not just its bounding box, which
+        is what the COG itself is clipped to.
+        """
+        with rasterio.open(cog_path) as src:
+            band = src.read(1, masked=True)
+            polygon_mask = geometry_mask(
+                [geometry],
+                out_shape=(src.height, src.width),
+                transform=src.transform,
+                invert=True,
+            )
+        nodata_mask = np.ma.getmaskarray(band)
+        valid = polygon_mask & ~nodata_mask
+        return band.data[valid]
+
+    def _slope_statistics(
+        self, cog_path: str, geometry: Dict[str, Any]
+    ) -> Dict[str, Optional[float]]:
+        """Mean slope in degrees and percent, over the exact farm polygon."""
+        values = self._masked_zonal_values(cog_path, geometry)
+        if values.size == 0:
+            return {"mean_degrees": None, "mean_percent": None}
+        mean_degrees = float(values.mean())
+        # Percent must be averaged per-pixel (tan is nonlinear) — converting
+        # the mean degrees value afterward would be mathematically wrong.
+        percent_values = np.tan(np.radians(values)) * 100.0
+        mean_percent = float(percent_values.mean())
+        return {"mean_degrees": mean_degrees, "mean_percent": mean_percent}
+
+    def _aspect_statistics(
+        self, cog_path: str, geometry: Dict[str, Any]
+    ) -> Dict[str, Optional[float]]:
+        """
+        Circular mean aspect in degrees (compass bearing, 0=North), over the
+        exact farm polygon. Aspect wraps at 360/0, so a naive arithmetic
+        mean is wrong (e.g. 350 deg and 10 deg must average to ~0 deg, not
+        ~180 deg) — this uses vector averaging instead.
+        """
+        values = self._masked_zonal_values(cog_path, geometry)
+        if values.size == 0:
+            return {"mean_degrees": None}
+        radians = np.radians(values)
+        mean_rad = math.atan2(
+            float(np.sin(radians).mean()), float(np.cos(radians).mean())
+        )
+        mean_degrees = math.degrees(mean_rad) % 360.0
+        return {"mean_degrees": float(mean_degrees)}
+
     # ------------------------------------------------------------------
     # STAC helpers
     # ------------------------------------------------------------------
+
+    def _add_product_asset(
+        self,
+        assets: Dict[str, Dict[str, Any]],
+        stac_items: List[Dict[str, Any]],
+        product: str,
+        cog_path: str,
+        geometry_geojson: Dict[str, Any],
+        bbox: Tuple[float, float, float, float],
+        farm_identifier: str,
+    ) -> None:
+        """
+        Build the STAC asset entry (with statistics) for one product and
+        publish its STAC item, appending both to the caller's accumulators.
+        dtm/chm/hillshade keep the existing bounding-box mean; slope/aspect
+        use the exact-polygon statistics added in Tasks 4-5.
+        """
+        if product == "slope":
+            with rasterio.open(cog_path) as src:
+                data_type = str(src.dtypes[0])
+            statistics: Dict[str, Optional[float]] = self._slope_statistics(
+                cog_path, geometry_geojson
+            )
+        elif product == self.ASPECT_PRODUCT:
+            with rasterio.open(cog_path) as src:
+                data_type = str(src.dtypes[0])
+            statistics = self._aspect_statistics(cog_path, geometry_geojson)
+        else:
+            with rasterio.open(cog_path) as src:
+                data_type = str(src.dtypes[0])
+                band = src.read(1, masked=True)
+                mean_val = float(band.mean()) if band.count() > 0 else None
+            statistics = {"mean": mean_val}
+
+        assets[product] = {
+            "href": cog_path,
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "roles": ["data"],
+            "title": self._get_product_title(product),
+            "statistics": statistics,
+            "raster:bands": [
+                {
+                    "nodata": self.DEFAULT_NODATA,
+                    "data_type": data_type,
+                    "description": self._get_product_description(product),
+                }
+            ],
+        }
+
+        stac_item = self._create_stac_item(
+            item_id=f"lidar_{product}_{farm_identifier}",
+            geometry=geometry_geojson,
+            bbox=tuple(bbox),
+            product=product,
+            asset=assets[product],
+        )
+        stac_items.append(stac_item)
 
     def _create_stac_item(
         self,
@@ -541,7 +755,8 @@ class LidarFetchProcessor(BaseProcessor):
             "dtm": "Digital Terrain Model (DTM)",
             "chm": "Canopy Height Model (CHM)",
             "hillshade": "Hillshade (Shaded Relief)",
-            "slope": "Slope (degrees)",
+            "slope": "Slope (degrees and percent)",
+            "aspect": "Aspect (compass bearing, degrees)",
         }
         return titles.get(product, product.upper())
 
@@ -553,5 +768,10 @@ class LidarFetchProcessor(BaseProcessor):
             "chm": "Vegetation height in metres derived as DSM − DTM (1 m resolution)",
             "hillshade": "Shaded relief computed from DTM (2 m resolution)",
             "slope": "Terrain slope in degrees computed from DTM (2 m resolution)",
+            "aspect": (
+                "Downslope compass bearing in degrees (0=North, clockwise), "
+                "derived from DTM via gdaldem aspect (1 m resolution); not a "
+                "native MRNF product"
+            ),
         }
         return descriptions.get(product, "")

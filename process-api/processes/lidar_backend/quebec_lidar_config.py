@@ -14,7 +14,11 @@ PRODUCT_COLUMN: dict[str, str] = {
     "slope": "Pentes",
 }
 
-VALID_PRODUCTS: list[str] = list(PRODUCT_COLUMN.keys())
+# Not an MRNF product — derived locally from DTM via gdaldem aspect.
+# Never pass this to LidarTileIndex.get_tile_urls (no PRODUCT_COLUMN entry).
+DERIVED_PRODUCTS: list[str] = ["aspect"]
+
+VALID_PRODUCTS: list[str] = list(PRODUCT_COLUMN.keys()) + DERIVED_PRODUCTS
 
 CACHE_TTL_SECONDS: int = 86_400
 DEFAULT_CACHE_PATH: str = "/tmp/quebec_lidar_tile_index.geojson"
