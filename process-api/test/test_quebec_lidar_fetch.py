@@ -4,13 +4,42 @@ Tests quebec_lidar_fetch.py and lidar_backend/quebec_lidar_tile_index.py.
 """
 
 import json
+import math
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
+import rasterio
+from rasterio.transform import from_origin
+from processes.lidar_backend.quebec_lidar_config import PRODUCT_COLUMN, VALID_PRODUCTS
 from processes.lidar_backend.quebec_lidar_tile_index import LidarTileIndex
 from processes.quebec_lidar_fetch import LidarFetchProcessor
 from processes.quebec_lidar_fetch_metadata import PROCESS_METADATA
 from pygeoapi.process.base import ProcessorExecuteError
+
+
+def _write_test_raster(path, values, nodata=None):
+    """Write a small single-band GeoTIFF for zonal-statistics tests.
+
+    The raster origin is fixed at (-72.0, 46.0) with 0.01-degree pixels, so
+    tests can build simple, hand-computable polygons in EPSG:4326.
+    """
+    array = np.asarray(values, dtype="float32")
+    transform = from_origin(-72.0, 46.0, 0.01, 0.01)
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=array.shape[0],
+        width=array.shape[1],
+        count=1,
+        dtype=array.dtype,
+        crs="EPSG:4326",
+        transform=transform,
+        nodata=nodata,
+    ) as dst:
+        dst.write(array, 1)
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -153,6 +182,14 @@ def test_process_metadata_structure():
 
 
 @pytest.mark.unit
+def test_aspect_is_valid_but_not_an_mrnf_column():
+    """'aspect' is a valid product but has no MRNF tile column — it must
+    never be sent to LidarTileIndex.get_tile_urls, which would KeyError."""
+    assert "aspect" in VALID_PRODUCTS
+    assert "aspect" not in PRODUCT_COLUMN
+
+
+@pytest.mark.unit
 def test_process_inputs_defined():
     """All expected inputs are present with correct schema."""
     inputs = PROCESS_METADATA["inputs"]
@@ -161,7 +198,18 @@ def test_process_inputs_defined():
     assert "products" in inputs
 
     product_enum = inputs["products"]["schema"]["items"]["enum"]
-    assert set(product_enum) == {"dtm", "chm", "hillshade", "slope"}
+    assert set(product_enum) == {"dtm", "chm", "hillshade", "slope", "aspect"}
+
+
+@pytest.mark.unit
+def test_process_outputs_document_statistics_and_summary():
+    """Outputs schema documents per-asset statistics and the slope/aspect
+    top-level summary fields, so external callers don't have to read the
+    processor source to know they exist."""
+    properties = PROCESS_METADATA["outputs"]["result"]["schema"]["properties"]
+    assert "slope" in properties
+    assert "aspect" in properties
+    assert "statistics" in PROCESS_METADATA["outputs"]["result"]["description"]
 
 
 @pytest.mark.unit
@@ -229,6 +277,230 @@ def test_tile_index_multiple_tiles(mock_tile_index_geojson):
 
 
 # ---------------------------------------------------------------------------
+# Zonal statistics tests (exact-polygon masking, slope, aspect)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_masked_zonal_values_excludes_pixels_outside_polygon(
+    processor_instance, tmp_path
+):
+    """Only pixels whose center falls inside the polygon are returned, even
+    though the raster covers a larger rectangular extent."""
+    raster_path = tmp_path / "values.tif"
+    _write_test_raster(
+        raster_path,
+        [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]],
+    )
+    # Left half only (cols 0-1) of the 4x4 raster, which spans
+    # x=[-72.00,-71.96], y=[45.96,46.00].
+    left_half = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-72.00, 45.96],
+                [-71.98, 45.96],
+                [-71.98, 46.00],
+                [-72.00, 46.00],
+                [-72.00, 45.96],
+            ]
+        ],
+    }
+
+    values = processor_instance._masked_zonal_values(str(raster_path), left_half)
+
+    assert sorted(values.tolist()) == [1.0, 2.0, 5.0, 6.0, 9.0, 10.0, 13.0, 14.0]
+
+
+@pytest.mark.unit
+def test_slope_statistics_uses_per_pixel_percent_conversion(
+    processor_instance, tmp_path
+):
+    """mean_percent must be the average of per-pixel tan(radians(deg))*100,
+    not tan(radians(mean_degrees))*100 — the two differ for non-uniform
+    input, and only the per-pixel version is numerically correct."""
+    raster_path = tmp_path / "slope.tif"
+    degrees = [[10.0, 20.0], [30.0, 40.0]]
+    _write_test_raster(raster_path, degrees)
+    full_coverage = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-72.00, 45.98],
+                [-71.98, 45.98],
+                [-71.98, 46.00],
+                [-72.00, 46.00],
+                [-72.00, 45.98],
+            ]
+        ],
+    }
+
+    stats = processor_instance._slope_statistics(str(raster_path), full_coverage)
+
+    flat_degrees = np.array([10.0, 20.0, 30.0, 40.0])
+    expected_mean_degrees = float(flat_degrees.mean())
+    expected_mean_percent = float(
+        (np.tan(np.radians(flat_degrees)) * 100.0).mean()
+    )
+    wrong_way_percent = math.tan(math.radians(expected_mean_degrees)) * 100.0
+
+    assert stats["mean_degrees"] == pytest.approx(expected_mean_degrees)
+    assert stats["mean_percent"] == pytest.approx(expected_mean_percent, abs=1e-3)
+    assert stats["mean_percent"] != pytest.approx(wrong_way_percent, abs=0.5)
+
+
+@pytest.mark.unit
+def test_slope_statistics_empty_polygon_returns_none(processor_instance, tmp_path):
+    """A polygon that covers no pixels returns None rather than NaN/crashing."""
+    raster_path = tmp_path / "slope_empty.tif"
+    _write_test_raster(raster_path, [[10.0, 20.0], [30.0, 40.0]])
+    outside_polygon = {
+        "type": "Polygon",
+        "coordinates": [
+            [[-60.0, 50.0], [-59.99, 50.0], [-59.99, 50.01], [-60.0, 50.01], [-60.0, 50.0]]
+        ],
+    }
+
+    stats = processor_instance._slope_statistics(str(raster_path), outside_polygon)
+
+    assert stats == {"mean_degrees": None, "mean_percent": None}
+
+
+@pytest.mark.unit
+def test_masked_zonal_values_excludes_nodata_pixels_inside_polygon(
+    processor_instance, tmp_path
+):
+    """Pixels that are inside the polygon but flagged as nodata must be
+    excluded from the result — polygon coverage alone isn't sufficient."""
+    raster_path = tmp_path / "values_with_nodata.tif"
+    _write_test_raster(
+        raster_path,
+        [[1, 2], [-9999, 4]],
+        nodata=-9999,
+    )
+    full_coverage = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-72.00, 45.98],
+                [-71.98, 45.98],
+                [-71.98, 46.00],
+                [-72.00, 46.00],
+                [-72.00, 45.98],
+            ]
+        ],
+    }
+
+    values = processor_instance._masked_zonal_values(str(raster_path), full_coverage)
+
+    assert sorted(values.tolist()) == [1.0, 2.0, 4.0]
+
+
+@pytest.mark.unit
+def test_aspect_statistics_circular_mean_handles_wraparound(
+    processor_instance, tmp_path
+):
+    """350 deg and 10 deg must average to ~0 deg (near-north), not ~180 deg
+    — a naive arithmetic mean gets this exactly backwards."""
+    raster_path = tmp_path / "aspect_wrap.tif"
+    _write_test_raster(raster_path, [[350.0, 10.0]])
+    full_coverage = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-72.00, 45.99],
+                [-71.98, 45.99],
+                [-71.98, 46.00],
+                [-72.00, 46.00],
+                [-72.00, 45.99],
+            ]
+        ],
+    }
+
+    stats = processor_instance._aspect_statistics(str(raster_path), full_coverage)
+
+    assert stats["mean_degrees"] == pytest.approx(0.0, abs=1e-4) or stats[
+        "mean_degrees"
+    ] == pytest.approx(360.0, abs=1e-4)
+
+
+@pytest.mark.unit
+def test_aspect_statistics_excludes_nodata_flat_cells(processor_instance, tmp_path):
+    """gdaldem aspect marks flat/edge cells as nodata (-9999) — those must
+    not pollute the circular mean."""
+    raster_path = tmp_path / "aspect_nodata.tif"
+    _write_test_raster(
+        raster_path, [[45.0, -9999.0], [90.0, -9999.0]], nodata=-9999.0
+    )
+    full_coverage = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-72.00, 45.98],
+                [-71.98, 45.98],
+                [-71.98, 46.00],
+                [-72.00, 46.00],
+                [-72.00, 45.98],
+            ]
+        ],
+    }
+
+    stats = processor_instance._aspect_statistics(str(raster_path), full_coverage)
+
+    assert stats["mean_degrees"] == pytest.approx(67.5, abs=0.01)
+
+
+@pytest.mark.unit
+def test_aspect_statistics_empty_polygon_returns_none(processor_instance, tmp_path):
+    """A polygon that covers no pixels returns None rather than crashing."""
+    raster_path = tmp_path / "aspect_empty.tif"
+    _write_test_raster(raster_path, [[45.0, 90.0]])
+    outside_polygon = {
+        "type": "Polygon",
+        "coordinates": [
+            [[-60.0, 50.0], [-59.99, 50.0], [-59.99, 50.01], [-60.0, 50.01], [-60.0, 50.0]]
+        ],
+    }
+
+    stats = processor_instance._aspect_statistics(str(raster_path), outside_polygon)
+
+    assert stats == {"mean_degrees": None}
+
+
+@pytest.mark.unit
+def test_compute_aspect_cog_invokes_gdaldem(processor_instance, tmp_path):
+    """_compute_aspect_cog shells out to gdaldem aspect with the DTM COG
+    as input, mirroring how _clip_and_convert_to_cog shells out to
+    gdalwarp."""
+    dtm_path = str(tmp_path / "dtm.tif")
+    aspect_path = str(tmp_path / "aspect.tif")
+
+    with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        processor_instance._compute_aspect_cog(dtm_path, aspect_path)
+
+    args = mock_run.call_args.args[0]
+    assert args[0] == "gdaldem"
+    assert args[1] == "aspect"
+    assert dtm_path in args
+    assert aspect_path in args
+
+
+@pytest.mark.unit
+def test_compute_aspect_cog_raises_on_gdal_failure(processor_instance, tmp_path):
+    """A non-zero gdaldem exit code raises ProcessorExecuteError with the
+    stderr output, matching the gdalwarp failure pattern."""
+    with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            returncode=1, stderr="gdaldem: some error"
+        )
+        with pytest.raises(ProcessorExecuteError, match="gdaldem aspect"):
+            processor_instance._compute_aspect_cog(
+                str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif")
+            )
+
+
+# ---------------------------------------------------------------------------
 # LidarFetchProcessor input validation tests
 # ---------------------------------------------------------------------------
 
@@ -261,7 +533,7 @@ def test_execute_rejects_unknown_products(processor_instance, sample_farm_geomet
     """Unknown product names raise ProcessorExecuteError."""
     with pytest.raises(ProcessorExecuteError, match="Unknown product"):
         processor_instance.execute(
-            {"farm_geometry": sample_farm_geometry, "products": ["dsm", "aspect"]}
+            {"farm_geometry": sample_farm_geometry, "products": ["dsm"]}
         )
 
 
@@ -284,6 +556,86 @@ def test_execute_no_tiles_found(processor_instance, sample_farm_geometry):
             processor_instance.execute(
                 {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
             )
+
+
+@pytest.mark.unit
+def test_execute_no_dtm_tiles_for_aspect_raises(
+    processor_instance, sample_farm_geometry
+):
+    """Aspect is requested but no DTM tiles are found (even though other
+    requested products do have tiles) — raises a clear, specific error."""
+    tile_urls = {"slope": ["https://example.com/Pentes_31H05NE.tif"]}
+    with patch(
+        "processes.quebec_lidar_fetch.LidarTileIndex.get_tile_urls",
+        return_value=tile_urls,
+    ):
+        with pytest.raises(ProcessorExecuteError, match="DTM"):
+            processor_instance.execute(
+                {
+                    "farm_geometry": sample_farm_geometry,
+                    "products": ["slope", "aspect"],
+                }
+            )
+
+
+@pytest.mark.mocked
+def test_execute_default_products_excludes_aspect(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """Omitting 'products' must not silently include aspect — it's
+    opt-in only, matching the documented schema default. Verified by
+    running execute() to completion (not just checking fetch_products),
+    since aspect's absence from fetch_products doesn't by itself prove
+    it wasn't computed via some other path."""
+    processor_instance.output_dir = str(tmp_path)
+
+    tile_urls = {
+        "dtm": ["https://example.com/MNT_31H05NE.tif"],
+        "chm": ["https://example.com/MHC_31H05NE.tif"],
+        "hillshade": ["https://example.com/MNT_Ombre_31H05NE.tif"],
+        "slope": ["https://example.com/Pentes_31H05NE.tif"],
+    }
+
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.mean.return_value = 1.5
+
+    mock_rasterio_ds = MagicMock()
+    mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
+    mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
+    mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.read.return_value = mock_band
+
+    with (
+        patch(
+            "processes.quebec_lidar_fetch.LidarTileIndex.get_tile_urls",
+            return_value=tile_urls,
+        ),
+        patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run,
+        patch(
+            "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
+        ),
+        patch.object(
+            processor_instance, "_compute_aspect_cog"
+        ) as mock_compute_aspect,
+        patch.object(
+            processor_instance,
+            "_slope_statistics",
+            return_value={"mean_degrees": 1.5, "mean_percent": 2.6},
+        ),
+        patch.object(processor_instance, "_post_to_stac_api", return_value=True),
+        patch.object(processor_instance, "_ensure_collection_exists"),
+    ):
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+        mimetype, result = processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry}
+        )
+
+    mock_compute_aspect.assert_not_called()
+    assert "aspect" not in result["assets"]
+    assert "aspect" not in result["products"]
+    assert set(result["products"]) == {"dtm", "chm", "hillshade", "slope"}
 
 
 # ---------------------------------------------------------------------------
@@ -346,16 +698,11 @@ def test_execute_success_with_farm_id(processor_instance, mock_db_connection, tm
 
     tile_urls = {"slope": ["https://example.com/Pentes_31H05NE.tif"]}
 
-    mock_band = MagicMock()
-    mock_band.count.return_value = 100
-    mock_band.mean.return_value = 1.5
-
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.bounds = MagicMock(left=-71.5, bottom=45.5, right=-71.4, top=45.6)
     mock_rasterio_ds.dtypes = ("float32",)
-    mock_rasterio_ds.read.return_value = mock_band
 
     with (
         patch(
@@ -370,6 +717,11 @@ def test_execute_success_with_farm_id(processor_instance, mock_db_connection, tm
         patch(
             "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
         ),
+        patch.object(
+            processor_instance,
+            "_slope_statistics",
+            return_value={"mean_degrees": 1.5, "mean_percent": 2.6},
+        ),
         patch.object(processor_instance, "_post_to_stac_api", return_value=True),
         patch.object(processor_instance, "_ensure_collection_exists"),
     ):
@@ -382,6 +734,111 @@ def test_execute_success_with_farm_id(processor_instance, mock_db_connection, tm
     assert mimetype == "application/json"
     assert "slope" in result["products"]
     assert len(result["stac_items"]) == 1
+    assert result["slope"] == {"mean_degrees": 1.5, "mean_percent": 2.6}
+
+
+@pytest.mark.mocked
+def test_execute_aspect_only_fetches_dtm_as_dependency(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """Requesting only 'aspect' fetches DTM internally (aspect is derived
+    from it) but DTM is excluded from the output since the caller didn't
+    ask for it."""
+    processor_instance.output_dir = str(tmp_path)
+
+    tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
+
+    mock_rasterio_ds = MagicMock()
+    mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
+    mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
+    mock_rasterio_ds.dtypes = ("float32",)
+
+    with (
+        patch(
+            "processes.quebec_lidar_fetch.LidarTileIndex.get_tile_urls",
+            return_value=tile_urls,
+        ) as mock_get_tile_urls,
+        patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run,
+        patch(
+            "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
+        ),
+        patch.object(processor_instance, "_compute_aspect_cog"),
+        patch.object(
+            processor_instance,
+            "_aspect_statistics",
+            return_value={"mean_degrees": 187.5},
+        ),
+        patch.object(processor_instance, "_post_to_stac_api", return_value=True),
+        patch.object(processor_instance, "_ensure_collection_exists"),
+    ):
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+        mimetype, result = processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry, "products": ["aspect"]}
+        )
+
+    # DTM was fetched as a dependency for aspect derivation...
+    assert mock_get_tile_urls.call_args.args[1] == ["dtm"]
+    # ...but excluded from the output, since the caller didn't request it.
+    assert "dtm" not in result["assets"]
+    assert result["products"] == ["aspect"]
+    assert "aspect" in result["assets"]
+    assert result["aspect"] == {"mean_degrees": 187.5}
+    assert len(result["stac_items"]) == 1
+
+
+@pytest.mark.mocked
+def test_execute_dtm_and_aspect_both_explicitly_requested(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """When dtm is explicitly requested alongside aspect (not just fetched
+    as aspect's dependency), it must still appear in the output — the
+    'dependency-only, skip the asset' logic must not swallow an explicit
+    request just because dtm also happens to be aspect's source product."""
+    processor_instance.output_dir = str(tmp_path)
+
+    tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
+
+    mock_rasterio_ds = MagicMock()
+    mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
+    mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
+    mock_rasterio_ds.dtypes = ("float32",)
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.mean.return_value = 312.4
+    mock_rasterio_ds.read.return_value = mock_band
+
+    with (
+        patch(
+            "processes.quebec_lidar_fetch.LidarTileIndex.get_tile_urls",
+            return_value=tile_urls,
+        ) as mock_get_tile_urls,
+        patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run,
+        patch(
+            "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
+        ),
+        patch.object(processor_instance, "_compute_aspect_cog"),
+        patch.object(
+            processor_instance,
+            "_aspect_statistics",
+            return_value={"mean_degrees": 187.5},
+        ),
+        patch.object(processor_instance, "_post_to_stac_api", return_value=True),
+        patch.object(processor_instance, "_ensure_collection_exists"),
+    ):
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+        mimetype, result = processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry, "products": ["dtm", "aspect"]}
+        )
+
+    # dtm fetched once, no duplication in fetch_products
+    assert mock_get_tile_urls.call_args.args[1] == ["dtm"]
+    # both explicitly-requested products appear in the output
+    assert "dtm" in result["assets"]
+    assert "aspect" in result["assets"]
+    assert set(result["products"]) == {"dtm", "aspect"}
+    assert len(result["stac_items"]) == 2
 
 
 @pytest.mark.mocked
@@ -407,3 +864,15 @@ def test_execute_gdal_failure_raises(
             processor_instance.execute(
                 {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
             )
+
+
+# ---------------------------------------------------------------------------
+# Product metadata helper tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_product_title_and_description_defined_for_aspect():
+    """aspect has the same title/description coverage as the other products."""
+    assert LidarFetchProcessor._get_product_title("aspect") != "ASPECT"
+    assert "DTM" in LidarFetchProcessor._get_product_description("aspect")
