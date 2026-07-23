@@ -37,10 +37,22 @@ Produits_derives_LiDAR/Produit_derive_lidar/03-Telechargement/URL_Lidar.geojson
 | `dtm` | `MNT` | Digital Terrain Model — bare ground elevation | 1 m | metres ASL |
 | `chm` | `MHC` | Canopy Height Model — vegetation height (DSM − DTM) | 1 m | metres |
 | `hillshade` | `MNT_Ombre` | Shaded relief derived from DTM | 2 m | — |
-| `slope` | `Pentes` | Slope gradient derived from DTM | 2 m | degrees |
+| `slope` | `Pentes` | Slope gradient derived from DTM | 2 m | degrees, percent |
+| `aspect` | *(derived)* | Downslope compass bearing, derived locally from DTM via `gdaldem aspect` — not an MRNF product | 1 m | degrees (0=North) |
 
 > **Note:** The MRNF dataset does not include a Digital Surface Model (DSM) or aspect
 > raster as standalone products. The CHM implicitly encodes the DSM−DTM difference.
+> `aspect` is computed on demand from the fetched DTM; requesting it also fetches DTM
+> internally even if `dtm` is not itself in `products`.
+
+### Statistics
+
+`dtm`, `chm`, and `hillshade` statistics are a **bounding-box mean** (the COG's full
+extent, i.e. the farm's rectangular bounding box). `slope` and `aspect` statistics are
+computed over the **exact farm polygon** (pixels outside the polygon, and nodata
+pixels, are excluded). `slope`'s percent value is the average of the per-pixel percent
+conversion (`tan(radians(degrees)) * 100`), not a conversion of the mean degrees value.
+`aspect`'s mean is a circular mean (vector average), since aspect wraps at 360/0 degrees.
 
 ### Agricultural relevance
 
@@ -50,6 +62,7 @@ Produits_derives_LiDAR/Produit_derive_lidar/03-Telechargement/URL_Lidar.geojson
 | `chm` | Crop height monitoring, hedgerow/windbreak mapping |
 | `hillshade` | Visual interpretation, slope aspect proxy |
 | `slope` | Erosion risk, tillage constraints, equipment access |
+| `aspect` | Solar exposure, frost-pocket risk, crop/orientation planning |
 
 ---
 
@@ -59,7 +72,7 @@ Produits_derives_LiDAR/Produit_derive_lidar/03-Telechargement/URL_Lidar.geojson
 |-------|------|----------|---------|-------------|
 | `farm_id` | integer | one of | — | PostGIS row ID; queries `FARM_TABLE_NAME` |
 | `farm_geometry` | GeoJSON | one of | — | Polygon or MultiPolygon in EPSG:4326 |
-| `products` | array of strings | no | all four | Subset of `["dtm","chm","hillshade","slope"]` |
+| `products` | array of strings | no | dtm, chm, hillshade, slope | Subset of `["dtm","chm","hillshade","slope","aspect"]`. Requesting `aspect` also fetches `dtm` internally. |
 
 Exactly one of `farm_id` or `farm_geometry` must be provided.
 
@@ -71,23 +84,38 @@ Exactly one of `farm_id` or `farm_geometry` must be provided.
 
 ```json
 {
-  "stac_items": ["lidar_dtm_farm_4_abc123", "lidar_slope_farm_4_def456"],
+  "stac_items": [
+    "lidar_dtm_farm_4_abc123",
+    "lidar_slope_farm_4_def456",
+    "lidar_aspect_farm_4_ghi789"
+  ],
   "assets": {
     "dtm": {
       "href": "/data/lidar_dtm_farm_4_abc123.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "title": "Digital Terrain Model (DTM)",
-      "roles": ["data"]
+      "roles": ["data"],
+      "statistics": { "mean": 312.4 }
     },
     "slope": {
       "href": "/data/lidar_slope_farm_4_def456.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-      "title": "Slope (degrees)",
-      "roles": ["data"]
+      "title": "Slope (degrees and percent)",
+      "roles": ["data"],
+      "statistics": { "mean_degrees": 4.2, "mean_percent": 7.3 }
+    },
+    "aspect": {
+      "href": "/data/lidar_aspect_farm_4_ghi789.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Aspect (compass bearing, degrees)",
+      "roles": ["data"],
+      "statistics": { "mean_degrees": 187.5 }
     }
   },
   "bbox": [-72.05, 45.30, -71.95, 45.40],
-  "products": ["dtm", "slope"]
+  "products": ["dtm", "slope", "aspect"],
+  "slope": { "mean_degrees": 4.2, "mean_percent": 7.3 },
+  "aspect": { "mean_degrees": 187.5 }
 }
 ```
 
