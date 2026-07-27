@@ -364,6 +364,27 @@ main {
     min-height: 420px;
 }
 
+/* AAC pixels have no per-feature interactive target (raster tiles), so
+   there's no automatic .leaflet-interactive pointer cursor like BDPPAD
+   parcels get. Toggled on #map by aac.js while a layer is active. */
+#map.aac-identify-active {
+    cursor: pointer;
+}
+
+.map-hover-hint {
+    position: fixed;
+    z-index: var(--z-map-overlay);
+    pointer-events: none;
+    background: rgba(10, 19, 32, 0.92);
+    color: var(--text);
+    font-size: 0.72rem;
+    padding: 0.3rem 0.55rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+    white-space: nowrap;
+}
+
 .coord-readout {
     position: absolute;
     left: 0.75rem;

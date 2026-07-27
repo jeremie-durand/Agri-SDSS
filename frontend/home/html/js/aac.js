@@ -1,5 +1,6 @@
 import { map } from './state.js';
 import { openSomModal } from './som.js';
+import { showHoverHint, hideHoverHint } from './hover-hint.js';
 // import { sendFeatureContext } from './chat.js'; // disabled: farm context auto-population
 
 // window.AAC_CROP_CODES is loaded via <script src="/js/aac-crop-codes.js"> in map.html
@@ -33,10 +34,26 @@ export function deselectAac() {
     _activeYear = null;
     if (layer && map.hasLayer(layer)) map.removeLayer(layer);
     map.off('click', _onMapClick);
+    map.off('mousemove', _onMapHover);
+    map.off('mouseout', hideHoverHint);
+    _setAacCursor(false);
+    hideHoverHint();
     _updateAacUI();
 }
 
 function _tL() { return (window.T && window.T[window.lang]) || {}; }
+
+// AAC pixels have no per-feature hover target (raster tiles), so the
+// pointer cursor and "click to identify" hint are shown for the whole
+// map while a layer is active — mirrors the affordance BDPPAD parcels
+// already get for free from Leaflet's .leaflet-interactive styling.
+function _setAacCursor(active) {
+    map.getContainer().classList.toggle('aac-identify-active', active);
+}
+
+function _onMapHover(e) {
+    showHoverHint(e.originalEvent.clientX, e.originalEvent.clientY, _tL()['aac-hover-hint'] || 'Click to identify the crop here');
+}
 
 function _buildExportImageLayer(dataset) {
     const base = `https://agriculture.canada.ca/imagery-images/rest/services/${dataset.path}/exportImage`;
@@ -117,6 +134,9 @@ function _activateAac(dataset) {
     _activeYear = dataset.year;
     _getOrCreateLayer(dataset).addTo(map);
     map.on('click', _onMapClick);
+    map.on('mousemove', _onMapHover);
+    map.on('mouseout', hideHoverHint);
+    _setAacCursor(true);
     _updateAacUI();
 }
 
@@ -126,6 +146,10 @@ function _deactivateAac() {
     _activeYear = null;
     if (layer && map.hasLayer(layer)) map.removeLayer(layer);
     map.off('click', _onMapClick);
+    map.off('mousemove', _onMapHover);
+    map.off('mouseout', hideHoverHint);
+    _setAacCursor(false);
+    hideHoverHint();
     _updateAacUI();
 }
 

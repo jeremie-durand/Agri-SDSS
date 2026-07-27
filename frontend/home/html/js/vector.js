@@ -1,6 +1,9 @@
 import { map, vectorState, vectorSelectionLayer, somContext } from './state.js';
 import { normalizeUrl, getColorForCollection } from './utils.js';
 import { openSomModal } from './som.js';
+import { showHoverHint, hideHoverHint } from './hover-hint.js';
+
+function _tL() { return (window.T && window.T[window.lang]) || {}; }
 // import { sendFeatureContext } from './chat.js'; // disabled: farm context auto-population
 
 const vectorEndpointEl = document.getElementById("vectorEndpoint");
@@ -136,6 +139,13 @@ function buildVectorTileLayer(collectionId, color) {
                 if (areaStatus) areaStatus.textContent = '';
             });
     });
+    vtLayer.on('mouseover', function(e) {
+        showHoverHint(e.originalEvent.clientX, e.originalEvent.clientY, _tL()['bdppad-hover-hint'] || 'Click to explore this parcel');
+    });
+    vtLayer.on('mousemove', function(e) {
+        showHoverHint(e.originalEvent.clientX, e.originalEvent.clientY, _tL()['bdppad-hover-hint'] || 'Click to explore this parcel');
+    });
+    vtLayer.on('mouseout', hideHoverHint);
     vtLayer._isTileLayer = true;
     return vtLayer;
 }
