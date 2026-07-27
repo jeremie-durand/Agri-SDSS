@@ -1,5 +1,5 @@
 # Official TiPg image
-FROM ghcr.io/developmentseed/tipg:1.4.0 AS runtime
+FROM ghcr.io/developmentseed/tipg:1.5.0 AS runtime
 
 # Set environment variables
 ENV VECTOR_API_PORT=8083
