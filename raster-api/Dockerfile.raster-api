@@ -1,5 +1,5 @@
 # Official TiTiler image
-FROM ghcr.io/developmentseed/titiler:2.0.5 AS runtime
+FROM ghcr.io/developmentseed/titiler:2.2.0 AS runtime
 
 ARG USER_GID=1000
 ARG USER_UID=1000
