@@ -6,7 +6,7 @@ psycopg[binary]==3.2.10
 requests==2.33.1
 xarray==2024.11.0
 pydap==3.5.3
-rioxarray==0.18.2
+rioxarray==0.22.0
 numpy==2.2.5
 pandas==2.2.3
 duckdb==1.5.4
