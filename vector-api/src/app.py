@@ -214,6 +214,7 @@ async def parquet_openapi_spec():
         version=API_VERSION,
         description=ENDPOINTS["parquet"]["long_description"],
         routes=parquet_routes,
+        servers=[{"url": _EXTERNAL_ROOT}] if _EXTERNAL_ROOT else None,
     )
 
 
