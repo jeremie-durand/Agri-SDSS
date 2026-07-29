@@ -64,6 +64,23 @@ def test_parquet_landing_page_links_include_collections(app_client):
     assert any("/parquet/collections" in h for h in hrefs)
 
 
+# --- Parquet OpenAPI spec ---
+
+
+@pytest.mark.unit
+def test_parquet_openapi_spec_includes_external_root_as_server(app_client):
+    """GET /parquet/openapi.json declares APP_ROOT_PATH as the server URL.
+
+    Without a "servers" entry, Swagger UI's "Try it out" defaults request
+    URLs to the domain root, stripping the reverse-proxy prefix
+    (e.g. /vector-api) and producing 404s against the proxy.
+    """
+    with patch("vector_api.app._EXTERNAL_ROOT", "/vector-api"):
+        resp = app_client.get("/parquet/openapi.json")
+    assert resp.status_code == 200
+    assert resp.json().get("servers") == [{"url": "/vector-api"}]
+
+
 # --- Lifespan ---
 
 
