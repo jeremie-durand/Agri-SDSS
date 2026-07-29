@@ -62,7 +62,10 @@ function _buildExportImageLayer(dataset) {
             const img    = document.createElement('img');
             const bounds = this._tileCoordsToBounds(coords);
             const bbox   = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',');
-            const url    = `${base}?bbox=${bbox}&bboxSR=4326&size=256,256&imageSR=4326&format=png32&transparent=true&f=image`;
+            // adjustAspectRatio=false: ArcGIS otherwise nudges each tile's requested
+            // extent to match the pixel aspect ratio independently per request, which
+            // drifts adjacent tiles out of alignment (visible seams while navigating).
+            const url    = `${base}?bbox=${bbox}&bboxSR=4326&size=256,256&imageSR=4326&format=png32&transparent=true&adjustAspectRatio=false&f=image`;
             img.onload  = () => done(null, img);
             img.onerror = () => done(null, img);
             img.src = url;
@@ -79,6 +82,8 @@ function _getOrCreateLayer(dataset) {
         bounds: QC_BOUNDS,
         maxZoom: 16,
         minZoom: 4,
+        updateInterval: 50,
+        keepBuffer: 4,
         attribution: '© Agriculture et Agroalimentaire Canada / Agriculture and Agri-Food Canada',
     });
     _aacLayers.set(dataset.year, layer);

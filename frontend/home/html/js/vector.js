@@ -72,14 +72,26 @@ function buildVectorLayer(collectionId, featureCollection) {
 
 function buildVectorTileLayer(collectionId, color) {
     const postgisId = 'public.' + collectionId;
-    const tileUrl = '/vector-api/postgis/collections/' + encodeURIComponent(postgisId) + '/tiles/WebMercatorQuad/{z}/{x}/{y}?limit=500';
+    const tileUrl = '/vector-api/postgis/collections/' + encodeURIComponent(postgisId) + '/tiles/WebMercatorQuad/{z}/{x}/{y}?limit={limit}';
     const vtLayer = L.vectorGrid.protobuf(tileUrl, {
         maxRequests: 4,
+        updateInterval: 50,
         maxNativeZoom: 15,
+        limit: 500,
         vectorTileLayerStyles: { 'default': { color, weight: 1.6, fill: true, fillColor: color, fillOpacity: 0.14 } },
         interactive: true,
         getFeatureId: function(f) { return f.properties.idanpar || f.properties.idpar || f.properties.gid; }
     });
+    // Below z9 a tile spans a whole region/the whole province and can hold 100k+
+    // parcels — no per-tile limit shows "every" parcel there without multi-MB
+    // tiles, so that range keeps the default. z9-z11ish is where a flat limit=500
+    // was silently dropping most parcels (unordered SQL LIMIT, no ORDER BY) while
+    // still being small enough that tipg's own 10000-per-tile ceiling covers it.
+    const _getVectorTile = vtLayer._getVectorTilePromise.bind(vtLayer);
+    vtLayer._getVectorTilePromise = function(coords) {
+        this.options.limit = coords.z >= 9 ? 10000 : 500;
+        return _getVectorTile(coords);
+    };
     vtLayer.on('click', function(e) {
         L.DomEvent.stopPropagation(e);
         const center = { lat: e.latlng.lat, lon: e.latlng.lng };
