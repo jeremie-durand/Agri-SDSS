@@ -197,6 +197,7 @@ data/output/*
 !data/output/raster_cog/
 data/output/raster_cog/*
 !data/output/raster_cog/.gitkeep
+docs/data/formation_output/
 data/demo/*
 !data/demo/bdppad/
 
