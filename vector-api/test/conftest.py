@@ -76,4 +76,4 @@ def parquet_app_client(temp_parquet_dir, sample_geoparquet):
     ):
         with TestClient(app) as client:
             yield client
-    real_manager.conn.close()
+    real_manager.close()
