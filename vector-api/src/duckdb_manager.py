@@ -17,6 +17,9 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 import duckdb
 
+from .config import PARQUET_MATERIALIZED_COLLECTIONS
+from .materialize import MATERIALIZED_TABLE_NAME
+
 logger = logging.getLogger(__name__)
 
 # Strict pattern for collection IDs to prevent path traversal
@@ -97,6 +100,13 @@ class DuckDBManager:
         # Parquet files are immutable so entries never need invalidation.
         # Populated lazily on first access; protected by self._lock.
         self._schema_cache: Dict[str, ParquetSchemaInfo] = {}
+        # Lazily-opened read-only connections to materialized, RTree-indexed
+        # collections (see materialize.py). Keyed by collection_id; each
+        # entry pairs a connection with its own lock since it is a distinct
+        # DuckDB connection object from self.conn.
+        self._materialized_conns: Dict[
+            str, Tuple[duckdb.DuckDBPyConnection, threading.Lock]
+        ] = {}
         self._init_extensions()
 
     def __enter__(self):
@@ -110,8 +120,11 @@ class DuckDBManager:
         """
 
     def close(self) -> None:
-        """Explicitly close the DuckDB connection. Use only on shutdown."""
+        """Explicitly close the DuckDB connection(s). Use only on shutdown."""
         self.conn.close()
+        for conn, _ in self._materialized_conns.values():
+            conn.close()
+        self._materialized_conns.clear()
 
     def _init_extensions(self) -> None:
         """Install and load spatial extension."""
@@ -162,44 +175,58 @@ class DuckDBManager:
         """
         return value.replace("'", "''")
 
-    def _fetchone(self, query: str, params: Optional[list] = None) -> Optional[tuple]:
+    def _fetchone(
+        self,
+        query: str,
+        params: Optional[list] = None,
+        conn: Optional[duckdb.DuckDBPyConnection] = None,
+        lock: Optional[threading.Lock] = None,
+    ) -> Optional[tuple]:
         """Execute a query and return the first row with the connection lock held.
 
         Args:
             query: SQL query to execute.
             params: Optional parameter list for parameterized queries.
+            conn: Connection to use. Defaults to the shared in-memory connection.
+            lock: Lock guarding conn. Defaults to the shared connection's lock.
 
         Returns:
             First row as a tuple, or None if no rows.
         """
-        with self._lock:
-            cursor = (
-                self.conn.execute(query, params) if params else self.conn.execute(query)
-            )
+        conn = conn or self.conn
+        lock = lock or self._lock
+        with lock:
+            cursor = conn.execute(query, params) if params else conn.execute(query)
             return cursor.fetchone()
 
     def _fetchall(
-        self, query: str, params: Optional[list] = None
+        self,
+        query: str,
+        params: Optional[list] = None,
+        conn: Optional[duckdb.DuckDBPyConnection] = None,
+        lock: Optional[threading.Lock] = None,
     ) -> Tuple[List[tuple], List[str]]:
         """Execute a query and return (rows, column_names) with the connection lock held.
 
-        conn.description reflects the *last* executed query on the shared
-        connection and must therefore be read while the lock is still held.
+        conn.description reflects the *last* executed query on conn and must
+        therefore be read while the lock is still held.
 
         Args:
             query: SQL query to execute.
             params: Optional parameter list for parameterized queries.
+            conn: Connection to use. Defaults to the shared in-memory connection.
+            lock: Lock guarding conn. Defaults to the shared connection's lock.
 
         Returns:
             Tuple of (rows, column_names).
         """
-        with self._lock:
-            self.conn.execute(query, params) if params else self.conn.execute(query)
-            rows = self.conn.fetchall()
+        conn = conn or self.conn
+        lock = lock or self._lock
+        with lock:
+            conn.execute(query, params) if params else conn.execute(query)
+            rows = conn.fetchall()
             column_names = (
-                [desc[0] for desc in self.conn.description]
-                if self.conn.description
-                else []
+                [desc[0] for desc in conn.description] if conn.description else []
             )
             return rows, column_names
 
@@ -310,6 +337,57 @@ class DuckDBManager:
         if not parquet_path:
             raise FileNotFoundError(f"Collection not found: {collection_id}")
         return parquet_path
+
+    def _get_materialized_connection(
+        self, collection_id: str
+    ) -> Optional[Tuple[duckdb.DuckDBPyConnection, threading.Lock]]:
+        """Return the (connection, lock) for a materialized collection, if available.
+
+        Returns None when the collection isn't configured as materialized, or
+        its .duckdb file hasn't been built yet by
+        scripts/build_duckdb_spatial_index.py -- callers must fall back to
+        querying the Parquet file directly in that case.
+
+        Args:
+            collection_id: The collection identifier.
+
+        Returns:
+            (connection, lock) tuple, or None.
+        """
+        if collection_id not in PARQUET_MATERIALIZED_COLLECTIONS:
+            return None
+
+        if collection_id in self._materialized_conns:
+            return self._materialized_conns[collection_id]
+
+        with self._lock:
+            if collection_id in self._materialized_conns:
+                return self._materialized_conns[collection_id]
+
+            db_path = self.data_dir / f"{collection_id}.duckdb"
+            if not db_path.exists():
+                logger.warning(
+                    f"{collection_id} is listed in PARQUET_MATERIALIZED_COLLECTIONS "
+                    f"but {db_path} does not exist yet; falling back to read_parquet()."
+                )
+                return None
+
+            try:
+                conn = duckdb.connect(database=str(db_path), read_only=True)
+                conn.execute("INSTALL spatial")
+                conn.execute("LOAD spatial")
+            except duckdb.Error as e:
+                logger.warning(
+                    f"Failed to open materialized connection for {collection_id}: {e}"
+                )
+                if "conn" in locals():
+                    conn.close()
+                return None
+
+            entry = (conn, threading.Lock())
+            self._materialized_conns[collection_id] = entry
+            logger.info(f"Opened materialized DuckDB connection for {collection_id}.")
+            return entry
 
     def get_parquet_schema(self, collection_id: str) -> ParquetSchemaInfo:
         """Get schema information for a Parquet file.
@@ -458,6 +536,14 @@ class DuckDBManager:
         )
         id_column = schema["id_column"]
 
+        materialized = self._get_materialized_connection(collection_id)
+        if materialized:
+            conn, lock = materialized
+            from_sql = self.escape_identifier(MATERIALIZED_TABLE_NAME)
+        else:
+            conn, lock = None, None
+            from_sql = f"read_parquet('{escaped_path}')"
+
         # Build WHERE clause
         where_clauses = []
         if bbox and has_geometry:
@@ -480,14 +566,14 @@ class DuckDBManager:
             order_sql = ""
 
         # Count total matching
-        count_query = f"SELECT COUNT(*) FROM read_parquet('{escaped_path}') {where_sql}"
-        number_matched = self._fetchone(count_query)[0]
+        count_query = f"SELECT COUNT(*) FROM {from_sql} {where_sql}"
+        number_matched = self._fetchone(count_query, conn=conn, lock=lock)[0]
 
         # Build SELECT with geometry conversion
         if has_geometry:
             select_sql = f"""
                 SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
-                FROM read_parquet('{escaped_path}')
+                FROM {from_sql}
                 {where_sql}
                 {order_sql}
                 LIMIT {limit} OFFSET {offset}
@@ -495,13 +581,13 @@ class DuckDBManager:
         else:
             select_sql = f"""
                 SELECT *
-                FROM read_parquet('{escaped_path}')
+                FROM {from_sql}
                 {where_sql}
                 {order_sql}
                 LIMIT {limit} OFFSET {offset}
             """
 
-        result, columns = self._fetchall(select_sql)
+        result, columns = self._fetchall(select_sql, conn=conn, lock=lock)
 
         # Convert to GeoJSON features
         features = []
@@ -559,6 +645,14 @@ class DuckDBManager:
         )
         id_column = schema["id_column"]
 
+        materialized = self._get_materialized_connection(collection_id)
+        if materialized:
+            conn, lock = materialized
+            from_sql = self.escape_identifier(MATERIALIZED_TABLE_NAME)
+        else:
+            conn, lock = None, None
+            from_sql = f"read_parquet('{escaped_path}')"
+
         if not id_column:
             # Fall back to row number (1-indexed)
             try:
@@ -566,13 +660,13 @@ class DuckDBManager:
                 if has_geometry:
                     query = f"""
                         SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
-                        FROM read_parquet('{escaped_path}')
+                        FROM {from_sql}
                         LIMIT 1 OFFSET {row_num - 1}
                     """
                 else:
                     query = f"""
                         SELECT *
-                        FROM read_parquet('{escaped_path}')
+                        FROM {from_sql}
                         LIMIT 1 OFFSET {row_num - 1}
                     """
                 params = None
@@ -584,21 +678,21 @@ class DuckDBManager:
             if has_geometry:
                 query = f"""
                     SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
-                    FROM read_parquet('{escaped_path}')
+                    FROM {from_sql}
                     WHERE {escaped_id_col} = $1
                     LIMIT 1
                 """
             else:
                 query = f"""
                     SELECT *
-                    FROM read_parquet('{escaped_path}')
+                    FROM {from_sql}
                     WHERE {escaped_id_col} = $1
                     LIMIT 1
                 """
             params = [item_id]
 
         try:
-            rows, columns = self._fetchall(query, params)
+            rows, columns = self._fetchall(query, params, conn=conn, lock=lock)
         except duckdb.Error as e:
             logger.warning(f"Error querying item {item_id} from {collection_id}: {e}")
             return None
