@@ -260,6 +260,7 @@ services:
       - TIPG_FALLBACK_KEY_NAMES=["gid"]
       - TIPG_DB_SPATIAL_EXTENT=false
       - DUCKDB_DATA_DIR=/data/duckdb
+      - PARQUET_MATERIALIZED_COLLECTIONS=${PARQUET_MATERIALIZED_COLLECTIONS:-bdppad_v03_an_2025_s_20260504}
       - VECTOR_API_CORS_ORIGINS=${VECTOR_API_CORS_ORIGINS:-${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}}
       - PEDO_TABLE_NAME=${PEDO_TABLE_NAME:-public.pedo_coverage}
       - SOM_TABLE_NAME=${SOM_TABLE_NAME:-public.som_field_boundaries}
