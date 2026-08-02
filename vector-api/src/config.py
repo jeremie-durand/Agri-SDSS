@@ -37,17 +37,6 @@ CORS_ORIGINS: list[str] = [
 # the wildcard "*" origin is incompatible with credentials per the CORS spec.
 CORS_ALLOW_CREDENTIALS: bool = bool(CORS_ORIGINS) and "*" not in CORS_ORIGINS
 
-# Parquet collections materialized into a persistent, RTree-indexed on-disk
-# DuckDB table (see vector_api/materialize.py and docs/DEPLOYMENT.md). A
-# collection only takes the materialized path once its .duckdb file has
-# actually been built by scripts/build_duckdb_spatial_index.py --
-# DuckDBManager falls back to read_parquet() otherwise, so listing a
-# collection here ahead of the first build is safe.
-_raw_materialized_collections = os.getenv("PARQUET_MATERIALIZED_COLLECTIONS", "")
-PARQUET_MATERIALIZED_COLLECTIONS: frozenset[str] = frozenset(
-    c.strip() for c in _raw_materialized_collections.split(",") if c.strip()
-)
-
 # Endpoint documentation
 ENDPOINTS = {
     "postgis": {

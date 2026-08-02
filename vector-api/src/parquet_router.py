@@ -500,3 +500,24 @@ async def get_queryables(request: Request, collection_id: str) -> Dict[str, Any]
             f"Error getting queryables for {collection_id}: {e}", exc_info=True
         )
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/collections/{collection_id}/invalidate", response_class=JSONResponse)
+async def invalidate_collection(collection_id: str) -> Dict[str, Any]:
+    """Drop any cached materialized connection for a collection.
+
+    Called after an external rebuild (the manual CLI script or gis-pipeline's
+    automatic trigger) swaps in a fresh .duckdb file for this collection, so
+    the next request re-opens it instead of serving stale cached data.
+    Idempotent: returns success whether or not anything was cached, and
+    regardless of whether collection_id refers to a real collection at all.
+
+    Args:
+        collection_id: The collection identifier.
+
+    Returns:
+        Whether a cached connection was found and dropped.
+    """
+    manager = get_duckdb_manager()
+    invalidated = manager.invalidate_materialized(collection_id)
+    return {"collection_id": collection_id, "invalidated": invalidated}
