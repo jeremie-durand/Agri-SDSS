@@ -1549,3 +1549,58 @@ def test_save_gdf_to_geoparquet_empty_gdf_raises_value_error(tmp_path, monkeypat
         DuckDBManager.save_gdf_to_geoparquet(
             gdf=empty_gdf, output_file_name="empty_test"
         )
+
+
+def test_finalize_chunked_geoparquet_combines_chunks(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+
+    staging_dir = tmp_path / ".chunks" / "my_table"
+    staging_dir.mkdir(parents=True)
+
+    chunk0 = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": gpd.points_from_xy([0, 1], [0, 1])},
+        crs="EPSG:4326",
+    )
+    chunk0.to_parquet(staging_dir / "part0000.parquet")
+
+    chunk1 = gpd.GeoDataFrame(
+        {"gid": [3, 4], "geometry": gpd.points_from_xy([2, 3], [2, 3])},
+        crs="EPSG:4326",
+    )
+    chunk1.to_parquet(staging_dir / "part0001.parquet")
+
+    DuckDBManager.finalize_chunked_geoparquet("my_table")
+
+    output_path = tmp_path / "my_table.parquet"
+    assert output_path.exists()
+    combined = gpd.read_parquet(output_path)
+    assert sorted(combined["gid"].tolist()) == [1, 2, 3, 4]
+
+
+def test_finalize_chunked_geoparquet_removes_staging_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+
+    staging_dir = tmp_path / ".chunks" / "my_table"
+    staging_dir.mkdir(parents=True)
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1], "geometry": gpd.points_from_xy([0], [0])}, crs="EPSG:4326"
+    )
+    gdf.to_parquet(staging_dir / "part0000.parquet")
+
+    DuckDBManager.finalize_chunked_geoparquet("my_table")
+
+    assert not staging_dir.exists()
+
+
+def test_finalize_chunked_geoparquet_raises_when_no_chunks_staged(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+    (tmp_path / ".chunks" / "my_table").mkdir(parents=True)
+
+    with pytest.raises(RuntimeError, match="No staged chunk files"):
+        DuckDBManager.finalize_chunked_geoparquet("my_table")
