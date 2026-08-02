@@ -2,18 +2,18 @@
 """Rebuild the persistent, RTree-indexed DuckDB table for one Parquet collection.
 
 Run this manually after the pipeline regenerates a materialized collection's
-source Parquet file (see PARQUET_MATERIALIZED_COLLECTIONS in .env.example).
+source Parquet file.
 
 Builds into a fresh "<collection>.duckdb.new" file -- never touching the
 "<collection>.duckdb" file vector-api already has open, since DuckDB excludes
 every other connection (even read-only ones, from other processes) while a
 writer holds a file open -- then atomically renames it into place.
 
-vector-api's own connection to the old file is unaffected by the rename
-until it reopens the path, so the running service must be restarted
-afterwards to pick up the refreshed data and index:
-
-    docker compose restart vector-api
+After the swap, this script notifies vector-api's /invalidate endpoint so it
+drops its cached connection and re-opens the fresh file on the next request
+-- no container restart needed. If vector-api is unreachable (e.g. not
+running yet on a fresh install), the notification is skipped with a warning;
+`docker compose restart vector-api` remains available as a manual fallback.
 
 Usage (mirrors scripts/build_grhq_water_union.py's invocation pattern):
 
@@ -24,11 +24,31 @@ Usage (mirrors scripts/build_grhq_water_union.py's invocation pattern):
 """
 
 import argparse
+import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from vector_api.materialize import materialize_collection
+
+
+def _notify_vector_api(collection_id: str, vector_api_url: str) -> None:
+    """Best-effort POST to vector-api's /invalidate endpoint. Never raises."""
+    url = f"{vector_api_url.rstrip('/')}/parquet/collections/{collection_id}/invalidate"
+    try:
+        request = urllib.request.Request(url, method="POST")
+        with urllib.request.urlopen(request, timeout=10) as response:
+            body = json.loads(response.read().decode())
+        print(f"Notified vector-api: {body}", flush=True)
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+        print(
+            f"WARNING: Failed to notify vector-api at {url}: {e}. "
+            "Run 'docker compose restart vector-api' manually to pick up "
+            "the refreshed data.",
+            file=sys.stderr,
+        )
 
 
 def main() -> None:
@@ -44,6 +64,13 @@ def main() -> None:
         default=os.environ.get("DUCKDB_DATA_DIR", "/data/duckdb"),
         help="Directory containing the source Parquet files "
         "(default: $DUCKDB_DATA_DIR).",
+    )
+    parser.add_argument(
+        "--vector-api-url",
+        default=os.environ.get("VECTOR_API_URL", "http://vector-api:8083"),
+        help="Base URL of the running vector-api service, used to notify it "
+        "to drop its cached connection for this collection after the swap "
+        "(default: $VECTOR_API_URL or http://vector-api:8083).",
     )
     args = parser.parse_args()
 
@@ -71,8 +98,7 @@ def main() -> None:
     new_path.rename(final_path)
     print(f"Swapped into place: {final_path}", flush=True)
 
-    print("\nNext step (run manually):", flush=True)
-    print("  docker compose restart vector-api", flush=True)
+    _notify_vector_api(args.collection, args.vector_api_url)
 
 
 if __name__ == "__main__":
