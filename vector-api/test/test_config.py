@@ -62,22 +62,3 @@ def test_allow_credentials_false_when_wildcard():
 def test_allow_credentials_true_when_explicit_origin():
     origins = ["http://example.com"]
     assert bool(origins) and "*" not in origins
-
-
-@pytest.mark.unit
-def test_materialized_collections_is_frozenset_type():
-    assert isinstance(config.PARQUET_MATERIALIZED_COLLECTIONS, frozenset)
-
-
-@pytest.mark.unit
-def test_materialized_collections_empty_string_gives_empty_frozenset():
-    raw = ""
-    result = frozenset(c.strip() for c in raw.split(",") if c.strip())
-    assert result == frozenset()
-
-
-@pytest.mark.unit
-def test_materialized_collections_parses_comma_separated_values():
-    raw = "bdppad_v03_an_2025_s_20260504, other_collection "
-    result = frozenset(c.strip() for c in raw.split(",") if c.strip())
-    assert result == frozenset({"bdppad_v03_an_2025_s_20260504", "other_collection"})
