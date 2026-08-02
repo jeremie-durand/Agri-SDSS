@@ -15,6 +15,7 @@ from gis_pipeline.core.exceptions import RasterProcessingError, VectorProcessing
 from gis_pipeline.core.logging_setup import handle_error
 from gis_pipeline.core.utils import harmonize_name
 from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
+from gis_pipeline.modules.db.materialize_trigger import trigger_materialize_and_notify
 from gis_pipeline.modules.db.pg_utils import PostGISManager
 from gis_pipeline.modules.io_tools.input_data import read_csv_file
 from gis_pipeline.modules.processing.processing_stac import (
@@ -465,6 +466,7 @@ def _process_spatial_table(
     override_method: str = "replace",
     write_parquet: bool = True,
     gid_offset: int = 0,
+    chunk_index: int | None = None,
 ) -> gpd.GeoDataFrame | None:
     """Validate, harmonize, and persist a spatial table to PostGIS and GeoParquet.
 
@@ -472,7 +474,14 @@ def _process_spatial_table(
         table: Target table name.
         processor: Configured GeoprocessingVector instance.
         override_method: PostGIS insert mode — 'replace' for first/only chunk, 'append' for subsequent chunks.
-        write_parquet: Whether to export GeoParquet via DuckDB. Set False for chunked large layers.
+        write_parquet: Whether to export GeoParquet via DuckDB.
+        gid_offset: Added to generated GIDs so chunks have globally unique IDs.
+        chunk_index: If set, this call is one chunk of a larger chunked
+            ingestion; the GeoParquet output is staged under
+            .chunks/<table>/partNNNN.parquet instead of the final
+            <table>.parquet, and the materialize trigger is not fired here
+            -- main.py fires it once, after finalize_chunked_geoparquet()
+            combines every chunk for this table.
 
     Returns:
         Processed GeoDataFrame, or None if the result is empty.
@@ -495,6 +504,10 @@ def _process_spatial_table(
         )
         return None
 
+    # insert_table_data() mutates processed_gdf["gid"] in place to apply
+    # gid_offset -- the GeoParquet export below relies on that same
+    # already-offset gid column, so don't add a defensive .copy() here
+    # without also updating the Parquet path to apply gid_offset itself.
     with PostGISManager() as pg_manager:
         pg_manager.insert_table_data(
             gdf=processed_gdf,
@@ -504,7 +517,15 @@ def _process_spatial_table(
         )
 
     if write_parquet:
-        DuckDBManager.save_gdf_to_geoparquet(gdf=processed_gdf, output_file_name=table)
+        if chunk_index is not None:
+            output_file_name = f".chunks/{table}/part{chunk_index:04d}"
+        else:
+            output_file_name = table
+        DuckDBManager.save_gdf_to_geoparquet(
+            gdf=processed_gdf, output_file_name=output_file_name
+        )
+        if chunk_index is None:
+            trigger_materialize_and_notify(table)
     return processed_gdf
 
 
@@ -604,6 +625,7 @@ def _refresh_gee_geoparquet() -> None:
             )
         DuckDBManager.save_gdf_to_geoparquet(gdf=gdf, output_file_name=GEE_TABLE_NAME)
         logger.info("gee_parquet_refreshed", rows=len(gdf))
+        trigger_materialize_and_notify(GEE_TABLE_NAME)
     except Exception as exc:
         logger.warning("gee_parquet_refresh_failed", error=str(exc))
 
@@ -615,6 +637,7 @@ def geoprocessing_vector_data(
     override_method: str = "replace",
     write_parquet: bool = True,
     gid_offset: int = 0,
+    chunk_index: int | None = None,
 ):
     """Process vector data and insert into PostGIS and Vector API.
 
@@ -623,8 +646,9 @@ def geoprocessing_vector_data(
         target_crs: Target CRS as an EPSG code (e.g., 4326).
         collection_id: Unique ID for the Vector collection.
         override_method: PostGIS insert mode — 'replace' for first/only chunk, 'append' for subsequent chunks.
-        write_parquet: Whether to export GeoParquet via DuckDB. Set False for chunked large layers.
+        write_parquet: Whether to export GeoParquet via DuckDB.
         gid_offset: Added to generated GIDs so chunks have globally unique IDs.
+        chunk_index: Passed through to _process_spatial_table -- see its docstring.
     """
     add_process_to_logger(logger, "Processing Vector Data PostGIS")
 
@@ -658,6 +682,7 @@ def geoprocessing_vector_data(
                     override_method=override_method,
                     write_parquet=write_parquet,
                     gid_offset=gid_offset,
+                    chunk_index=chunk_index,
                 )
                 is None
             ):
@@ -682,6 +707,7 @@ def geoprocessing_vector_data(
                         processor,
                         override_method=override_method,
                         write_parquet=write_parquet,
+                        chunk_index=chunk_index,
                     )
                     is None
                 ):

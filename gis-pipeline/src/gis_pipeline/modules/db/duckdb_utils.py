@@ -37,17 +37,20 @@ class DuckDBManager:
         """Close connection when exiting context."""
         self.conn.close()
 
-    def _init_extensions(self) -> None:
-        """Install/load spatial extension."""
+    @staticmethod
+    def _load_spatial_extension(conn: duckdb.DuckDBPyConnection) -> None:
+        """Install and load the spatial extension on the given connection.
+
+        Raises:
+            DuckDBSpatialExtensionError: If loading the extension fails.
+        """
         try:
-            self.conn.execute("INSTALL spatial")
-            logger.info("DuckDB spatial extension installed.")
+            conn.execute("INSTALL spatial")
         except duckdb.IOException:
-            logger.info("Spatial extension already installed.")
+            logger.debug("Spatial extension already installed.")
 
         try:
-            self.conn.execute("LOAD spatial")
-            logger.info("DuckDB spatial extension loaded.")
+            conn.execute("LOAD spatial")
         except duckdb.Error:
             error_msg = "Failed to load spatial extension in DuckDB"
             handle_error(
@@ -55,6 +58,10 @@ class DuckDBManager:
                 error_msg=error_msg,
                 exc_class=DuckDBSpatialExtensionError,
             )
+
+    def _init_extensions(self) -> None:
+        """Install/load spatial extension."""
+        DuckDBManager._load_spatial_extension(self.conn)
 
     @staticmethod
     def _normalize_parquet_value(x: object) -> object:
@@ -398,6 +405,63 @@ class DuckDBManager:
             error_msg = f"Unexpected error saving GeoDataFrame to GeoParquet: {e}"
             DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+
+    @staticmethod
+    def finalize_chunked_geoparquet(table: str) -> None:
+        """Combine a table's per-chunk staged Parquet files into one final file.
+
+        Reads every part*.parquet file staged under
+        Config.DUCKDB_DATA_DIR/.chunks/<table>/ (written once per chunk by
+        save_gdf_to_geoparquet, via _process_spatial_table's chunk_index
+        handling) and combines them into a single <table>.parquet using the
+        same tmp-file-then-atomic-rename idiom as every other export in this
+        class, then removes the staging directory.
+
+        Args:
+            table: Table name whose staged chunks should be combined.
+
+        Raises:
+            RuntimeError: If no staged chunk files are found, or the combine
+                query fails.
+        """
+        staging_dir = Path(Config.DUCKDB_DATA_DIR) / ".chunks" / table
+        chunk_files = sorted(staging_dir.glob("*.parquet"))
+        if not chunk_files:
+            error_msg = (
+                f"No staged chunk files found for table '{table}' in {staging_dir}"
+            )
+            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+
+        parquet_path = Path(Config.DUCKDB_DATA_DIR) / f"{table}.parquet"
+        tmp_path = parquet_path.with_suffix(".tmp")
+        chunk_glob = str(staging_dir / "*.parquet")
+
+        conn = duckdb.connect()
+        try:
+            DuckDBManager._load_spatial_extension(conn)
+            conn.execute(
+                f"COPY (SELECT * FROM read_parquet('{chunk_glob}')) "
+                f"TO '{tmp_path}' (FORMAT 'parquet')"
+            )
+        except duckdb.Error as e:
+            error_msg = f"Failed to combine chunked GeoParquet for table '{table}': {e}"
+            DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
+            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+        finally:
+            conn.close()
+
+        tmp_path.replace(parquet_path)
+
+        for chunk_file in chunk_files:
+            chunk_file.unlink()
+        staging_dir.rmdir()
+
+        logger.info(
+            "chunked_geoparquet_finalized",
+            table=table,
+            output_path=str(parquet_path),
+            chunk_count=len(chunk_files),
+        )
 
     def _build_select_with_aliases(
         self, column_names: list[str], table_name: str
