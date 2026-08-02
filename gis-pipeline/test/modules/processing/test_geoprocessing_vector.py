@@ -8,7 +8,10 @@ import pandas as pd
 import pytest
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.utils import harmonize_name
-from gis_pipeline.modules.processing.geoprocessing import GeoprocessingVector
+from gis_pipeline.modules.processing.geoprocessing import (
+    GeoprocessingVector,
+    _process_spatial_table,
+)
 from gis_pipeline.services.mapping import NamingPatterns
 from shapely.geometry import MultiPolygon, Point, Polygon
 
@@ -1531,3 +1534,124 @@ class TestStampGeeFlagsOnFieldBoundaries:
         mock_pg.stamp_gee_flags.assert_not_called()
         mock_refresh.assert_not_called()
         mock_ids.assert_not_called()
+
+
+def test_refresh_gee_geoparquet_triggers_materialize(tmp_path, monkeypatch):
+    from gis_pipeline.modules.processing.geoprocessing import _refresh_gee_geoparquet
+
+    monkeypatch.setattr(
+        "gis_pipeline.modules.processing.geoprocessing.Config.DUCKDB_DATA_DIR",
+        str(tmp_path),
+    )
+    (tmp_path / "som_field_boundaries.parquet").write_bytes(b"placeholder")
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.gpd.read_postgis"
+    ) as mock_read_postgis, patch(
+        "gis_pipeline.modules.processing.geoprocessing.DuckDBManager.save_gdf_to_geoparquet"
+    ), patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ) as mock_trigger:
+        mock_read_postgis.return_value = gpd.GeoDataFrame(
+            {"gid": [1], "geometry": [Point(0, 0)]}, crs="EPSG:4326"
+        )
+        mock_pg.return_value.__enter__.return_value = MagicMock()
+
+        _refresh_gee_geoparquet()
+
+        mock_trigger.assert_called_once_with("som_field_boundaries")
+
+
+def test_process_spatial_table_triggers_materialize_after_parquet_write():
+    """After save_gdf_to_geoparquet() succeeds, the materialize trigger must
+    fire with the same table name -- not the pipeline's --collection arg."""
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}, crs="EPSG:4326"
+    )
+    processor = GeoprocessingVector(gdf=gdf, target_crs="EPSG:4326", collection_id="test")
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.DuckDBManager.save_gdf_to_geoparquet"
+    ), patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ) as mock_trigger:
+        mock_pg.return_value.__enter__.return_value.insert_table_data.return_value = None
+
+        _process_spatial_table(table="my_table", processor=processor)
+
+        mock_trigger.assert_called_once_with("my_table")
+
+
+def test_process_spatial_table_does_not_trigger_when_write_parquet_false():
+    """Chunked tables that skip GeoParquet export must not trigger a rebuild
+    for a file that was never written."""
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}, crs="EPSG:4326"
+    )
+    processor = GeoprocessingVector(gdf=gdf, target_crs="EPSG:4326", collection_id="test")
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ) as mock_trigger:
+        mock_pg.return_value.__enter__.return_value.insert_table_data.return_value = None
+
+        _process_spatial_table(table="my_table", processor=processor, write_parquet=False)
+
+        mock_trigger.assert_not_called()
+
+
+def test_process_spatial_table_stages_chunk_under_dot_chunks_directory(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "gis_pipeline.modules.processing.geoprocessing.Config.DUCKDB_DATA_DIR",
+        str(tmp_path),
+    )
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}, crs="EPSG:4326"
+    )
+    processor = GeoprocessingVector(gdf=gdf, target_crs="EPSG:4326", collection_id="test")
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ) as mock_trigger:
+        mock_pg.return_value.__enter__.return_value.insert_table_data.return_value = None
+
+        _process_spatial_table(table="my_table", processor=processor, chunk_index=2)
+
+        expected_path = tmp_path / ".chunks" / "my_table" / "part0002.parquet"
+        assert expected_path.exists()
+        mock_trigger.assert_not_called()
+
+
+def test_process_spatial_table_writes_final_path_and_triggers_when_not_chunked(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "gis_pipeline.modules.processing.geoprocessing.Config.DUCKDB_DATA_DIR",
+        str(tmp_path),
+    )
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}, crs="EPSG:4326"
+    )
+    processor = GeoprocessingVector(gdf=gdf, target_crs="EPSG:4326", collection_id="test")
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ) as mock_trigger:
+        mock_pg.return_value.__enter__.return_value.insert_table_data.return_value = None
+
+        _process_spatial_table(table="my_table", processor=processor, chunk_index=None)
+
+        assert (tmp_path / "my_table.parquet").exists()
+        mock_trigger.assert_called_once_with("my_table")
