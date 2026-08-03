@@ -5,23 +5,13 @@ GeoParquet files through OGC API Features style endpoints.
 """
 
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 import geopandas as gpd
 import pytest
 import responses
 from shapely.geometry import Polygon
-
-# Import the modules to test
-try:
-    from src.duckdb_manager import DuckDBManager
-except ImportError:
-    # For running tests directly, adjust path
-    import sys
-
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-    from duckdb_manager import DuckDBManager
+from vector_api.duckdb_manager import DuckDBManager
 
 
 # ------------------------------------------

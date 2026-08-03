@@ -46,6 +46,7 @@ class _ApiSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="")
 
     STAC_API_URL: Optional[str] = None
+    VECTOR_API_URL: Optional[str] = None
     STAC_API_PORT: int = 8081
     RASTER_API_PORT: int = 8082
     VECTOR_API_PORT: int = 8083
@@ -87,6 +88,7 @@ class Config:
 
     # API URLs
     STAC_API_URL = _api.STAC_API_URL
+    VECTOR_API_URL = _api.VECTOR_API_URL
 
     # Data acquisition
     INPUT_DATA_PATH = cfg["paths"]["INPUT_DATA_PATH"]

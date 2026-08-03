@@ -46,7 +46,11 @@ def process_vector_pipeline(vector_files, args, report_data):
     """
     import fiona
     import geopandas as gpd
+    import shutil
     from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
+    from gis_pipeline.modules.db.materialize_trigger import (
+        trigger_materialize_and_notify,
+    )
     from gis_pipeline.modules.db.pg_utils import PostGISManager
     from gis_pipeline.modules.io_tools.input_data import (
         detect_non_spatial_csv,
@@ -138,6 +142,11 @@ def process_vector_pipeline(vector_files, args, report_data):
                 clean_name = GeoprocessingVector._harmonize_name_gdf(name=raw_name)
                 is_chunked = total_rows > CHUNK_SIZE
 
+                if is_chunked:
+                    staging_dir = Path(Config.DUCKDB_DATA_DIR) / ".chunks" / clean_name
+                    if staging_dir.exists():
+                        shutil.rmtree(staging_dir)
+
                 for chunk_idx, start in enumerate(range(0, total_rows, CHUNK_SIZE)):
                     gdf_chunk = gpd.read_file(
                         vector_file, layer=layer, rows=slice(start, start + CHUNK_SIZE)
@@ -148,14 +157,19 @@ def process_vector_pipeline(vector_files, args, report_data):
                         target_crs=args.crs,
                         collection_id=args.collection,
                         override_method="replace" if chunk_idx == 0 else "append",
-                        write_parquet=not is_chunked,
+                        write_parquet=True,
                         gid_offset=start,
+                        chunk_index=chunk_idx if is_chunked else None,
                     )
 
                 if vector_file.suffix.lower() == ".gpkg":
                     fk_layer_name_map[layer] = clean_name
 
                 report_data["vector_data"]["processed"] += 1
+
+                if is_chunked:
+                    DuckDBManager.finalize_chunked_geoparquet(clean_name)
+                    trigger_materialize_and_notify(clean_name)
             except Exception as e:
                 logger.error(
                     f"Error processing layer '{layer}' in {vector_file.name}: {e}"

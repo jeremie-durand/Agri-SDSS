@@ -454,6 +454,37 @@ docker compose run --rm gis-pipeline python3 -m gis_pipeline.main \
 
 The final log lines report `Processed`, `Errors`, and `Non_spatial_csv` counts. `Errors: 0` is the target. After a successful run, vector layers, COGs, and STAC items are all up to date. The pipeline automatically stamps `has_gee_data` on `som_field_boundaries` at the end of every run — no manual post-step needed.
 
+### Step 8 — spatial index materialization (automatic + manual catch-up)
+
+Any Parquet collection with a geometry column can be served from a persistent, RTree-indexed on-disk DuckDB table instead of a per-request `read_parquet()` scan, as soon as a `<collection>.duckdb` file exists for it next to its `.parquet` file — `vector-api` auto-discovers it, no config needed.
+
+**This is automatic** for every table gis-pipeline writes, regardless of format or row count: right after step 7 writes a collection's Parquet file, gis-pipeline builds its spatial index and notifies `vector-api` to pick it up — no restart required.
+
+**One-time manual catch-up** is needed for collections that already existed before this automatic trigger was added — auto-discovery only takes effect once a `.duckdb` file exists; it doesn't retroactively index anything. Run the build script once per collection:
+
+```bash
+docker compose run --rm \
+  -v "$(pwd)/scripts/build_duckdb_spatial_index.py:/tmp/build_duckdb_spatial_index.py:ro" \
+  vector-api \
+  python3 /tmp/build_duckdb_spatial_index.py --collection <collection_id>
+```
+
+The script builds into `<collection_id>.duckdb.new`, atomically renames it over `<collection_id>.duckdb`, and notifies `vector-api`'s `/invalidate` endpoint so it drops any cached connection and picks up the fresh file on the next request — no restart needed. If `vector-api` is unreachable when the script runs, it prints a warning and `docker compose restart vector-api` remains available as a manual fallback.
+
+To confirm indexing is working and didn't change results, compare a bbox filter before and after:
+
+```bash
+docker compose run --rm \
+  -v "$(pwd)/scripts/benchmark_duckdb_bbox.py:/tmp/benchmark_duckdb_bbox.py:ro" \
+  vector-api \
+  python3 /tmp/benchmark_duckdb_bbox.py \
+  --collection <collection_id> \
+  --bbox <minx> <miny> <maxx> <maxy> \
+  --trials 10
+```
+
+`numberMatched` must be identical between the `read_parquet()` and materialized runs; only the timing should differ. A `MISMATCH` means the materialized table is stale relative to the source Parquet file — rerun the build command above.
+
 ---
 
 ## First-time deploy on a server with existing data

@@ -120,6 +120,7 @@ services:
       - POSTGRES_PORT_WRITER=${POSTGRES_PORT}
       # API
       - STAC_API_URL=${STAC_API_URL}
+      - VECTOR_API_URL=${VECTOR_API_URL}
       - STAC_API_PORT=${STAC_API_PORT}
     working_dir: /app
     volumes:
