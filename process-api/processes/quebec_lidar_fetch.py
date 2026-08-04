@@ -377,6 +377,10 @@ class LidarFetchProcessor(BaseProcessor):
         Reuse an existing COG at cog_path, or build it via the supplied
         callback. Shared by the tile-fetch loop and the aspect-derivation
         step, which both cache by output path.
+
+        Rebuilding invalidates any cached STAC-publish marker for the same
+        path, so a stale item describing the previous raster isn't served
+        by _add_product_asset.
         """
         if os.path.exists(cog_path):
             logger.info(
@@ -384,6 +388,7 @@ class LidarFetchProcessor(BaseProcessor):
             )
         else:
             build()
+            self._invalidate_stac_marker(cog_path)
 
     def _clip_and_convert_to_cog(
         self,
@@ -536,8 +541,11 @@ class LidarFetchProcessor(BaseProcessor):
         farm_identifier: str,
     ) -> None:
         """
-        Build the STAC asset entry (with statistics) for one product and
-        publish its STAC item, appending both to the caller's accumulators.
+        Build the STAC asset entry (with statistics) for one product,
+        appending it to the caller's accumulators. Statistics are always
+        recomputed from the COG (a local read), but the STAC item itself is
+        only (re)published when there's no cached marker from a prior
+        successful publish for this cog_path — see _load_cached_stac_item.
         dtm/chm/hillshade keep the existing bounding-box mean; slope/aspect
         use the exact-polygon statistics added in Tasks 4-5.
         """
@@ -573,12 +581,24 @@ class LidarFetchProcessor(BaseProcessor):
             ],
         }
 
+        marker_path = self._stac_marker_path(cog_path)
+        cached_item = self._load_cached_stac_item(marker_path)
+        if cached_item is not None:
+            logger.info(
+                "STAC cache hit: '%s' already published as %s",
+                product,
+                cached_item.get("id"),
+            )
+            stac_items.append(cached_item)
+            return
+
         stac_item = self._create_stac_item(
             item_id=f"lidar_{product}_{farm_identifier}",
             geometry=geometry_geojson,
             bbox=tuple(bbox),
             product=product,
             asset=assets[product],
+            marker_path=marker_path,
         )
         stac_items.append(stac_item)
 
@@ -589,8 +609,14 @@ class LidarFetchProcessor(BaseProcessor):
         bbox: Tuple[float, float, float, float],
         product: str,
         asset: Dict[str, Any],
+        marker_path: str,
     ) -> Dict[str, Any]:
-        """Build a STAC item and publish it to the STAC API."""
+        """
+        Build a STAC item and publish it to the STAC API. On success, a
+        cache marker is written next to the COG so subsequent calls can
+        skip re-publishing; a failed publish leaves no marker, so the next
+        call retries it instead of the item staying unpublished forever.
+        """
         stac_item: Dict[str, Any] = {
             "type": "Feature",
             "stac_version": self.STAC_VERSION,
@@ -618,8 +644,42 @@ class LidarFetchProcessor(BaseProcessor):
             "links": [],
         }
 
-        self._post_to_stac_api(stac_item)
+        if self._post_to_stac_api(stac_item):
+            self._write_stac_marker(marker_path, stac_item)
         return stac_item
+
+    @staticmethod
+    def _stac_marker_path(cog_path: str) -> str:
+        """Path to the sidecar marker recording a successful STAC publish."""
+        return f"{cog_path}.stac.json"
+
+    @staticmethod
+    def _invalidate_stac_marker(cog_path: str) -> None:
+        """Remove a stale publish marker after the COG it describes is rebuilt."""
+        marker_path = LidarFetchProcessor._stac_marker_path(cog_path)
+        if os.path.exists(marker_path):
+            os.remove(marker_path)
+
+    @staticmethod
+    def _load_cached_stac_item(marker_path: str) -> Optional[Dict[str, Any]]:
+        """Return the previously-published STAC item, or None if unpublished."""
+        if not os.path.exists(marker_path):
+            return None
+        try:
+            with open(marker_path, "r") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not read STAC marker %s: %s", marker_path, exc)
+            return None
+
+    @staticmethod
+    def _write_stac_marker(marker_path: str, stac_item: Dict[str, Any]) -> None:
+        """Persist a successfully-published STAC item as a cache marker."""
+        try:
+            with open(marker_path, "w") as f:
+                json.dump(stac_item, f)
+        except OSError as exc:
+            logger.warning("Could not write STAC marker %s: %s", marker_path, exc)
 
     def _ensure_collection_exists(self) -> None:
         """Ensure the lidar_quebec collection exists in the STAC API."""
