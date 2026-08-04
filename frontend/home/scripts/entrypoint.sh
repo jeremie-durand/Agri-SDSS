@@ -100,7 +100,9 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 120s;
+        # CPU-only local Ollama can take >120s for a single completion
+        # (observed ~150s in production); keep headroom under LLM_MAX_TOKENS.
+        proxy_read_timeout 300s;
     }
 
     # ── SDSS spatial process routes ────────────────────────────
@@ -109,7 +111,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 120s;
+        proxy_read_timeout 300s;
     }
 
     # ── Local Agri-SDSS API proxies (used by chatbot-bridge.js) ────────────────
