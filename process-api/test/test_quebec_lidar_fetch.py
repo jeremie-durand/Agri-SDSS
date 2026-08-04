@@ -5,6 +5,7 @@ Tests quebec_lidar_fetch.py and lidar_backend/quebec_lidar_tile_index.py.
 
 import json
 import math
+import os
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -864,6 +865,224 @@ def test_execute_gdal_failure_raises(
             processor_instance.execute(
                 {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
             )
+
+
+# ---------------------------------------------------------------------------
+# STAC publish caching tests (marker written after a successful publish;
+# skips republishing on a warm COG cache; retries after a failed publish;
+# invalidated when the COG is rebuilt)
+# ---------------------------------------------------------------------------
+
+
+def _fake_gdalwarp(cmd, capture_output, text):
+    """subprocess.run stand-in that actually writes the output COG file, so
+    the on-disk cache check in _get_or_build_cog behaves realistically
+    across repeated execute() calls."""
+    output_path = cmd[-1]
+    with open(output_path, "wb") as f:
+        f.write(b"fake")
+    return MagicMock(returncode=0, stderr="")
+
+
+@pytest.mark.mocked
+def test_execute_second_call_skips_stac_publish_on_warm_cache(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """A second call against an already-cached COG must not re-publish the
+    STAC item — this is the warm-cache latency the hotfix targets."""
+    processor_instance.output_dir = str(tmp_path)
+
+    tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
+
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.mean.return_value = 1.5
+
+    mock_rasterio_ds = MagicMock()
+    mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
+    mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
+    mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.read.return_value = mock_band
+
+    with (
+        patch(
+            "processes.quebec_lidar_fetch.LidarTileIndex.get_tile_urls",
+            return_value=tile_urls,
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.subprocess.run", side_effect=_fake_gdalwarp
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=True
+        ) as mock_post,
+        patch.object(processor_instance, "_ensure_collection_exists"),
+    ):
+        processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
+        )
+        assert mock_post.call_count == 1
+
+        mimetype, result = processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
+        )
+
+    assert mock_post.call_count == 1  # not called again on the warm-cache run
+    assert "dtm" in result["assets"]
+    assert len(result["stac_items"]) == 1
+
+
+@pytest.mark.mocked
+def test_execute_retries_stac_publish_after_previous_failure(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """If _post_to_stac_api fails, no marker is written, so a later call —
+    even with a warm COG cache — retries the publish instead of the item
+    staying unpublished forever."""
+    processor_instance.output_dir = str(tmp_path)
+
+    tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
+
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.mean.return_value = 1.5
+
+    mock_rasterio_ds = MagicMock()
+    mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
+    mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
+    mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.read.return_value = mock_band
+
+    with (
+        patch(
+            "processes.quebec_lidar_fetch.LidarTileIndex.get_tile_urls",
+            return_value=tile_urls,
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.subprocess.run", side_effect=_fake_gdalwarp
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=False
+        ) as mock_post,
+        patch.object(processor_instance, "_ensure_collection_exists"),
+    ):
+        processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
+        )
+        assert mock_post.call_count == 1
+
+        processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
+        )
+
+    assert mock_post.call_count == 2  # retried since no marker was written
+
+
+@pytest.mark.unit
+def test_get_or_build_cog_invalidates_stale_marker_on_rebuild(
+    processor_instance, tmp_path
+):
+    """Rebuilding a COG (cache miss) must delete any leftover STAC marker
+    from a previous version of the raster, so a stale item isn't served."""
+    cog_path = str(tmp_path / "lidar_dtm_test.tif")
+    marker_path = cog_path + ".stac.json"
+
+    with open(marker_path, "w") as f:
+        json.dump({"id": "stale"}, f)
+
+    build_called = []
+
+    def fake_build():
+        build_called.append(True)
+        with open(cog_path, "wb") as f:
+            f.write(b"fake")
+
+    processor_instance._get_or_build_cog(cog_path, "dtm", fake_build)
+
+    assert build_called == [True]
+    assert not os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_get_or_build_cog_keeps_marker_on_cache_hit(processor_instance, tmp_path):
+    """A COG cache hit (no rebuild) must leave an existing marker intact."""
+    cog_path = str(tmp_path / "lidar_dtm_test.tif")
+    marker_path = cog_path + ".stac.json"
+    with open(cog_path, "wb") as f:
+        f.write(b"fake")
+    with open(marker_path, "w") as f:
+        json.dump({"id": "cached"}, f)
+
+    build_called = []
+    processor_instance._get_or_build_cog(
+        cog_path, "dtm", lambda: build_called.append(True)
+    )
+
+    assert build_called == []
+    assert os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_write_and_load_stac_marker_round_trip(processor_instance, tmp_path):
+    """A written marker can be read back as the same STAC item dict."""
+    marker_path = str(tmp_path / "lidar_dtm_test.tif.stac.json")
+    stac_item = {"id": "lidar_dtm_test", "type": "Feature"}
+
+    processor_instance._write_stac_marker(marker_path, stac_item)
+    loaded = processor_instance._load_cached_stac_item(marker_path)
+
+    assert loaded == stac_item
+
+
+@pytest.mark.unit
+def test_load_cached_stac_item_missing_returns_none(processor_instance, tmp_path):
+    """No marker file means no cached item — must not raise."""
+    marker_path = str(tmp_path / "does_not_exist.stac.json")
+    assert processor_instance._load_cached_stac_item(marker_path) is None
+
+
+@pytest.mark.unit
+def test_create_stac_item_writes_marker_only_on_publish_success(
+    processor_instance, tmp_path
+):
+    """A successful publish leaves a marker behind for future cache hits."""
+    marker_path = str(tmp_path / "lidar_dtm_test.tif.stac.json")
+
+    with patch.object(processor_instance, "_post_to_stac_api", return_value=True):
+        processor_instance._create_stac_item(
+            item_id="lidar_dtm_test",
+            geometry={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0, 0, 1, 1),
+            product="dtm",
+            asset={"href": "x"},
+            marker_path=marker_path,
+        )
+
+    assert os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_create_stac_item_no_marker_on_publish_failure(processor_instance, tmp_path):
+    """A failed publish must not leave a marker — otherwise the item would
+    never get (re)published."""
+    marker_path = str(tmp_path / "lidar_dtm_test.tif.stac.json")
+
+    with patch.object(processor_instance, "_post_to_stac_api", return_value=False):
+        processor_instance._create_stac_item(
+            item_id="lidar_dtm_test",
+            geometry={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0, 0, 1, 1),
+            product="dtm",
+            asset={"href": "x"},
+            marker_path=marker_path,
+        )
+
+    assert not os.path.exists(marker_path)
 
 
 # ---------------------------------------------------------------------------
