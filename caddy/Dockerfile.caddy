@@ -1,4 +1,6 @@
 FROM caddy:builder AS builder
+
+ENV GOSUMDB=off
 RUN xcaddy build --with github.com/mholt/caddy-ratelimit
 
 FROM caddy:alpine
