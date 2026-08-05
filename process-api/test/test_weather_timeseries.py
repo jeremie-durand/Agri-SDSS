@@ -481,6 +481,73 @@ class TestPAVICSBackendInternals:
         )
         assert len(result.time) == 3
 
+    def test_subset_spatial_bbox_selects_matching_points(
+        self, pavics_backend, sample_xr_dataset
+    ):
+        """A bbox covering two of the three grid points keeps only those two."""
+        result = pavics_backend._subset_spatial(
+            sample_xr_dataset,
+            bbox=(-72.0, 45.0, -71.8, 45.3),
+            polygon_geojson=None,
+            lat_dim="lat",
+            lon_dim="lon",
+        )
+        assert list(result.lat.values) == [45.0, 45.25]
+        assert list(result.lon.values) == [-72.0]
+
+    def test_subset_spatial_point_query_uses_nearest(
+        self, pavics_backend, sample_xr_dataset
+    ):
+        result = pavics_backend._subset_spatial(
+            sample_xr_dataset,
+            bbox=(-71.9, 45.1, -71.9, 45.1),
+            polygon_geojson=None,
+            lat_dim="lat",
+            lon_dim="lon",
+        )
+        assert float(result.lat.values) == 45.0
+        assert float(result.lon.values) == -72.0
+
+    def test_subset_spatial_bbox_smaller_than_grid_raises_clear_error(
+        self, pavics_backend, sample_xr_dataset
+    ):
+        """A bbox entirely between two grid points (e.g. a single farm
+        parcel against a coarse reanalysis grid) must raise a clear
+        ProcessorExecuteError, not surface as a confusing OPeNDAP index
+        error — this is the bug found via live farm-parcel testing."""
+        with pytest.raises(ProcessorExecuteError, match="No grid points found"):
+            pavics_backend._subset_spatial(
+                sample_xr_dataset,
+                bbox=(-71.90, 45.10, -71.86, 45.14),
+                polygon_geojson=None,
+                lat_dim="lat",
+                lon_dim="lon",
+            )
+
+    def test_subset_spatial_works_with_descending_latitude(self, pavics_backend):
+        """Index-based selection must not depend on the coordinate's own
+        ascending/descending order — many climate datasets store latitude
+        north-to-south (descending), which a plain .sel(slice(min, max))
+        silently mishandles."""
+        times = pd.date_range("2020-01-01", periods=2, freq="D")
+        lats = np.array([45.5, 45.25, 45.0])  # descending
+        lons = np.array([-72.0, -71.75, -71.5])
+        data = np.ones((2, 3, 3), dtype="float32")
+        ds = xr.Dataset(
+            {"tasmin": (["time", "lat", "lon"], data)},
+            coords={"time": times, "lat": lats, "lon": lons},
+        )
+
+        result = pavics_backend._subset_spatial(
+            ds,
+            bbox=(-72.0, 45.0, -71.8, 45.3),
+            polygon_geojson=None,
+            lat_dim="lat",
+            lon_dim="lon",
+        )
+        assert sorted(result.lat.values.tolist()) == [45.0, 45.25]
+        assert list(result.lon.values) == [-72.0]
+
     def test_aggregate_monthly(self, pavics_backend):
         times = pd.date_range("2020-01-01", periods=60, freq="D")
         lats = np.array([45.0])
