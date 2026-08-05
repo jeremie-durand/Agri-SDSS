@@ -531,7 +531,7 @@ class SentinelFetchProcessor(BaseProcessor):
         aggregation_method: str,
         cloud_cover_max: float,
         farm_identifier: str,
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> Tuple[Dict[str, Dict[str, Any]], bool]:
         """
         Fetch Sentinel-2 data from openEO and generate requested products
 
@@ -551,7 +551,10 @@ class SentinelFetchProcessor(BaseProcessor):
                 Example: "farm_123" or "farm_a1b2c3d4"
 
         Returns:
-            Dict mapping product names to asset metadata
+            Tuple of (dict mapping product names to asset metadata, whether
+            every requested product was served from the on-disk cache —
+            the caller uses this to decide whether the STAC item can also
+            be served from its own cache marker instead of republished)
         """
         # Early-exit: serve all products from cache without connecting to OpenEO
         cached_assets: Dict[str, Dict[str, Any]] = {}
@@ -577,7 +580,7 @@ class SentinelFetchProcessor(BaseProcessor):
 
         if len(cached_assets) == len(output_products):
             logger.info("All products served from cache — OpenEO connection skipped")
-            return cached_assets
+            return cached_assets, True
 
         # Connect to openEO backend (only reached when ≥1 product needs fetching)
         try:
@@ -618,7 +621,7 @@ class SentinelFetchProcessor(BaseProcessor):
             farm_identifier,
         )
 
-        return assets
+        return assets, False
 
     def _calculate_product(
         self, cube: Any, product: str, aggregation_method: str = "median"
@@ -763,6 +766,7 @@ class SentinelFetchProcessor(BaseProcessor):
         temporal_extent: List[str],
         assets: Dict[str, Dict[str, Any]],
         cloud_cover_max: float,
+        marker_path: str,
     ) -> Dict[str, Any]:
         """
         Create and publish STAC item to STAC API
@@ -779,6 +783,9 @@ class SentinelFetchProcessor(BaseProcessor):
                 Each asset must include: href, type, roles, title, raster:bands, statistics
             cloud_cover_max: Maximum cloud cover percentage used for filtering (0-100)
                 Example: 20.0
+            marker_path: Path to the cache marker written on a successful
+                publish, so a later call with an identical cached product
+                set can skip republishing (see _stac_marker_path)
 
         Returns:
             STAC Item compliant with STAC v1.0.0 specification, including:
@@ -827,10 +834,39 @@ class SentinelFetchProcessor(BaseProcessor):
             "links": [],
         }
 
-        # Post to STAC API
-        self._post_to_stac_api(stac_item)
+        # Post to STAC API. On success, write a cache marker so a later call
+        # with an identical (fully-cached) product set can skip
+        # republishing; a failed publish leaves no marker, so it's retried
+        # on the next call instead of staying unpublished forever.
+        if self._post_to_stac_api(stac_item):
+            self._write_stac_marker(marker_path, stac_item)
 
         return stac_item
+
+    def _stac_marker_path(self, stac_item_id: str) -> str:
+        """Path to the sidecar marker recording a successful STAC publish."""
+        return os.path.join(self.output_dir, f"{stac_item_id}.stac.json")
+
+    @staticmethod
+    def _load_cached_stac_item(marker_path: str) -> Optional[Dict[str, Any]]:
+        """Return the previously-published STAC item, or None if unpublished."""
+        if not os.path.exists(marker_path):
+            return None
+        try:
+            with open(marker_path, "r") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not read STAC marker %s: %s", marker_path, exc)
+            return None
+
+    @staticmethod
+    def _write_stac_marker(marker_path: str, stac_item: Dict[str, Any]) -> None:
+        """Persist a successfully-published STAC item as a cache marker."""
+        try:
+            with open(marker_path, "w") as f:
+                json.dump(stac_item, f)
+        except OSError as exc:
+            logger.warning("Could not write STAC marker %s: %s", marker_path, exc)
 
     def _ensure_collection_exists(self) -> None:
         """Ensure the sentinel2_eo_products collection exists in STAC API"""
@@ -1059,7 +1095,9 @@ class SentinelFetchProcessor(BaseProcessor):
                 )
 
             # Fetch and process Sentinel-2 data
-            assets: Dict[str, Dict[str, Any]] = self._process_sentinel_data(
+            assets: Dict[str, Dict[str, Any]]
+            all_cached: bool
+            assets, all_cached = self._process_sentinel_data(
                 bbox=bbox,
                 geometry=geometry_geojson,
                 temporal_extent=temporal_extent,
@@ -1069,18 +1107,38 @@ class SentinelFetchProcessor(BaseProcessor):
                 farm_identifier=farm_identifier,
             )
 
-            # Create STAC item
+            # Create (or reuse) the STAC item. The cache marker is only
+            # trusted when every requested product was itself served from
+            # the on-disk cache AND its asset set exactly matches what was
+            # last published — a call requesting a different product mix
+            # for the same farm/dates must still (re)publish, since the
+            # published item's `assets` need to reflect that mix.
             stac_item_id: str = (
                 f"sentinel2_{farm_identifier}_{temporal_extent[0]}_{temporal_extent[1]}"
             )
-            stac_result: Dict[str, Any] = self._create_stac_item(
-                item_id=stac_item_id,
-                geometry=geometry_geojson,
-                bbox=bbox,
-                temporal_extent=temporal_extent,
-                assets=assets,
-                cloud_cover_max=cloud_cover_max,
+            marker_path: str = self._stac_marker_path(stac_item_id)
+            cached_item: Optional[Dict[str, Any]] = (
+                self._load_cached_stac_item(marker_path) if all_cached else None
             )
+            stac_result: Dict[str, Any]
+            if cached_item is not None and set(
+                cached_item.get("assets", {})
+            ) == set(assets):
+                logger.info(
+                    "STAC cache hit: '%s' already published with matching assets",
+                    stac_item_id,
+                )
+                stac_result = cached_item
+            else:
+                stac_result = self._create_stac_item(
+                    item_id=stac_item_id,
+                    geometry=geometry_geojson,
+                    bbox=bbox,
+                    temporal_extent=temporal_extent,
+                    assets=assets,
+                    cloud_cover_max=cloud_cover_max,
+                    marker_path=marker_path,
+                )
 
             # Generate preview URL for TiTiler
             preview_asset: Dict[str, Any] = (
