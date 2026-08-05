@@ -15,7 +15,63 @@ var somPredictFieldIds = [];
 var somPredictChartInstance = null;
 var somPredictLastFc = null;
 var somPredictUnit = 'gkg';
-var _somProgressTimer = null;
+
+// Time-estimated progress bar factory, shared by any long-running
+// auto-generate action. `elIds` names the three DOM elements (progress
+// container, bar, stage label); `stages` is an ordered list of
+// { pct, key, ms } checkpoints — `ms` is how long to wait at the *previous*
+// checkpoint before advancing to this one. The final stage's `ms` should be
+// a very large number so the bar holds there until `done()` is called
+// explicitly (the actual response time is unpredictable past that point).
+function _makeProgressController(elIds, stages) {
+    var timer = null;
+    var hideTimer = null;
+    function start() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+        var progEl  = document.getElementById(elIds.progress);
+        var barEl   = document.getElementById(elIds.bar);
+        var stageEl = document.getElementById(elIds.stage);
+        barEl.style.background = '';
+        barEl.style.width = '0%';
+        progEl.hidden = false;
+        var tl = (window.T && window.T[window.lang]) || (window.T && window.T['en']) || {};
+        var i = 0;
+        function advance() {
+            if (i >= stages.length) return;
+            var s = stages[i++];
+            barEl.style.width = s.pct + '%';
+            stageEl.textContent = tl[s.key] || s.key;
+            timer = setTimeout(advance, s.ms);
+        }
+        advance();
+    }
+    function done(success) {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+        var progEl  = document.getElementById(elIds.progress);
+        var barEl   = document.getElementById(elIds.bar);
+        var stageEl = document.getElementById(elIds.stage);
+        if (success) {
+            barEl.style.width = '100%';
+            stageEl.textContent = '';
+            hideTimer = setTimeout(function() { progEl.hidden = true; barEl.style.width = '0%'; hideTimer = null; }, 600);
+        } else {
+            barEl.style.background = '#f87171';
+            stageEl.textContent = '';
+            hideTimer = setTimeout(function() { progEl.hidden = true; barEl.style.width = '0%'; barEl.style.background = ''; hideTimer = null; }, 1200);
+        }
+    }
+    function reset() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+        var progEl = document.getElementById(elIds.progress);
+        if (progEl) progEl.hidden = true;
+        var barEl = document.getElementById(elIds.bar);
+        if (barEl) { barEl.style.width = '0%'; barEl.style.background = ''; }
+    }
+    return { start: start, done: done, reset: reset };
+}
 
 // Stages: realistic timing based on actual backend pipeline duration.
 // Delays are time to spend at each stage before auto-advancing.
@@ -26,42 +82,30 @@ var _PREDICT_STAGES = [
     { pct: 80, key: 'som-stage-rf',       ms: 25000 },
     { pct: 92, key: 'som-stage-building', ms: 999999 },
 ];
+var _somPredictProgress = _makeProgressController(
+    { progress: 'somPredictProgress', bar: 'somProgressBar', stage: 'somProgressStage' },
+    _PREDICT_STAGES
+);
+function somProgressStart() { _somPredictProgress.start(); }
+function somProgressDone(success) { _somPredictProgress.done(success); }
 
-function somProgressStart() {
-    if (_somProgressTimer) { clearTimeout(_somProgressTimer); _somProgressTimer = null; }
-    var progEl  = document.getElementById('somPredictProgress');
-    var barEl   = document.getElementById('somProgressBar');
-    var stageEl = document.getElementById('somProgressStage');
-    barEl.style.background = '';
-    barEl.style.width = '0%';
-    progEl.hidden = false;
-    var tl = (window.T && window.T[window.lang]) || (window.T && window.T['en']) || {};
-    var i = 0;
-    function advance() {
-        if (i >= _PREDICT_STAGES.length) return;
-        var s = _PREDICT_STAGES[i++];
-        barEl.style.width = s.pct + '%';
-        stageEl.textContent = tl[s.key] || s.key;
-        _somProgressTimer = setTimeout(advance, s.ms);
-    }
-    advance();
-}
-
-function somProgressDone(success) {
-    if (_somProgressTimer) { clearTimeout(_somProgressTimer); _somProgressTimer = null; }
-    var progEl  = document.getElementById('somPredictProgress');
-    var barEl   = document.getElementById('somProgressBar');
-    var stageEl = document.getElementById('somProgressStage');
-    if (success) {
-        barEl.style.width = '100%';
-        stageEl.textContent = '';
-        setTimeout(function() { progEl.hidden = true; barEl.style.width = '0%'; }, 600);
-    } else {
-        barEl.style.background = '#f87171';
-        stageEl.textContent = '';
-        setTimeout(function() { progEl.hidden = true; barEl.style.width = '0%'; barEl.style.background = ''; }, 1200);
-    }
-}
+// Stages for the sentinel-fetch NDVI auto-generate field (SOM PoC panel).
+// Timing derived from n=10 cold-cache measurements of sentinel-fetch
+// (mean 139,466 ms, median 138,760 ms, SD 31,377 ms, range 108,319–188,219 ms
+// — see docs/superpowers/specs/2026-08-05-sentinel-fetch-progress-bar-design.md).
+// Tuned so even the fastest observed run (108s) reaches the final hold
+// checkpoint (95s cumulative) before the real response arrives.
+var _SCENES_STAGES = [
+    { pct: 5,  key: 'som-scenes-stage-connect',  ms: 3000  },
+    { pct: 15, key: 'som-scenes-stage-search',   ms: 7000  },
+    { pct: 45, key: 'som-scenes-stage-process',  ms: 50000 },
+    { pct: 80, key: 'som-scenes-stage-download', ms: 35000 },
+    { pct: 92, key: 'som-scenes-stage-finalize', ms: 999999 },
+];
+var _somScenesProgress = _makeProgressController(
+    { progress: 'somScenesProgress', bar: 'somScenesProgressBar', stage: 'somScenesProgressStage' },
+    _SCENES_STAGES
+);
 
 function somSwitchTab(tab) {
     var isPoc = tab === 'poc';
@@ -94,11 +138,7 @@ function somPredictReset() {
     var pctBtn = document.getElementById('somUnitPct');
     if (gkgBtn) gkgBtn.classList.add('som-unit-btn--active');
     if (pctBtn) pctBtn.classList.remove('som-unit-btn--active');
-    if (_somProgressTimer) { clearTimeout(_somProgressTimer); _somProgressTimer = null; }
-    var progEl = document.getElementById('somPredictProgress');
-    if (progEl) progEl.hidden = true;
-    var barEl = document.getElementById('somProgressBar');
-    if (barEl) { barEl.style.width = '0%'; barEl.style.background = ''; }
+    _somPredictProgress.reset();
     if (somPredictChartInstance) { somPredictChartInstance.destroy(); somPredictChartInstance = null; }
 }
 
@@ -380,6 +420,7 @@ export function openSomModal(collectionId, feature, layer) {
         el.textContent = '';
         el.className = 'som-field__status';
     });
+    _somScenesProgress.reset();
 
     // Auto-fill area: check feature properties first, fall back to bbox, then refine via API
     var areaEl = document.getElementById('somArea');
@@ -446,6 +487,7 @@ export function closeSomModal() {
     st.className = 'som-run__status';
     if (somChartInstance) { somChartInstance.destroy(); setSomChartInstance(null); }
     somPredictReset();
+    _somScenesProgress.reset();
 }
 
 function somValidateFields() {
@@ -1036,6 +1078,7 @@ export async function somAutoGenScenes() {
     btn.disabled = true;
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
+    var usedSlowPath = false;
     try {
         var geom = somContext.feature && somContext.feature.geometry;
         if (!geom) throw new Error('No feature geometry');
@@ -1054,6 +1097,8 @@ export async function somAutoGenScenes() {
                    cachedItem.assets.ndvi.statistics['1'] &&
                    cachedItem.assets.ndvi.statistics['1'].mean;
         } else {
+            usedSlowPath = true;
+            _somScenesProgress.start();
             var r = await fetch('/process-api/processes/sentinel-fetch/execution?f=json', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1078,9 +1123,11 @@ export async function somAutoGenScenes() {
                    data.value.stac_item.assets.ndvi.statistics['1'].mean;
         }
         if (mean == null) throw new Error('No NDVI mean in response');
+        if (usedSlowPath) _somScenesProgress.done(true);
         document.getElementById('somScenes').value = (+mean).toFixed(3);
         status.textContent = '';
     } catch(e) {
+        if (usedSlowPath) _somScenesProgress.done(false);
         status.textContent = tLang['som-error'] + ': ' + e.message;
         status.className = 'som-field__status error';
     } finally { btn.disabled = false; }

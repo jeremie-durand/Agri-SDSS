@@ -223,6 +223,12 @@
             <button class="btn som-autogen-btn" id="somScenesGen" data-i18n="som-autogen">Auto-generate</button>
           </div>
           <span class="som-field__status" id="somScenesStatus" aria-live="polite"></span>
+          <div id="somScenesProgress" class="som-progress" hidden>
+            <div class="som-progress__bar-wrap">
+              <div class="som-progress__bar" id="somScenesProgressBar"></div>
+            </div>
+            <span class="som-progress__stage" id="somScenesProgressStage" aria-live="polite"></span>
+          </div>
         </div>
 
         <div class="som-field">
@@ -537,6 +543,11 @@
       'som-stage-ranking':     'Ranking satellite images…',
       'som-stage-rf':          'Fitting Random Forest…',
       'som-stage-building':    'Building results…',
+      'som-scenes-stage-connect':  'Connecting to Copernicus…',
+      'som-scenes-stage-search':   'Searching satellite scenes…',
+      'som-scenes-stage-process':  'Processing imagery (cloud filtering, compositing)…',
+      'som-scenes-stage-download': 'Downloading & converting to COG…',
+      'som-scenes-stage-finalize': 'Finalizing…',
       'som-unit-label':        'Unit:',
       'som-unit-gkg':          'g/kg',
       'som-unit-pct':          '%',
@@ -686,6 +697,11 @@
       'som-stage-ranking':     'Classement des images satellites…',
       'som-stage-rf':          'Ajustement du Random Forest…',
       'som-stage-building':    'Construction des résultats…',
+      'som-scenes-stage-connect':  'Connexion à Copernicus…',
+      'som-scenes-stage-search':   'Recherche de scènes satellites…',
+      'som-scenes-stage-process':  'Traitement des images (filtrage nuageux, composition)…',
+      'som-scenes-stage-download': 'Téléchargement et conversion en COG…',
+      'som-scenes-stage-finalize': 'Finalisation…',
       'som-unit-label':        'Unité :',
       'som-unit-gkg':          'g/kg',
       'som-unit-pct':          '%',
