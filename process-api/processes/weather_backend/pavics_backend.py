@@ -443,13 +443,25 @@ class PAVICSBackend:
                 method="nearest",
             )
 
-        # BBox pre-filter
-        ds = ds.sel(
-            {
-                lat_dim: slice(miny, maxy),
-                lon_dim: slice(minx, maxx),
-            }
-        )
+        # BBox pre-filter — index-based (like CMIPBackend's _subset_spatial),
+        # not .sel(slice(...)): a plain slice requires the coordinate's own
+        # ascending/descending order to match the slice bounds, and a bbox
+        # smaller than the grid spacing (e.g. a single farm parcel against a
+        # ~10 km reanalysis grid) selects zero points either way — pydap then
+        # turns that into a malformed OPeNDAP index range ("Range last index
+        # less than first index") instead of a clear error.
+        lat_vals = ds[lat_dim].values
+        lon_vals = ds[lon_dim].values
+        lat_indices = np.where((lat_vals >= miny) & (lat_vals <= maxy))[0]
+        lon_indices = np.where((lon_vals >= minx) & (lon_vals <= maxx))[0]
+
+        if lat_indices.size == 0 or lon_indices.size == 0:
+            raise ProcessorExecuteError(
+                f"No grid points found within bbox {bbox} — the area may be "
+                "smaller than the dataset's grid resolution. Try a larger bbox."
+            )
+
+        ds = ds.isel({lat_dim: lat_indices, lon_dim: lon_indices})
 
         if polygon_geojson is not None:
             try:
