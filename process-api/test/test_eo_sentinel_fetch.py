@@ -3,6 +3,7 @@ Unit tests for Sentinel-2 Earth Observation data fetch process.
 Tests the eo_sentinel_fetch.py module functionality.
 """
 
+import hashlib
 import os
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +13,7 @@ import requests
 import requests.exceptions
 from processes.eo_sentinel_fetch import PROCESS_METADATA, SentinelFetchProcessor
 from pygeoapi.process.base import ProcessorExecuteError
+from shapely.geometry import shape
 
 pytestmark = pytest.mark.unit
 
@@ -546,7 +548,7 @@ def test_get_raster_bands_metadata_unknown_product(processor_instance):
 # Test STAC Item Creation
 # ------------------------------------------
 def test_create_stac_item_structure(
-    processor_instance, sample_farm_geometry, valid_temporal_extent
+    processor_instance, sample_farm_geometry, valid_temporal_extent, tmp_path
 ):
     """Test STAC item has correct structure."""
     assets = {
@@ -566,6 +568,7 @@ def test_create_stac_item_structure(
         temporal_extent=valid_temporal_extent,
         assets=assets,
         cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_item.stac.json"),
     )
 
     assert item["type"] == "Feature"
@@ -580,7 +583,9 @@ def test_create_stac_item_structure(
     assert item["properties"]["platform"] == "sentinel-2"
 
 
-def test_create_stac_item_temporal_properties(processor_instance, sample_farm_geometry):
+def test_create_stac_item_temporal_properties(
+    processor_instance, sample_farm_geometry, tmp_path
+):
     """Test STAC item temporal properties."""
     temporal_extent = ["2024-06-01", "2024-08-31"]
 
@@ -591,6 +596,7 @@ def test_create_stac_item_temporal_properties(processor_instance, sample_farm_ge
         temporal_extent=temporal_extent,
         assets={},
         cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_item.stac.json"),
     )
 
     assert "start_datetime" in item["properties"]
@@ -599,7 +605,9 @@ def test_create_stac_item_temporal_properties(processor_instance, sample_farm_ge
     assert item["properties"]["end_datetime"].startswith("2024-08-31")
 
 
-def test_create_stac_item_stac_extensions(processor_instance, sample_farm_geometry):
+def test_create_stac_item_stac_extensions(
+    processor_instance, sample_farm_geometry, tmp_path
+):
     """_create_stac_item includes the proj, raster, and eo extension URIs."""
     item = processor_instance._create_stac_item(
         item_id="test_ext",
@@ -608,6 +616,7 @@ def test_create_stac_item_stac_extensions(processor_instance, sample_farm_geomet
         temporal_extent=["2024-06-01", "2024-08-31"],
         assets={},
         cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_ext.stac.json"),
     )
 
     extensions = item["stac_extensions"]
@@ -617,7 +626,7 @@ def test_create_stac_item_stac_extensions(processor_instance, sample_farm_geomet
 
 
 def test_create_stac_item_calls_post_to_stac_api(
-    processor_instance, sample_farm_geometry
+    processor_instance, sample_farm_geometry, tmp_path
 ):
     """_create_stac_item calls _post_to_stac_api exactly once."""
     with patch.object(processor_instance, "_post_to_stac_api") as mock_post:
@@ -628,8 +637,164 @@ def test_create_stac_item_calls_post_to_stac_api(
             temporal_extent=["2024-06-01", "2024-08-31"],
             assets={},
             cloud_cover_max=20,
+            marker_path=str(tmp_path / "test_post.stac.json"),
         )
         mock_post.assert_called_once()
+
+
+# ------------------------------------------
+# STAC publish caching (marker written after a successful publish; skips
+# republishing when every requested product was itself cache-hit AND the
+# marker's asset set matches; republishes on any mismatch or cache miss)
+# ------------------------------------------
+
+
+@pytest.mark.unit
+def test_create_stac_item_writes_marker_only_on_publish_success(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """A successful publish leaves a marker behind for future cache hits."""
+    marker_path = str(tmp_path / "test_item.stac.json")
+
+    with patch.object(processor_instance, "_post_to_stac_api", return_value=True):
+        processor_instance._create_stac_item(
+            item_id="test_item",
+            geometry=sample_farm_geometry,
+            bbox=(-71.5, 45.5, -71.4, 45.6),
+            temporal_extent=["2024-06-01", "2024-08-31"],
+            assets={},
+            cloud_cover_max=20,
+            marker_path=marker_path,
+        )
+
+    assert os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_create_stac_item_no_marker_on_publish_failure(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """A failed publish must not leave a marker — otherwise the item would
+    never get (re)published on a later call."""
+    marker_path = str(tmp_path / "test_item.stac.json")
+
+    with patch.object(processor_instance, "_post_to_stac_api", return_value=False):
+        processor_instance._create_stac_item(
+            item_id="test_item",
+            geometry=sample_farm_geometry,
+            bbox=(-71.5, 45.5, -71.4, 45.6),
+            temporal_extent=["2024-06-01", "2024-08-31"],
+            assets={},
+            cloud_cover_max=20,
+            marker_path=marker_path,
+        )
+
+    assert not os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_load_cached_stac_item_missing_returns_none(processor_instance, tmp_path):
+    """No marker file means no cached item — must not raise."""
+    marker_path = str(tmp_path / "does_not_exist.stac.json")
+    assert processor_instance._load_cached_stac_item(marker_path) is None
+
+
+@pytest.mark.unit
+def test_write_and_load_stac_marker_round_trip(processor_instance, tmp_path):
+    """A written marker can be read back as the same STAC item dict."""
+    marker_path = str(tmp_path / "roundtrip.stac.json")
+    stac_item = {"id": "sentinel2_farm_test", "type": "Feature"}
+
+    processor_instance._write_stac_marker(marker_path, stac_item)
+    loaded = processor_instance._load_cached_stac_item(marker_path)
+
+    assert loaded == stac_item
+
+
+@pytest.mark.unit
+def test_stac_marker_path_derived_from_output_dir(processor_instance, tmp_path):
+    """The marker path lives under output_dir, keyed by the STAC item id."""
+    processor_instance.output_dir = str(tmp_path)
+    marker_path = processor_instance._stac_marker_path("sentinel2_farm_1_2024-06-01_2024-08-31")
+    assert marker_path == str(
+        tmp_path / "sentinel2_farm_1_2024-06-01_2024-08-31.stac.json"
+    )
+
+
+@pytest.mark.mocked
+def test_execute_skips_stac_publish_when_all_products_cached_and_assets_match(
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
+):
+    """A repeat call where every product is served from cache AND the
+    previously-published item already has the same asset set must skip
+    republishing entirely — the fix this test guards."""
+    processor_instance.output_dir = str(tmp_path)
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+    }
+
+    # Pre-seed a marker matching this exact call's farm/date/product combo.
+    geom_shape = shape(sample_farm_geometry_small)
+    bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
+    stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
+    marker_path = processor_instance._stac_marker_path(stac_item_id)
+    seeded_item = {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+    processor_instance._write_stac_marker(marker_path, seeded_item)
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi",)), True),
+        ),
+        patch.object(processor_instance, "_post_to_stac_api") as mock_post,
+    ):
+        mimetype, envelope = processor_instance.execute(data)
+
+    mock_post.assert_not_called()
+    assert envelope["value"]["stac_item_id"] == stac_item_id
+
+
+@pytest.mark.mocked
+def test_execute_republishes_when_marker_asset_set_differs(
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
+):
+    """Even when every product this call is cache-hit, a marker whose asset
+    set doesn't match the current request must not be trusted — the item
+    is republished so the catalog reflects the requested product mix."""
+    processor_instance.output_dir = str(tmp_path)
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi", "true_color"],
+    }
+
+    geom_shape = shape(sample_farm_geometry_small)
+    bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
+    stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
+    marker_path = processor_instance._stac_marker_path(stac_item_id)
+    # Marker only has "ndvi" published; this call also wants "true_color".
+    seeded_item = {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+    processor_instance._write_stac_marker(marker_path, seeded_item)
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi", "true_color")), True),
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=True
+        ) as mock_post,
+    ):
+        mimetype, envelope = processor_instance.execute(data)
+
+    mock_post.assert_called_once()
+    assert set(envelope["value"]["assets"]) == {"ndvi", "true_color"}
 
 
 # ------------------------------------------
@@ -1559,7 +1724,9 @@ def test_multiple_products_combination(processor_instance):
         assert len(bands) > 0
 
 
-def test_stac_item_with_multiple_assets(processor_instance, sample_farm_geometry):
+def test_stac_item_with_multiple_assets(
+    processor_instance, sample_farm_geometry, tmp_path
+):
     """Test STAC item creation with multiple assets."""
     assets = {
         "ndvi": {
@@ -1585,6 +1752,7 @@ def test_stac_item_with_multiple_assets(processor_instance, sample_farm_geometry
         temporal_extent=["2024-06-01", "2024-08-31"],
         assets=assets,
         cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_item.stac.json"),
     )
 
     assert len(item["assets"]) == 2
@@ -2345,9 +2513,10 @@ def _reset_collection_cache():
 
 @pytest.mark.mocked
 def test_execute_full_flow_farm_geometry_returns_complete_response(
-    processor_instance, sample_farm_geometry_small, _reset_collection_cache
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
 ):
     """execute() with farm_geometry returns all expected keys in the response value."""
+    processor_instance.output_dir = str(tmp_path)
     data = {
         "farm_geometry": sample_farm_geometry_small,
         "temporal_extent": ["2024-06-01", "2024-08-31"],
@@ -2358,7 +2527,7 @@ def test_execute_full_flow_farm_geometry_returns_complete_response(
         patch.object(
             processor_instance,
             "_process_sentinel_data",
-            return_value=_make_assets(("ndvi",)),
+            return_value=(_make_assets(("ndvi",)), False),
         ),
         patch("requests.get", return_value=MagicMock(status_code=404)),
         patch("requests.post", return_value=MagicMock(status_code=201, text="")),
@@ -2382,9 +2551,10 @@ def test_execute_full_flow_farm_geometry_returns_complete_response(
 
 @pytest.mark.mocked
 def test_execute_full_flow_farm_id_queries_db_then_returns_response(
-    processor_instance, mock_db_connection, _reset_collection_cache
+    processor_instance, mock_db_connection, _reset_collection_cache, tmp_path
 ):
     """execute() with farm_id triggers a DB lookup and returns a complete response."""
+    processor_instance.output_dir = str(tmp_path)
     data = {
         "farm_id": 4,
         "temporal_extent": ["2024-06-01", "2024-08-31"],
@@ -2396,7 +2566,7 @@ def test_execute_full_flow_farm_id_queries_db_then_returns_response(
         patch.object(
             processor_instance,
             "_process_sentinel_data",
-            return_value=_make_assets(("true_color",)),
+            return_value=(_make_assets(("true_color",)), False),
         ),
         patch("requests.get", return_value=MagicMock(status_code=404)),
         patch("requests.post", return_value=MagicMock(status_code=201, text="")),
@@ -2413,9 +2583,10 @@ def test_execute_full_flow_farm_id_queries_db_then_returns_response(
 
 @pytest.mark.mocked
 def test_execute_stac_publish_sequence(
-    processor_instance, sample_farm_geometry_small, _reset_collection_cache
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
 ):
     """execute() calls GET (collection check), POST (create collection), POST (item) — in order."""
+    processor_instance.output_dir = str(tmp_path)
     data = {
         "farm_geometry": sample_farm_geometry_small,
         "temporal_extent": ["2024-06-01", "2024-08-31"],
@@ -2426,7 +2597,7 @@ def test_execute_stac_publish_sequence(
         patch.object(
             processor_instance,
             "_process_sentinel_data",
-            return_value=_make_assets(("ndvi",)),
+            return_value=(_make_assets(("ndvi",)), False),
         ),
         patch("requests.get", return_value=MagicMock(status_code=404)) as mock_get,
         patch(
@@ -2441,9 +2612,10 @@ def test_execute_stac_publish_sequence(
 
 @pytest.mark.mocked
 def test_execute_full_flow_multiple_products(
-    processor_instance, sample_farm_geometry_small, _reset_collection_cache
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
 ):
     """execute() with multiple products yields all products in result['assets']."""
+    processor_instance.output_dir = str(tmp_path)
     data = {
         "farm_geometry": sample_farm_geometry_small,
         "temporal_extent": ["2024-06-01", "2024-08-31"],
@@ -2454,7 +2626,7 @@ def test_execute_full_flow_multiple_products(
         patch.object(
             processor_instance,
             "_process_sentinel_data",
-            return_value=_make_assets(("ndvi", "true_color")),
+            return_value=(_make_assets(("ndvi", "true_color")), False),
         ),
         patch("requests.get", return_value=MagicMock(status_code=404)),
         patch("requests.post", return_value=MagicMock(status_code=201, text="")),
