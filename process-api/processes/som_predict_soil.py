@@ -18,13 +18,11 @@ import psycopg
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 
 from .config import DatabaseConfig, StorageConfig
-from .som_backend.som_field_backend import SOMFieldBackend
-from .som_backend.som_ml_backend import SOMMLBackend
+from .som_backend.som_ml_backend import BARESAIL_GLOB, SOMMLBackend
+from .som_backend.som_model_store import SOMModelStore
 from .som_predict_soil_metadata import PROCESS_METADATA
 
 logger = logging.getLogger(__name__)
-
-_BARESAIL_GLOB = "BareSoil_TOPCLI_*.parquet"
 
 
 def _sanitize_nan(obj: Any) -> Any:
@@ -44,7 +42,8 @@ class SOMPredictSoilProcessor(BaseProcessor):
     def __init__(self, processor_def: Dict[str, Any]) -> None:
         super().__init__(processor_def, PROCESS_METADATA)
         self._ml_backend = SOMMLBackend()
-        self._field_backend = SOMFieldBackend()
+        model_dir = Path(StorageConfig().DUCKDB_DATA_DIR) / "som_models"
+        self._model_store = SOMModelStore(self._ml_backend, model_dir)
 
     def execute(
         self, data: Dict[str, Any], outputs: Optional[Any] = None
@@ -63,37 +62,37 @@ class SOMPredictSoilProcessor(BaseProcessor):
         """
         try:
             field_ids, scenarios = self._validate_inputs(data)
-            feature_df = self._load_features_from_duckdb(field_ids)
-            ml_result = self._ml_backend.run(
-                feature_df, scenarios=scenarios, target_field_ids=field_ids
-            )
-            if not ml_result["predictions"]:
+            all_data = self._load_features_from_duckdb(field_ids)
+            data_dir = Path(StorageConfig().DUCKDB_DATA_DIR)
+
+            requested = {float(fid) for fid in field_ids}
+            requested_data = all_data[all_data["FIELD_ID"].isin(requested)]
+
+            all_preds: List[Dict[str, Any]] = []
+            field_summary: List[Dict[str, Any]] = []
+            for scenario in scenarios:
+                try:
+                    bundle = self._model_store.get_or_train(
+                        scenario, all_data, data_dir
+                    )
+                    preds = self._model_store.predict(bundle, requested_data)
+                except Exception as exc:
+                    logger.error(
+                        "Scenario %s failed: %s", scenario, exc, exc_info=True
+                    )
+                    continue
+                all_preds.extend(preds)
+                field_summary.append(bundle.global_metrics)
+
+            if not all_preds:
                 raise ProcessorExecuteError(
                     "No predictions were produced. Check that the requested field IDs "
                     "have sufficient training data in the GEE feature Parquet files."
                 )
-            preds_df = pd.DataFrame(ml_result["predictions"])
-            field_result = self._field_backend.run(preds_df)
-            ml_metrics_by_scenario = {
-                m["scenario"]: m for m in ml_result.get("metrics", [])
-            }
-            for fm in field_result["field_metrics"]:
-                scenario = fm.get("Scenario")
-                if scenario in ml_metrics_by_scenario:
-                    ml_m = ml_metrics_by_scenario[scenario]
-                    fm["n_images_used"] = ml_m["n_images_used"]
-                    r2_lin = fm.get("R2_lin")
-                    r2_undefined = r2_lin is None or (
-                        isinstance(r2_lin, float) and math.isnan(r2_lin)
-                    )
-                    if r2_undefined:
-                        fm["R2_lin"] = ml_m.get("val_r2")
-                        fm["r2_source"] = "val"
-                    else:
-                        fm["r2_source"] = "test"
+            preds_df = pd.DataFrame(all_preds)
             geom_map = self._fetch_field_geometries(field_ids)
             feature_collection = self._build_feature_collection(
-                preds_df, geom_map, field_result["field_metrics"]
+                preds_df, geom_map, field_summary
             )
             return "application/geo+json", {
                 "id": "result",
@@ -160,16 +159,20 @@ class SOMPredictSoilProcessor(BaseProcessor):
             ProcessorExecuteError: If no Parquet files found or no rows match.
         """
         data_dir = Path(StorageConfig().DUCKDB_DATA_DIR)
-        parquet_files = list(data_dir.glob(_BARESAIL_GLOB))
+        parquet_files = list(data_dir.glob(BARESAIL_GLOB))
         if not parquet_files:
             raise ProcessorExecuteError(
                 "No GEE feature Parquet files found. "
                 "Run the gis-pipeline to ingest the BareSoil_TOPCLI_*.csv files first."
             )
 
-        glob_pattern = str(data_dir / _BARESAIL_GLOB)
-        # Load all training data — field filtering happens in the ML backend
-        # (selected field_ids become the test set; all others are training)
+        glob_pattern = str(data_dir / BARESAIL_GLOB)
+        # Load all labeled data (needed for training, if a cache miss occurs
+        # downstream in SOMModelStore). This only confirms at least one
+        # requested field has SOME row in the raw Parquet data — the real
+        # prediction-time filtering (missing mean_SOM, outlier bounds) happens
+        # later in SOMMLBackend.preprocess_for_predict(), called from
+        # SOMModelStore.predict().
         # union_by_name=true handles schema differences across yearly CSV exports
         query = f"SELECT * FROM read_parquet('{glob_pattern}', union_by_name=true)"
 
