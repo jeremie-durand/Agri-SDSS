@@ -922,13 +922,14 @@ class DataInserter:
         Args:
             table_name: Qualified or unqualified table name.
         """
-        if not sqlalchemy.inspect(self.engine).has_table(table_name):
+        if not sqlalchemy.inspect(self.engine).has_table(table_name, schema="public"):
             logger.info(f"Table '{table_name}' does not exist. Creating it.")
             SchemaBuilder(self.engine)._create_table_from_mapping(
                 table_name=table_name,
                 column_mapping=TypeMapper._convert_pg_mapping_to_sqlalchemy(
-                    RasterStacColumns
+                    {col.name.lower(): col.value for col in RasterStacColumns}
                 ),
+                schema="public",
             )
 
     def read_data(self, table_name: str) -> gpd.GeoDataFrame:
@@ -1107,13 +1108,14 @@ class PostGISManager:
         return DataInserter._validate_cog_metadata(metadata)
 
     def _ensure_cog_table(self, table_name: str) -> None:
-        if not sqlalchemy.inspect(self.engine).has_table(table_name):
+        if not sqlalchemy.inspect(self.engine).has_table(table_name, schema="public"):
             logger.info(f"Table '{table_name}' does not exist. Creating it.")
             self._create_table_from_mapping(
                 table_name=table_name,
                 column_mapping=self._convert_pg_mapping_to_sqlalchemy(
-                    RasterStacColumns
+                    {col.name.lower(): col.value for col in RasterStacColumns}
                 ),
+                schema="public",
             )
 
     # --- Public API ---

@@ -10,6 +10,8 @@ import geopandas as gpd
 import pandas as pd
 import rasterio
 import structlog
+from rasterio.coords import BoundingBox
+from rasterio.warp import transform_bounds
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.exceptions import RasterProcessingError, VectorProcessingError
 from gis_pipeline.core.logging_setup import handle_error
@@ -1143,6 +1145,14 @@ class GeoprocessingRaster:
             bounds = src.bounds
             crs = src.crs
 
+            # STAC's core bbox/geometry are spec-required to be WGS84 lon/lat,
+            # regardless of the asset's own CRS (proj:epsg carries the true
+            # native CRS separately via _build_stac_properties).
+            if crs and crs.to_epsg() != 4326:
+                wgs84_bounds = BoundingBox(*transform_bounds(crs, "EPSG:4326", *bounds))
+            else:
+                wgs84_bounds = bounds
+
             raster_bands = [
                 {
                     "nodata": (src.nodatavals[i - 1] if src.nodatavals else src.nodata),
@@ -1185,15 +1195,20 @@ class GeoprocessingRaster:
                     "type": "Polygon",
                     "coordinates": [
                         [
-                            [bounds.left, bounds.bottom],
-                            [bounds.right, bounds.bottom],
-                            [bounds.right, bounds.top],
-                            [bounds.left, bounds.top],
-                            [bounds.left, bounds.bottom],
+                            [wgs84_bounds.left, wgs84_bounds.bottom],
+                            [wgs84_bounds.right, wgs84_bounds.bottom],
+                            [wgs84_bounds.right, wgs84_bounds.top],
+                            [wgs84_bounds.left, wgs84_bounds.top],
+                            [wgs84_bounds.left, wgs84_bounds.bottom],
                         ]
                     ],
                 },
-                "bbox": [bounds.left, bounds.bottom, bounds.right, bounds.top],
+                "bbox": [
+                    wgs84_bounds.left,
+                    wgs84_bounds.bottom,
+                    wgs84_bounds.right,
+                    wgs84_bounds.top,
+                ],
                 "datetime": dt_val,
                 "properties": self._build_stac_properties(
                     src=src,
