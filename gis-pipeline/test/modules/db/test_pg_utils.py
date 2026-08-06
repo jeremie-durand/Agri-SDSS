@@ -840,11 +840,83 @@ def test_insert_cog_metadata_new_table(postgis_manager, cog_metadata_simple):
                     metadata=cog_metadata_simple, table_name=table_name
                 )
 
-                mock_convert.assert_called_once_with(RasterStacColumns)
+                mock_convert.assert_called_once_with(
+                    {col.name.lower(): col.value for col in RasterStacColumns}
+                )
                 mock_create.assert_called_once_with(
                     table_name=table_name,
                     column_mapping=expected_sqlalchemy,
+                    schema="public",
                 )
+                mock_inspector.has_table.assert_called_once_with(
+                    table_name, schema="public"
+                )
+
+
+def test_insert_cog_metadata_new_table_real_column_mapping(
+    postgis_manager, cog_metadata_simple
+):
+    """
+    Test that new-table creation converts RasterStacColumns into a real dict
+    before handing it to the (unmocked) Postgres->SQLAlchemy converter, instead
+    of passing the raw Enum class through (which crashes on `.items()`).
+    """
+    table_name = "new_cogs"
+
+    mock_inspector = Mock()
+    mock_inspector.has_table.return_value = False
+
+    with patch(
+        "gis_pipeline.modules.db.pg_utils.sqlalchemy.inspect",
+        return_value=mock_inspector,
+    ):
+        with patch.object(
+            postgis_manager, "_create_table_from_mapping"
+        ) as mock_create:
+            postgis_manager.insert_cog_metadata(
+                metadata=cog_metadata_simple, table_name=table_name
+            )
+
+    mock_create.assert_called_once()
+    _, kwargs = mock_create.call_args
+    assert kwargs["table_name"] == table_name
+    assert kwargs["schema"] == "public"
+    assert set(kwargs["column_mapping"]) == {
+        "gid",
+        "datetime",
+        "bbox",
+        "geometry",
+        "file_url",
+        "metadata",
+    }
+
+
+def test_ensure_cog_table_checks_existence_in_public_schema(
+    postgis_manager, cog_metadata_simple
+):
+    """
+    Test that the existence check for the cogs table is schema-qualified to
+    'public'. An unqualified has_table() would resolve against this database's
+    current_schema() — which is 'pgstac' when pgSTAC's search_path is active —
+    and incorrectly report the table missing forever, since the app role can
+    never create anything there.
+    """
+    table_name = "cogs"
+
+    mock_inspector = Mock()
+    mock_inspector.has_table.return_value = True  # table already exists in public
+
+    with patch(
+        "gis_pipeline.modules.db.pg_utils.sqlalchemy.inspect",
+        return_value=mock_inspector,
+    ):
+        with patch.object(postgis_manager, "_create_table_from_mapping") as mock_create:
+            postgis_manager.insert_cog_metadata(
+                metadata=cog_metadata_simple, table_name=table_name
+            )
+
+    mock_inspector.has_table.assert_called_once_with(table_name, schema="public")
+    mock_create.assert_not_called()
 
 
 def test_insert_cog_metadata_missing_id(postgis_manager, cog_metadata_missing_id):

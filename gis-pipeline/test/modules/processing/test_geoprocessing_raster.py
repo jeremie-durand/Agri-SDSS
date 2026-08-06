@@ -2737,6 +2737,59 @@ def test_prepare_cog_metadata_for_stac_complex_crs(
     assert metadata["properties"]["proj:epsg"] == 2154
 
 
+def test_prepare_cog_metadata_for_stac_bbox_reprojected_to_wgs84(
+    tmp_raster_valid_fixture: Path, tmp_path: Path
+):
+    """
+    Test that bbox/geometry are always WGS84 lon/lat, even when the COG stays
+    in its native projected CRS (e.g. EPSG:32198 for SIIGSOL). STAC's core
+    bbox/geometry fields are spec-required to be WGS84 regardless of the
+    asset's own CRS; proj:epsg carries the true native CRS separately.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    cog_file = tmp_path / "quebec_lambert_cog.tif"
+    data = np.ones((1, 10, 10), dtype=np.float32)
+    # A small extent well within EPSG:32198's (NAD83 / Quebec Lambert) domain.
+    valid_transform = from_origin(-200000, 300000, 10000, 10000)
+
+    with rasterio.open(
+        cog_file,
+        "w",
+        driver="GTiff",
+        height=10,
+        width=10,
+        count=1,
+        dtype=data.dtype,
+        crs="EPSG:32198",
+        transform=valid_transform,
+    ) as dst:
+        dst.write(data)
+
+    metadata_model = processing_raster.prepare_cog_metadata_for_stac(
+        original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+    )
+    metadata = _to_mapping(metadata_model)
+
+    bbox = metadata["bbox"]
+    assert -180 <= bbox[0] <= 180
+    assert -180 <= bbox[2] <= 180
+    assert -90 <= bbox[1] <= 90
+    assert -90 <= bbox[3] <= 90
+    assert bbox[0] < bbox[2]
+    assert bbox[1] < bbox[3]
+
+    # proj:epsg must still reflect the true native (non-WGS84) CRS
+    assert metadata["properties"]["proj:epsg"] == 32198
+
+    # geometry corners must match the transformed bbox, not raw src.bounds
+    coords = metadata["geometry"]["coordinates"][0]
+    assert coords[0] == [bbox[0], bbox[1]]
+    assert coords[2] == [bbox[2], bbox[3]]
+
+
 @pytest.mark.parametrize(
     "dtype", [np.uint8, np.uint16, np.int16, np.float32, np.float64]
 )
