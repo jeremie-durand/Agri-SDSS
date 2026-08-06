@@ -29,6 +29,7 @@ from gis_pipeline.services.mapping import (
     CSVDataRegistryForSourceCRS,
     NamingPatterns,
     QGISInternalLayers,
+    RasterTargetCRSOverrides,
 )
 from gis_pipeline.utils import add_process_to_logger
 
@@ -817,6 +818,7 @@ class GeoprocessingRaster:
                     "width": src.width,
                     "height": src.height,
                     "crs": str(src.crs) if src.crs else None,
+                    "epsg": src.crs.to_epsg() if src.crs else None,
                     "nodata": src.nodata,
                     "dtype": str(src.dtypes[0]) if src.dtypes else None,
                     "tags": tags,
@@ -885,6 +887,7 @@ class GeoprocessingRaster:
         cog_profile: str,
         reference_nodata: float = None,
         overwrite_existing: bool = True,
+        resampling_method: str = "bilinear",
         additional_options: list[str] = None,
     ) -> list[str]:
         """Build gdalwarp command for COG creation.
@@ -896,6 +899,9 @@ class GeoprocessingRaster:
             cog_profile: COG creation profile name.
             reference_nodata: NoData value to set in the output raster.
             overwrite_existing: Whether to overwrite existing files.
+            resampling_method: GDAL resampling algorithm (`-r`). Defaults to
+                'bilinear', suited to continuous data (soil properties, DTM/CHM);
+                pass 'near' for categorical/classified rasters.
             additional_options: Additional gdalwarp options.
 
         Returns:
@@ -906,6 +912,8 @@ class GeoprocessingRaster:
             "gdalwarp",
             "-t_srs",
             f"EPSG:{target_crs}",
+            "-r",
+            resampling_method,
             "-of",
             "COG",
         ]
@@ -938,6 +946,72 @@ class GeoprocessingRaster:
         warp_cmd.extend([str(input_raster_path), str(output_path)])
 
         return warp_cmd
+
+    def _build_gdaltranslate_cog_command(
+        self,
+        input_raster_path: Path,
+        output_path: Path,
+        cog_profile: str,
+        reference_nodata: float = None,
+        additional_options: list[str] = None,
+    ) -> list[str]:
+        """Build a gdal_translate command for COG creation without reprojection.
+
+        Used instead of gdalwarp when the source raster is already in the target
+        CRS, since gdalwarp always resamples even for a same-CRS pass.
+
+        Args:
+            input_raster_path: Path to input raster file.
+            output_path: Path to output COG file.
+            cog_profile: COG creation profile name.
+            reference_nodata: NoData value to set in the output raster.
+            additional_options: Additional gdal_translate options.
+
+        Returns:
+            List of command arguments for gdal_translate.
+        """
+        translate_cmd = ["gdal_translate", "-of", "COG"]
+
+        # COG profile
+        profile = self._get_cog_creation_profile(profile=cog_profile)
+
+        # Apply profile options
+        for key, value in profile.items():
+            if value is not None:
+                option_name = key.upper()
+                translate_cmd.extend(["-co", f"{option_name}={value}"])
+
+        # NoData value
+        if reference_nodata is not None:
+            translate_cmd.extend(["-a_nodata", str(reference_nodata)])
+
+        # Additional custom options
+        if additional_options:
+            translate_cmd.extend(additional_options)
+
+        # Input and output files
+        translate_cmd.extend([str(input_raster_path), str(output_path)])
+
+        return translate_cmd
+
+    def _resolve_target_crs(self, raster_path: Path, default_target_crs: int) -> int:
+        """Resolve the effective target CRS for one raster.
+
+        Args:
+            raster_path: Path to the source raster file.
+            default_target_crs: Batch-wide target CRS to fall back to.
+
+        Returns:
+            EPSG code this raster should be harmonized to: the matching entry
+            in RasterTargetCRSOverrides if the file stem contains its keyword,
+            otherwise default_target_crs.
+        """
+        stem_lower = raster_path.stem.lower()
+        for override in RasterTargetCRSOverrides:
+            keyword, crs_str = override.value
+            if keyword in stem_lower:
+                return int(crs_str.split(":")[1])
+        return default_target_crs
 
     def _restore_backup_file(self, backup_file: Path, restore_path: Path):
         """Restore a backup file in case of an error.
@@ -1181,18 +1255,29 @@ class GeoprocessingRaster:
             logger.info(f"Overwriting existing file: {output_cog}")
 
         try:
-            warp_cmd = self._build_gdalwarp_command(
-                input_raster_path=raster_path,
-                output_path=output_cog,
-                target_crs=target_crs,
-                cog_profile=cog_profile,
-                reference_nodata=reference_nodata,
-                overwrite_existing=overwrite_existing,
-            )
+            effective_target_crs = self._resolve_target_crs(raster_path, target_crs)
+            source_epsg = self.raster_metadata.get(raster_path, {}).get("epsg")
 
-            # Execute the gdalwarp command
+            if source_epsg is not None and source_epsg == effective_target_crs:
+                cmd = self._build_gdaltranslate_cog_command(
+                    input_raster_path=raster_path,
+                    output_path=output_cog,
+                    cog_profile=cog_profile,
+                    reference_nodata=reference_nodata,
+                )
+            else:
+                cmd = self._build_gdalwarp_command(
+                    input_raster_path=raster_path,
+                    output_path=output_cog,
+                    target_crs=effective_target_crs,
+                    cog_profile=cog_profile,
+                    reference_nodata=reference_nodata,
+                    overwrite_existing=overwrite_existing,
+                )
+
+            # Execute the gdalwarp/gdal_translate command
             self._warp_raster(
-                warp_cmd=warp_cmd, raster_path=raster_path, output_path=output_cog
+                warp_cmd=cmd, raster_path=raster_path, output_path=output_cog
             )
 
             # Verify output file was created

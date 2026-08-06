@@ -115,6 +115,19 @@ class CSVDataRegistryForSourceCRS(Enum):
     QUEBEC_32198 = ("quebec_32198", "EPSG:32198")  # Test
 
 
+class RasterTargetCRSOverrides(Enum):
+    """Per-dataset target CRS overrides for raster reprojection.
+
+    A raster's target CRS defaults to the batch's global CRS. An override applies
+    when the raster file stem contains the associated keyword (case-insensitive),
+    letting a dataset be harmonized to its own native CRS instead — e.g. SIIGSOL
+    is already published in EPSG:32198 (NAD83 / Quebec Lambert), so reprojecting
+    it to the global default would force an avoidable resampling pass.
+    """
+
+    SIIGSOL = ("siigsol", "EPSG:32198")
+
+
 # ---------------------------------------------------------------
 # Layers to skip during data ingestion
 # ---------------------------------------------------------------
