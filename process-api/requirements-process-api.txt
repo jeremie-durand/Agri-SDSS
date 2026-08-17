@@ -7,7 +7,7 @@ requests==2.33.1
 xarray==2024.11.0
 pydap==3.5.3
 rioxarray==0.18.2
-numpy==2.2.5
+numpy==2.5.2
 pandas==2.2.3
 duckdb==1.5.5
 scikit-learn==1.6.1
