@@ -1,6 +1,6 @@
 pygeoapi[processes]==0.21.0
 openeo==0.50.0
-rasterio==1.4.4
+rasterio==1.5.1
 shapely==2.1.2
 psycopg[binary]==3.2.10
 requests==2.33.1
