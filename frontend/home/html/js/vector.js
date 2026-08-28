@@ -229,7 +229,7 @@ export function renderVectorCollectionsList() {
     if (!vectorState.collections.length) {
         const empty = document.createElement("p");
         empty.className = "legend";
-        empty.textContent = "Aucune collection vectorielle.";
+        empty.textContent = _tL()['vector-none'] || "Aucune collection vectorielle.";
         vectorListEl.appendChild(empty);
         return;
     }
@@ -268,8 +268,8 @@ export function renderVectorCollectionsList() {
 
 export async function loadVectorCollections() {
     const endpoint = normalizeUrl(vectorEndpointEl.value);
-    if (!endpoint) { vectorStatusEl.textContent = "Vector: endpoint invalide."; return; }
-    vectorStatusEl.textContent = "Vector: chargement des collections...";
+    if (!endpoint) { vectorStatusEl.textContent = _tL()['vector-endpoint-invalid'] || "Vector : endpoint invalide."; return; }
+    vectorStatusEl.textContent = _tL()['vector-loading'] || "Vector : chargement des collections…";
     vectorState.collectionsEndpoint = endpoint;
     vectorState.layers.forEach((layer) => { if (map.hasLayer(layer)) map.removeLayer(layer); });
     vectorState.visible.clear();
@@ -334,7 +334,7 @@ function _renderBdppadList(collections) {
     if (!collections.length) {
         const p = document.createElement('p');
         p.className = 'legend';
-        p.textContent = 'Aucun jeu BDPPAD disponible.';
+        p.textContent = _tL()['bdppad-none'] || 'Aucun jeu BDPPAD disponible.';
         bdppadListEl.appendChild(p);
         return;
     }

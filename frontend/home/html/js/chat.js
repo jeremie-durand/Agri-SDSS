@@ -1,5 +1,7 @@
 import { map, stacState } from './state.js';
 
+function _tL() { return (window.T && window.T[window.lang]) || {}; }
+
 /*
  * sendFeatureContext — auto-populate the chatbot with farm/feature context on parcel click.
  * Disabled for now; re-enable by restoring the body and uncommenting callers in vector.js / aac.js.
@@ -163,7 +165,7 @@ async function sendQuery(text) {
         data = await r.json();
     } catch (_) {
         thinking.className = 'chat-msg chat-msg--assistant';
-        thinking.textContent = 'Error: could not reach the backend.';
+        thinking.textContent = _tL()['chat-backend-error'] || 'Error: could not reach the backend.';
         chatSend.disabled = false;
         return;
     }

@@ -1,6 +1,8 @@
 import { somContext, somChartInstance, setSomChartInstance, vectorState, layers } from './state.js';
 import { bboxAreaHa } from './utils.js';
 
+function _tL() { return (window.T && window.T[window.lang]) || {}; }
+
 function _geomBbox(geom) {
     const coords = [];
     const collect = c => Array.isArray(c[0]) ? c.forEach(collect) : coords.push(c);
@@ -302,7 +304,7 @@ function somPredictDisplayResults(fc) {
                     tension: 0.3
                 },
                 {
-                    label: 'Predicted SOM (avg)',
+                    label: _tL()['som-chart-predicted'] || 'Predicted SOM (avg)',
                     data: avgPred,
                     borderColor: '#22d3ee',
                     backgroundColor: '#22d3ee',
@@ -313,7 +315,7 @@ function somPredictDisplayResults(fc) {
                     borderWidth: 2
                 },
                 {
-                    label: 'Measured SOM (avg)',
+                    label: _tL()['som-chart-measured'] || 'Measured SOM (avg)',
                     data: avgMeas,
                     borderColor: '#f59e0b',
                     backgroundColor: '#f59e0b',
@@ -760,7 +762,7 @@ export function somClosePreview() {
 
 export function somSavePdf() {
     var jsPDF = window.jspdf && window.jspdf.jsPDF;
-    if (!jsPDF) { alert('jsPDF not available'); return; }
+    if (!jsPDF) { alert(_tL()['som-pdf-unavailable'] || 'PDF export unavailable (jsPDF not loaded).'); return; }
     if (!_reportSnapshot) return;
 
     var s = _reportSnapshot;
