@@ -166,7 +166,7 @@ function _setVectorStatus(msg) { if (vectorStatusEl) vectorStatusEl.textContent 
 
 export async function setVectorCollectionVisible(collectionId, shouldShow, zoomToLayer = false, skipTileProbe = false) {
     const collection = vectorState.collections.find((item) => item.id === collectionId);
-    if (!collection) { _setVectorStatus("Vector: collection introuvable."); return; }
+    if (!collection) { _setVectorStatus(_tL()['vector-collection-missing'] || 'Vector : collection introuvable.'); return; }
 
     if (!shouldShow) {
         const existingLayer = vectorState.layers.get(collectionId);
@@ -177,9 +177,9 @@ export async function setVectorCollectionVisible(collectionId, shouldShow, zoomT
 
     let layer = vectorState.layers.get(collectionId);
     if (!layer) {
-        _setVectorStatus(`Vector: chargement ${collectionId}...`);
+        _setVectorStatus(`${_tL()['vector-loading-collection'] || 'Vector : chargement'} ${collectionId}…`);
         const itemsUrl = getCollectionItemsUrl(collection);
-        if (!itemsUrl) { _setVectorStatus(`Vector: URL items introuvable pour ${collectionId}.`); return; }
+        if (!itemsUrl) { _setVectorStatus(`${_tL()['vector-items-url-missing'] || 'Vector : URL items introuvable pour'} ${collectionId}.`); return; }
 
         const postgisId = 'public.' + collectionId;
         const tileJsonUrl = '/vector-api/postgis/collections/' + encodeURIComponent(postgisId) + '/tiles/WebMercatorQuad/tilejson.json';
@@ -191,11 +191,11 @@ export async function setVectorCollectionVisible(collectionId, shouldShow, zoomT
         const color = getColorForCollection(collectionId);
         if (useTiles) {
             layer = buildVectorTileLayer(collectionId, color);
-            _setVectorStatus(`Vector: ${collectionId} (tuiles MVT).`);
+            _setVectorStatus(`Vector: ${collectionId} (${_tL()['vector-mvt'] || 'tuiles MVT'}).`);
         } else {
             const featureCollection = await fetchCollectionFeatures(itemsUrl);
             layer = buildVectorLayer(collectionId, featureCollection);
-            _setVectorStatus(`Vector: ${collectionId} chargé (${featureCollection.features.length} feature(s)).`);
+            _setVectorStatus(`Vector: ${collectionId} ${_tL()['vector-loaded'] || 'chargé'} (${featureCollection.features.length} ${_tL()['vector-features'] || 'entité(s)'}).`);
         }
         vectorState.layers.set(collectionId, layer);
     }
@@ -243,7 +243,7 @@ export function renderVectorCollectionsList() {
         checkbox.checked = vectorState.visible.has(collection.id);
         checkbox.addEventListener("change", async () => {
             try { await setVectorCollectionVisible(collection.id, checkbox.checked, checkbox.checked); }
-            catch (error) { vectorStatusEl.textContent = `Vector: erreur (${error.message}).`; checkbox.checked = false; }
+            catch (error) { vectorStatusEl.textContent = `Vector: ${_tL()['vector-error'] || 'erreur'} (${error.message}).`; checkbox.checked = false; }
         });
         const title = document.createElement("span");
         title.className = "vector-title";
@@ -258,7 +258,7 @@ export function renderVectorCollectionsList() {
         zoomBtn.style.fontSize = "0.7rem";
         zoomBtn.addEventListener("click", async () => {
             try { checkbox.checked = true; await setVectorCollectionVisible(collection.id, true, true); }
-            catch (error) { vectorStatusEl.textContent = `Vector: erreur (${error.message}).`; }
+            catch (error) { vectorStatusEl.textContent = `Vector: ${_tL()['vector-error'] || 'erreur'} (${error.message}).`; }
         });
         row.appendChild(label);
         row.appendChild(zoomBtn);
@@ -280,10 +280,10 @@ export async function loadVectorCollections() {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         vectorState.collections = Array.isArray(data.collections) ? data.collections : [];
-        vectorStatusEl.textContent = `Vector: ${vectorState.collections.length} collection(s) detectee(s).`;
+        vectorStatusEl.textContent = `Vector: ${vectorState.collections.length} ${_tL()['vector-detected'] || 'collection(s) détectée(s).'}`;
         renderVectorCollectionsList();
     } catch (error) {
-        _setVectorStatus(`Vector: erreur de chargement (${error.message}).`);
+        _setVectorStatus(`Vector: ${_tL()['vector-load-error'] || 'erreur de chargement'} (${error.message}).`);
     }
 }
 

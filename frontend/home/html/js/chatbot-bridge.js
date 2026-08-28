@@ -9,6 +9,51 @@
 
   var ctx = null;
 
+  /* ── Prompt text (FR/EN) ────────────────────────────────────────────────────
+     This script runs inside the chatbot page, where map.html's window.T does not
+     exist, so it carries its own dictionary and reads `sdss-lang` directly.
+     The injected text is what the user sees in the composer and sends, so it is
+     both the visible message and the LLM prompt — they cannot differ here. */
+  var _P = {
+    en: {
+      attrs:        'Recorded attributes:',
+      stacItem:     'Selected remote sensing item from the platform catalog:',
+      parcelIntro:  'I am looking at an agricultural parcel from the Agri-SDSS platform database. Here is its recorded information:',
+      parcelId:     'Parcel ID: ',
+      dataset:      'Dataset: ',
+      bdppadCtx:    'Dataset context: BDPPAD (Base de données sur les parcelles et propriétés agricoles du Québec) is the Quebec provincial registry of agricultural parcels. The "typpar" field is the official parcel type code; its meaning is given in the "description" field. The "suphec" field is the parcel area in hectares.',
+      featureIntro: 'I am looking at a geographic feature from the Agri-SDSS platform. Here is its recorded information:',
+      featureId:    'Feature ID: ',
+      stacAvail:    'Remote sensing datasets available for cross-referencing on this platform:',
+      askParcel:    'Please provide an agronomic analysis of this parcel based on the information above. What does the parcel type, area, and classification suggest? What kind of agricultural use or soil conditions might be expected for this type of parcel?',
+      askFeature:   'Please analyze this geographic feature based on the information above. What does the data suggest about this location in the context of Quebec agriculture or land use?',
+      fallbackA:    'I am looking at agricultural parcel ID ',
+      fallbackB:    ' from dataset ',
+      fallbackC:    ' Please provide an agronomic analysis of what you know about this kind of parcel.'
+    },
+    fr: {
+      attrs:        'Attributs enregistrés :',
+      stacItem:     'Élément de télédétection sélectionné dans le catalogue de la plateforme :',
+      parcelIntro:  'Je consulte une parcelle agricole de la base de données de la plateforme Agri-SDSS. Voici ses informations enregistrées :',
+      parcelId:     'ID de parcelle : ',
+      dataset:      'Jeu de données : ',
+      bdppadCtx:    'Contexte du jeu de données : BDPPAD (Base de données sur les parcelles et propriétés agricoles du Québec) est le registre provincial québécois des parcelles agricoles. Le champ « typpar » est le code officiel de type de parcelle ; sa signification est donnée dans le champ « description ». Le champ « suphec » correspond à la superficie de la parcelle en hectares.',
+      featureIntro: 'Je consulte une entité géographique de la plateforme Agri-SDSS. Voici ses informations enregistrées :',
+      featureId:    'ID d’entité : ',
+      stacAvail:    'Jeux de données de télédétection disponibles pour recoupement sur cette plateforme :',
+      askParcel:    'Veuillez fournir une analyse agronomique de cette parcelle à partir des informations ci-dessus. Que suggèrent le type de parcelle, la superficie et la classification ? Quel usage agricole ou quelles conditions de sol peut-on attendre pour ce type de parcelle ?',
+      askFeature:   'Veuillez analyser cette entité géographique à partir des informations ci-dessus. Que suggèrent ces données sur ce lieu dans le contexte de l’agriculture ou de l’occupation du sol au Québec ?',
+      fallbackA:    'Je consulte la parcelle agricole ID ',
+      fallbackB:    ' du jeu de données ',
+      fallbackC:    ' Veuillez fournir une analyse agronomique de ce que vous savez sur ce type de parcelle.'
+    }
+  };
+
+  function _p(key) {
+    var lang = localStorage.getItem('sdss-lang') || 'fr';
+    return (_P[lang] || _P.fr)[key];
+  }
+
   /* ── Banner DOM ─────────────────────────────────────────────────────────── */
   var banner = document.createElement('div');
   banner.id = 'sdss-map-context';
@@ -107,7 +152,7 @@
       return v !== null && v !== undefined && v !== '';
     });
     if (!keys.length) return '';
-    var lines = ['Recorded attributes:'];
+    var lines = [_p('attrs')];
     keys.forEach(function (k) { lines.push('  ' + k + ': ' + props[k]); });
     return lines.join('\n');
   }
@@ -122,7 +167,7 @@
     if (!item || item.type !== 'Feature') return '';
     var lines = [];
     var props = item.properties || {};
-    lines.push('Selected remote sensing item from the platform catalog:');
+    lines.push(_p('stacItem'));
     lines.push('  id: ' + (item.id || 'unknown'));
     lines.push('  collection: ' + (item.collection || (props.collection || 'unknown')));
     if (item.bbox) {
@@ -172,17 +217,17 @@
       /* Coordinates intentionally omitted — the router agent misroutes lat/lon
          strings to navigate_to. Feature ID + dataset are sufficient for analysis. */
       if (isBdppad) {
-        lines.push('I am looking at an agricultural parcel from the Agri-SDSS platform database. Here is its recorded information:');
+        lines.push(_p('parcelIntro'));
         lines.push('');
-        if (id)  lines.push('Parcel ID: ' + id);
-        if (col) lines.push('Dataset: ' + col);
+        if (id)  lines.push(_p('parcelId') + id);
+        if (col) lines.push(_p('dataset') + col);
         lines.push('');
-        lines.push('Dataset context: BDPPAD (Base de données sur les parcelles et propriétés agricoles du Québec) is the Quebec provincial registry of agricultural parcels. The "typpar" field is the official parcel type code; its meaning is given in the "description" field. The "suphec" field is the parcel area in hectares.');
+        lines.push(_p('bdppadCtx'));
       } else {
-        lines.push('I am looking at a geographic feature from the Agri-SDSS platform. Here is its recorded information:');
+        lines.push(_p('featureIntro'));
         lines.push('');
-        if (id)  lines.push('Feature ID: ' + id);
-        if (col) lines.push('Dataset: ' + col);
+        if (id)  lines.push(_p('featureId') + id);
+        if (col) lines.push(_p('dataset') + col);
       }
 
       var propsSection = buildPropsSection(mergedProps);
@@ -200,7 +245,7 @@
         });
         if (realCollections.length) {
           lines.push('');
-          lines.push('Remote sensing datasets available for cross-referencing on this platform:');
+          lines.push(_p('stacAvail'));
           realCollections.forEach(function (c) {
             lines.push('  - ' + c.id);
           });
@@ -215,18 +260,18 @@
 
       lines.push('');
       if (isBdppad) {
-        lines.push('Please provide an agronomic analysis of this parcel based on the information above. What does the parcel type, area, and classification suggest? What kind of agricultural use or soil conditions might be expected for this type of parcel?');
+        lines.push(_p('askParcel'));
       } else {
-        lines.push('Please analyze this geographic feature based on the information above. What does the data suggest about this location in the context of Quebec agriculture or land use?');
+        lines.push(_p('askFeature'));
       }
 
       injectText(lines.join('\n'));
 
     }).catch(function () {
       /* Fallback if API calls fail */
-      var text = 'I am looking at agricultural parcel ID ' + id
-        + ' from dataset ' + col + '.'
-        + ' Please provide an agronomic analysis of what you know about this kind of parcel.';
+      var text = _p('fallbackA') + id
+        + _p('fallbackB') + col + '.'
+        + _p('fallbackC');
       injectText(text);
     }).finally(function () {
       analyseBtn.textContent = 'Analyse →';

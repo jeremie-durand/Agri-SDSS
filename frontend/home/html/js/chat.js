@@ -175,7 +175,7 @@ async function sendQuery(text) {
         return;
     }
     thinking.remove();
-    var reply = data.response || data.message || '(no response)';
+    var reply = data.response || data.message || (_tL()['chat-no-response'] || '(no response)');
     addMsg('assistant', reply);
     history.push({ role: 'assistant', content: reply });
 

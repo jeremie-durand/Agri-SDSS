@@ -154,7 +154,7 @@ async function somPredictFindField() {
         var geom = somContext.feature && somContext.feature.geometry;
         if (!geom) {
             var b = somContext.layer && somContext.layer.getBounds ? somContext.layer.getBounds() : null;
-            if (!b) throw new Error('No geometry available');
+            if (!b) throw new Error(tLang['som-err-no-geometry'] || 'No geometry available');
             geom = { type: 'Point',
                      coordinates: [(b.getWest() + b.getEast()) / 2, (b.getSouth() + b.getNorth()) / 2] };
         }
@@ -363,7 +363,7 @@ function somPredictDisplayResults(fc) {
         var mae  = m.MAE_lin  != null ? (+m.MAE_lin  * factor).toFixed(3) : '—';
         var tr = document.createElement('tr');
         tr.innerHTML =
-            '<td>' + (m.R2_lin != null ? (+m.R2_lin).toFixed(2) + (m.r2_source === 'val' ? ' <span title="Validation R² (single test field)">*</span>' : '') : '—') + '</td>' +
+            '<td>' + (m.R2_lin != null ? (+m.R2_lin).toFixed(2) + (m.r2_source === 'val' ? ' <span title="' + (tLang['som-r2-tooltip'] || 'Validation R² (single test field)') + '">*</span>' : '') : '—') + '</td>' +
             '<td>' + rmse + '</td>' +
             '<td>' + mae  + '</td>' +
             '<td>' + (m.n_images_used != null ? m.n_images_used : m.n_fields != null ? m.n_fields : '—') + '</td>';
@@ -1083,7 +1083,7 @@ export async function somAutoGenScenes() {
     var usedSlowPath = false;
     try {
         var geom = somContext.feature && somContext.feature.geometry;
-        if (!geom) throw new Error('No feature geometry');
+        if (!geom) throw new Error(tLang['som-err-no-feature-geom'] || 'No feature geometry');
         var ym = (somContext.collectionId || '').match(/_an_(\d{4})/) ||
                  (somContext.collectionId || '').match(/[_-](20\d{2})[_-]/) ||
                  (somContext.collectionId || '').match(/(20\d{2})/);
@@ -1124,7 +1124,7 @@ export async function somAutoGenScenes() {
                    data.value.stac_item.assets.ndvi.statistics['1'] &&
                    data.value.stac_item.assets.ndvi.statistics['1'].mean;
         }
-        if (mean == null) throw new Error('No NDVI mean in response');
+        if (mean == null) throw new Error(tLang['som-err-no-ndvi'] || 'No NDVI mean in response');
         if (usedSlowPath) _somScenesProgress.done(true);
         document.getElementById('somScenes').value = (+mean).toFixed(3);
         status.textContent = '';
@@ -1276,7 +1276,7 @@ export async function somAutoGenPedo() {
     status.className = 'som-field__status';
     try {
         var geom = somContext.feature && somContext.feature.geometry;
-        if (!geom) throw new Error('No feature geometry');
+        if (!geom) throw new Error(tLang['som-err-no-feature-geom'] || 'No feature geometry');
         var r = await fetch('/vector-api/pedo-coverage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1308,7 +1308,7 @@ export async function somAutoGenWater() {
     status.className = 'som-field__status';
     try {
         var geom = somContext.feature && somContext.feature.geometry;
-        if (!geom) throw new Error('No feature geometry');
+        if (!geom) throw new Error(tLang['som-err-no-feature-geom'] || 'No feature geometry');
         var r = await fetch('/vector-api/water-distance', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1342,7 +1342,7 @@ export async function somRunAnalysis() {
     try {
         var r = await fetch('/process-api/', { method: 'GET' });
         if (!r.ok) throw new Error(tLang['som-run-error'] + ' (HTTP ' + r.status + ')');
-        if (typeof Chart === 'undefined') throw new Error('Chart.js not loaded');
+        if (typeof Chart === 'undefined') throw new Error(tLang['som-err-no-chart'] || 'Chart.js not loaded');
         var now = new Date();
         var yr1 = now.getFullYear() + 1, yr5 = now.getFullYear() + 5, yr10 = now.getFullYear() + 10;
         var seed = (now.getMonth() + 1) * 0.03 + now.getDay() * 0.01;
