@@ -129,10 +129,29 @@ async def _build_process_catalog() -> str:
     return "\n".join(lines)
 
 
+_FALLBACK_MESSAGES = {
+    "en": "I was unable to complete the spatial analysis.",
+    "fr": "Je n’ai pas pu compléter l’analyse spatiale.",
+}
+_DEFAULT_LANGUAGE = "fr"
+
+
+def _fallback_message(language: str | None) -> str:
+    """Return the tool-loop failure message in the caller's language.
+
+    The LLM is told to answer in the user's language, but this message never
+    reaches the model, so the caller must supply the language. Falls back to
+    the platform default when absent or unrecognised.
+    """
+    code = (language or "").strip().lower()[:2]
+    return _FALLBACK_MESSAGES.get(code, _FALLBACK_MESSAGES[_DEFAULT_LANGUAGE])
+
+
 class _QueryRequest(BaseModel):
     query: str
     session_id: str | None = None
     conversation_history: list[dict] | None = None
+    language: str | None = None
 
 
 class _QueryResponse(BaseModel):
@@ -223,7 +242,7 @@ async def sdss_query(req: _QueryRequest) -> _QueryResponse:
                 }
             )
 
-    return _QueryResponse(response="I was unable to complete the spatial analysis.")
+    return _QueryResponse(response=_fallback_message(req.language))
 
 
 def _extract_text_tool_call(content: str) -> list[dict] | None:

@@ -152,7 +152,7 @@ async function sendQuery(text) {
     chatSend.disabled = true;
     chatInput.value = '';
     addMsg('user', text);
-    var thinking = addMsg('thinking', 'Analysing…');
+    var thinking = addMsg('thinking', _tL()['chat-analysing'] || 'Analysing…');
     history.push({ role: 'user', content: text });
     var endpoint = isSdssQuery(text) ? '/sdss/query' : '/api/query';
     var data;
@@ -160,7 +160,12 @@ async function sendQuery(text) {
         var r = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: text, session_id: sessionId, conversation_history: history.slice(-10) })
+            body: JSON.stringify({
+                query: text,
+                session_id: sessionId,
+                conversation_history: history.slice(-10),
+                language: window.lang || 'fr'
+            })
         });
         data = await r.json();
     } catch (_) {

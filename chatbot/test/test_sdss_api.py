@@ -3,7 +3,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sdss_api import _build_process_catalog, _extract_text_tool_call, router
+from sdss_api import (
+    _build_process_catalog,
+    _extract_text_tool_call,
+    _fallback_message,
+    _QueryRequest,
+    router,
+)
 
 
 @pytest.mark.unit
@@ -176,3 +182,37 @@ def test_sdss_query_passes_correct_key_when_auth_enabled(monkeypatch):
         headers={"X-API-Key": "secret"},
     )
     assert resp.status_code == 503  # auth passed, LLM key missing
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "language,expected_fragment",
+    [
+        ("fr", "analyse spatiale"),
+        ("en", "spatial analysis"),
+        ("FR", "analyse spatiale"),
+        ("fr-CA", "analyse spatiale"),
+        ("en-US", "spatial analysis"),
+        ("  en  ", "spatial analysis"),
+    ],
+)
+def test_fallback_message_follows_requested_language(language, expected_fragment):
+    assert expected_fragment in _fallback_message(language)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("language", [None, "", "de", "xx"])
+def test_fallback_message_defaults_to_french(language):
+    """Absent or unsupported languages fall back to the platform default."""
+    assert "analyse spatiale" in _fallback_message(language)
+
+
+@pytest.mark.unit
+def test_query_request_accepts_language():
+    req = _QueryRequest(query="hello", language="en")
+    assert req.language == "en"
+
+
+@pytest.mark.unit
+def test_query_request_language_is_optional():
+    assert _QueryRequest(query="hello").language is None
