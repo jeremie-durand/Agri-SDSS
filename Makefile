@@ -45,11 +45,14 @@ test-caddy:
 	@echo "Restoring production Caddyfile..."
 	docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
-.PHONY: build lint-dockerfiles scan-secrets test-caddy generate-args
+.PHONY: build lint-dockerfiles lint-md scan-secrets test-caddy generate-args
 
 lint-dockerfiles:
 	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < chatbot/Dockerfile.chatbot-backend
 	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < chatbot/Dockerfile.chatbot-frontend
+
+lint-md:
+	pre-commit run markdownlint-cli2 --all-files
 
 scan-secrets:
 	trivy fs --scanners secret .
