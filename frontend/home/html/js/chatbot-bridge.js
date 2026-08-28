@@ -31,15 +31,21 @@
       fallbackB:    ' from dataset ',
       fallbackC:    ' Please provide an agronomic analysis of what you know about this kind of parcel.'
     },
+    // NOTE: attrs / parcelId / featureId stay in English on purpose.
+    // The upstream router agent short-circuits to `contextual` via hardcoded
+    // English regexes (router_agent.py `_STRUCTURED_FEATURE_PATTERNS`:
+    // /(parcel|feature|object)\s+id\s*:/ and /attributes\s*:/). Translating
+    // them drops the query into the probabilistic LLM classifier, which is the
+    // misrouting these overrides exist to avoid.
     fr: {
-      attrs:        'Attributs enregistrés :',
+      attrs:        'Recorded attributes:',
       stacItem:     'Élément de télédétection sélectionné dans le catalogue de la plateforme :',
       parcelIntro:  'Je consulte une parcelle agricole de la base de données de la plateforme Agri-SDSS. Voici ses informations enregistrées :',
-      parcelId:     'ID de parcelle : ',
+      parcelId:     'Parcel ID: ',
       dataset:      'Jeu de données : ',
       bdppadCtx:    'Contexte du jeu de données : BDPPAD (Base de données sur les parcelles et propriétés agricoles du Québec) est le registre provincial québécois des parcelles agricoles. Le champ « typpar » est le code officiel de type de parcelle ; sa signification est donnée dans le champ « description ». Le champ « suphec » correspond à la superficie de la parcelle en hectares.',
       featureIntro: 'Je consulte une entité géographique de la plateforme Agri-SDSS. Voici ses informations enregistrées :',
-      featureId:    'ID d’entité : ',
+      featureId:    'Feature ID: ',
       stacAvail:    'Jeux de données de télédétection disponibles pour recoupement sur cette plateforme :',
       askParcel:    'Veuillez fournir une analyse agronomique de cette parcelle à partir des informations ci-dessus. Que suggèrent le type de parcelle, la superficie et la classification ? Quel usage agricole ou quelles conditions de sol peut-on attendre pour ce type de parcelle ?',
       askFeature:   'Veuillez analyser cette entité géographique à partir des informations ci-dessus. Que suggèrent ces données sur ce lieu dans le contexte de l’agriculture ou de l’occupation du sol au Québec ?',
