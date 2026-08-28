@@ -111,8 +111,6 @@ The main page. Modules loaded via ES imports from `html/js/`:
 | `app.js` | Entry point — wires map events, basemap switcher, nav buttons |
 | `state.js` | Shared Leaflet map instance and layer registry |
 | `vector.js` | BDPPAD parcel collections from `/vector-api/parquet/collections` |
-| `raster.js` | COG tile overlays via `/raster-api/cog/tiles/` |
-| `stac.js` | STAC item footprints from `/stac-api/` |
 | `som.js` + `som_layers.js` | SOM analysis panel and boundary layers |
 | `aac.js` | Agriculture Canada crop layer (proxied via `/aac-identify/`) |
 | `grhq.js` | GRHQ hydrological network layer |
