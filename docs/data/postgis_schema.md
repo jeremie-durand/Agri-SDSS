@@ -12,22 +12,26 @@ Authoritative table layouts created by the pipeline for vector data and raster S
 ### ID Column Normalization
 
 The pipeline automatically normalizes ID column names to the standard `gid` name to ensure consistency across PostGIS tables and Parquet exports. This normalization occurs during:
+
 - PostGIS table ingestion (via `GeoDataProcessor._rename_gdf_columns()`)
 - Parquet file export (via `DuckDBManager.save_gdf_to_geoparquet()` and `save_table_to_geoparquet()`)
 
 **Supported ID Column Aliases** (automatically renamed to `gid`):
+
 - `id`
 - `id_station`
 - `station_id`
 - `no`
 
 **Example log messages:**
-```
+
+```text
 INFO - Automatically renamed ID column 'id' to 'gid'
 INFO - Renamed column 'station_id' to 'gid' during Parquet export
 ```
 
 **Behavior:**
+
 - If input data contains any of the supported aliases, it will be renamed to `gid`
 - If `gid` already exists alongside an alias, the alias and canonical columns are compared value-by-value:
   - **Identical values** → the alias column is silently dropped (redundant)
@@ -59,11 +63,11 @@ Example DDL:
 
 ```sql
 CREATE TABLE public.my_vector_table (
-	gid INTEGER PRIMARY KEY,
-	geometry geometry(Geometry,4326),
-	datetime TIMESTAMP WITH TIME ZONE,
-	metadata JSONB
-	-- + additional inferred columns (TEXT/JSONB/TIMESTAMPTZ)
+ gid INTEGER PRIMARY KEY,
+ geometry geometry(Geometry,4326),
+ datetime TIMESTAMP WITH TIME ZONE,
+ metadata JSONB
+ -- + additional inferred columns (TEXT/JSONB/TIMESTAMPTZ)
 );
 ```
 
@@ -71,7 +75,7 @@ Recommended spatial index (optional):
 
 ```sql
 CREATE INDEX my_vector_table_geom_gix
-	ON public.my_vector_table USING GIST (geometry);
+ ON public.my_vector_table USING GIST (geometry);
 ```
 
 ## Raster STAC Metadata Table
@@ -91,12 +95,12 @@ Example DDL:
 
 ```sql
 CREATE TABLE public.raster_stac (
-	gid TEXT PRIMARY KEY,
-	datetime TIMESTAMP WITH TIME ZONE,
-	bbox FLOAT[],
-	geometry geometry(Polygon,4326),
-	file_url TEXT,
-	metadata JSONB
+ gid TEXT PRIMARY KEY,
+ datetime TIMESTAMP WITH TIME ZONE,
+ bbox FLOAT[],
+ geometry geometry(Polygon,4326),
+ file_url TEXT,
+ metadata JSONB
 );
 ```
 

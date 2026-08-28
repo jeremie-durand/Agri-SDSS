@@ -16,6 +16,7 @@ This guide walks through the process of adding a new data source from discovery 
 ### 1.1 Identify Data Source
 
 Find your dataset:
+
 - Note the download URL
 - Document metadata: CRS, format, geometry type
 - Check license
@@ -26,6 +27,7 @@ Find your dataset:
 Create a file in `docs/data/sources/SOURCENAME.md` following the format of existing docs:
 
 **Minimal template:**
+
 ```markdown
 # SOURCENAME - Full Dataset Title
 
@@ -85,6 +87,7 @@ gdalinfo dataset.tif  # For raster
 ### 2.2 Check Data Structure
 
 **For vector data:**
+
 ```bash
 # List layers/fields
 ogrinfo -summary dataset.shp
@@ -97,6 +100,7 @@ ogr2ogr -f GeoJSON /vsistdout/ dataset.shp | jq '.features[0]'
 ```
 
 **For raster data:**
+
 ```bash
 # Get raster info
 gdalinfo dataset.tif | head -30
@@ -106,6 +110,7 @@ gdalinfo -checksum dataset.tif
 ```
 
 **For tabular data:**
+
 ```bash
 # Preview CSV structure
 head -5 data.csv
@@ -136,6 +141,7 @@ Update your `docs/data/sources/SOURCENAME.md` with:
 ### 3.1 Add to Pipeline Configuration
 
 Edit [gis-pipeline/config.yaml](../../gis-pipeline/config.yaml):
+
 - Set `pipeline.STAC_COLLECTION_ID` to your collection id (e.g., `my_source`).
 - Paths are already set for containers (`/data/input`, `/data/output/raster_cog`); adjust only if your deployment differs.
 
@@ -218,6 +224,7 @@ curl http://<host>:8081/collections/my-source/items?limit=10
 ### 5.3 Test Vector/Raster APIs
 
 **Vector API (OGC Features):**
+
 ```bash
 # Get features
 curl http://<host>:8083/collections/my_source/items?limit=10
@@ -227,6 +234,7 @@ curl "http://<host>:8083/collections/my_source/items?bbox=-71.5,45.0,-71.0,45.5"
 ```
 
 **Raster API (WCS):**
+
 ```bash
 # Get raster info
 curl http://<host>:8082/cog/info?url=data/my_source.tif

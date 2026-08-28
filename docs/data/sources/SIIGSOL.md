@@ -60,5 +60,5 @@ curl "http://<host>:8082/cog/tiles/10/302/368.png?url=/data/corg_fr_siigsol_cog.
 - **Publisher**: Ministère de l'Agriculture, des Pêcheries et de l'Alimentation du Québec (MAPAQ)
 - **Language**: French
 - **External Links**:
-  - Données Québec: https://www.donneesquebec.ca/recherche/dataset/siigsol-100m-carte-des-proprietes-du-sol
-  - MAPAQ Portal: https://www.mapaq.gouv.qc.ca/fr/Pages/Accueil.aspx
+  - Données Québec: <https://www.donneesquebec.ca/recherche/dataset/siigsol-100m-carte-des-proprietes-du-sol>
+  - MAPAQ Portal: <https://www.mapaq.gouv.qc.ca/fr/Pages/Accueil.aspx>

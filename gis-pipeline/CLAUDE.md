@@ -91,6 +91,7 @@ All metadata serialized to STAC must pass `_clean_metadata()`, which recursively
       with structlog.contextvars.bound_contextvars(file=vector_file.name):
           logger.info("Processing file")  # → {file: "foo.shp", run_id: "a1b2c3d4", ...}
   ```
+
 - Custom exception: `GeoprocessingPipelineError`.
 - The main pipeline catches per-file errors and increments a failure counter, so one bad file does not abort the run.
 - STAC API client uses `urllib3.Retry` with backoff for transient HTTP errors.

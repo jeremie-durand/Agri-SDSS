@@ -13,7 +13,7 @@
 
 ## Build-time override pattern
 
-```
+```text
 upstream source (cloned at CHATBOT_VERSION)
          │
          ▼
@@ -27,7 +27,7 @@ Files in `overrides/` with the same relative path as an upstream file **replace*
 
 ## Override layout
 
-```
+```text
 overrides/
 ├── backend/
 │   ├── tools_registry.py          # replaces upstream; exports SDSS_TOOLS
@@ -92,6 +92,7 @@ The backend is provider-agnostic via the upstream framework:
 A daily GitHub Actions workflow ([`chatbot-release-watcher.yml`](../../.github/workflows/chatbot-release-watcher.yml)) monitors `OpenGeo-AI-Assistant` releases and auto-opens a PR bumping `CHATBOT_VERSION` in `.env.example`.
 
 Before merging:
+
 1. CI security scan passes (CVE, secrets, Hadolint)
 2. `verify-overrides` job confirms override paths are still valid
 3. Tested locally with `make build-safe`

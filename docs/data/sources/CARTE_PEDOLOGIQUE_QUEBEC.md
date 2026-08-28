@@ -10,7 +10,7 @@ Source: IRDA (Institut de recherche et de développement en agroenvironnement).
 ## Data Details
 
 | Property | Value |
-|----------|-------|
+| ---------- | ------- |
 | **Type** | Vector (polygons) |
 | **Format** | Shapefile (.shp) |
 | **CRS** | Harmonized to EPSG:4326 (WGS84) in pipeline *(source CRS may differ)* |
@@ -18,7 +18,7 @@ Source: IRDA (Institut de recherche et de développement en agroenvironnement).
 | **Spatial Extent** | Quebec province (coverage varies by survey area) |
 | **Update Frequency** | Occasional / static releases |
 | **License** | Open Government License - Quebec (OGL-Q) |
-| **Source URL** | https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/cartes-pedologiques-quebec-irda/ |
+| **Source URL** | <https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/cartes-pedologiques-quebec-irda/> |
 
 ## Using the Data
 
@@ -37,4 +37,4 @@ Source: IRDA (Institut de recherche et de développement en agroenvironnement).
 ## Metadata
 
 - **Publisher**: IRDA (Institut de recherche et de développement en agroenvironnement)
-- **External Link**: https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/cartes-pedologiques-quebec-irda/
+- **External Link**: <https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/cartes-pedologiques-quebec-irda/>

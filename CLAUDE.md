@@ -127,10 +127,13 @@ Two credentials exist (least-privilege model — see [docs/DEPLOYMENT.md](docs/D
 - Use f-strings for formatting
 - Use `is not` operator rather than `not ... is`
   - Correct:
+
     ```python
     if foo is not None:
     ```
+
   - Wrong:
+
     ```python
     if not foo is None:
     ```

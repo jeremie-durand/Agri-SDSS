@@ -9,7 +9,7 @@ Parcels and declared agricultural production dataset for Quebec (BDPPAD) publish
 ## Data Details
 
 | Property | Value |
-|----------|-------|
+| ---------- | ------- |
 | **Type** | Vector (polygons) |
 | **Format** | Shapefile (.shp) |
 | **CRS** | Harmonized to EPSG:4326 (WGS84) in pipeline *(source CRS may differ)* |
@@ -17,7 +17,7 @@ Parcels and declared agricultural production dataset for Quebec (BDPPAD) publish
 | **Spatial Extent** | Quebec province |
 | **Update Frequency** | Annual (declared production campaigns) |
 | **License** | Open Government License - Quebec (OGL-Q) |
-| **Source URL** | https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees |
+| **Source URL** | <https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees> |
 
 ## Using BDPPAD Data
 
@@ -34,4 +34,4 @@ Parcels and declared agricultural production dataset for Quebec (BDPPAD) publish
 ## Metadata
 
 - **Publisher**: Financière agricole du Québec (FADQ)
-- **External Link**: https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees
+- **External Link**: <https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees>

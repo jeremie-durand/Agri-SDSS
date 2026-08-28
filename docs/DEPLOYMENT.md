@@ -126,7 +126,8 @@ Caddy is the single entry point for all traffic (ports 80 and 443). Backend serv
 The default `Caddyfile` uses `tls internal` with `localhost, agri-sdss.local`. No changes needed — Caddy issues a self-signed cert automatically.
 
 To add `agri-sdss.local` to your local hosts file (Windows/Mac client):
-```
+
+```text
 <server-ip>  agri-sdss.local
 ```
 
@@ -135,6 +136,7 @@ To add `agri-sdss.local` to your local hosts file (Windows/Mac client):
 Once your DNS is pointed at the server:
 
 1. Edit `Caddyfile` — replace the host block:
+
    ```caddyfile
    # Before
    localhost, agri-sdss.local {
@@ -147,12 +149,16 @@ Once your DNS is pointed at the server:
        reverse_proxy home:8080
    }
    ```
+
 2. Update `.env`:
-   ```
+
+   ```ini
    HOST_PROTOCOL=https
    HOST_URL=mon-domaine.ca
    ```
+
 3. Restart Caddy:
+
    ```bash
    docker compose restart caddy
    ```

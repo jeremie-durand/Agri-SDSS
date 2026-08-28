@@ -70,7 +70,7 @@ graph TD
 - **core/logging_setup.py**: Centralized structured logging + helpers like `handle_error` for consistent failures.
 - **core/exceptions.py**: Thin layer for pipeline-specific exceptions.
 
-**Execution Flow (high level)**
+### Execution Flow (high level)
 
 ```mermaid
 graph TD
@@ -93,6 +93,7 @@ graph TD
 ## Data Flow
 
 ### Vector Pipeline
+
 ```mermaid
 graph TD
    V0[Input vectors<br/>CSV/Shapefile/GeoJSON/etc.] --> V1[discover_geodata]
@@ -128,8 +129,8 @@ graph TD
     R6 --> R7[build STAC collection]
     R7 --> R8[STAC API ingestion<br/>POST collection/items]
 ```
----
 
+---
 
 ## Database Integration
 
@@ -138,6 +139,7 @@ graph TD
 **Purpose**: Structured vector data storage with spatial indexing.
 
 **Key Features**:
+
 - Geometry column with SRID constraint (e.g., EPSG:4326)
 - Primary key (gid) for fast lookups
 - JSONB column for flexible metadata
@@ -172,6 +174,7 @@ with PostGISManager() as pm:
 **Purpose**: Analytical queries on non-spatial and spatial data.
 
 **Key Features**:
+
 - Parquet-based columnar storage
 - Spatial extension for geometry operations
 - No schema enforcement (flexible)
@@ -180,7 +183,7 @@ with PostGISManager() as pm:
 
 **File Organization**:
 
-```
+```text
 /data/duckdb/
 ├── eoapi.duckdb              # Main DuckDB database
 ├── duckdb_extensions/        # Extension directory
@@ -196,7 +199,7 @@ with PostGISManager() as pm:
 
 ### Test Structure
 
-```
+```text
 test/
 ├── modules/
 │   ├── db/               # Database utilities tests
@@ -226,6 +229,7 @@ test/
 **Example: Adding support for `.xyz` raster format**
 
 1. Update `SupportedRasterFormats` enum:
+
    ```python
    class SupportedRasterFormats(Enum):
        TIF = ".tif"
@@ -234,6 +238,7 @@ test/
    ```
 
 2. Implement reading logic:
+
    ```python
    def read_xyz_raster(raster_path: Path) -> rasterio.DatasetReader:
        """Read XYZ raster format"""
@@ -287,7 +292,7 @@ Now all variations are automatically normalized during processing.
 ### Common Issues
 
 | Issue | Cause | Solution |
-|-------|-------|----------|
+| ------- | ------- | ---------- |
 | `PostGIS extension not enabled` | Database not configured | `CREATE EXTENSION postgis;` in PostgreSQL |
 | `PROJ_LIB not found` | Projection database missing | Set env var: `PROJ_LIB=/usr/share/proj` |
 | `CSV not recognized as spatial` | Missing lat/lon columns | Ensure columns match `ColumnMappings.LATITUDE/LONGITUDE` aliases |

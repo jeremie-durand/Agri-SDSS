@@ -82,7 +82,7 @@ components:
 
 ## 1. Overview
 
-**Creative North Star: "The Observatory"**
+> **Creative North Star:** "The Observatory"
 
 Agri-SDSS is a dark-mode precision instrument. Its surfaces are the control room of a research observatory: deep black-blue voids, instrument panels that reveal data on demand, and a single signal-green acquisition color that marks what is live, active, and reachable. Nothing glows for decoration. Every lit element has a reason. Researchers and agronomists arrive here to locate, inspect, and retrieve geospatial data — the interface should never compete with the data it presents.
 
@@ -91,6 +91,7 @@ The aesthetic is neither developer-tool austere nor enterprise-platform heavy. I
 This system explicitly rejects heavy enterprise GIS aesthetics: crowded navigation, tiny muted text, navy-on-gray palettes that feel like a 2009 government intranet. It equally rejects flashy SaaS conventions: no hero metrics, no gradient blobs, no glassmorphism, no startup-voice copy.
 
 **Key Characteristics:**
+
 - Dark surfaces with tonal depth (background → surface → surface-hover), no shadows
 - One signal accent (Acquisition Green) used sparingly for active states and primary actions
 - Service-specific colors scoped to badges only — never bled into layout
@@ -102,10 +103,12 @@ This system explicitly rejects heavy enterprise GIS aesthetics: crowded navigati
 A restrained dark palette built around one active signal. The void is the canvas; the accent is the beacon.
 
 ### Primary
+
 - **Acquisition Green** (`#3ecf8e`): The single live-system signal. Used for primary buttons, the active status dot, the accent portion of the wordmark, and link text in footer. Its rarity is the point — when it appears, something is actionable or alive.
 - **Dimmed Acquisition** (`#1e7a52`): The shadow of the signal. Background tint for accent-adjacent contexts. Not used directly in the current codebase — reserve for focus rings or pressed states on the primary button.
 
 ### Neutral
+
 - **Deep Space Black** (`#0f1117`): Page background. The void. Nothing sits on it except structured surfaces.
 - **Instrument Panel** (`#1a1d27`): Default surface. Where cards and the header live.
 - **Elevated Surface** (`#22263a`): Hover state for surfaces. The only elevation mechanism — tonal shift, never shadow.
@@ -115,7 +118,9 @@ A restrained dark palette built around one active signal. The void is the canvas
 - **Void Text** (`#555d78`): Muted text only. Endpoint URLs, footer copy, placeholder text. Never body text.
 
 ### Service Accents (scoped)
+
 Per-service colors exist exclusively inside badge chips and card icon backgrounds. They identify which standard or protocol a service implements. They are never used for layout, type, or interactive states outside their own card.
+
 - **Cartesian Blue** (`#3b82f6`): STAC API — catalogue and spatial indexing
 - **Thermal Amber** (`#f59e0b`): Raster API — COG tiles and coverage
 - **Geodesic Violet** (`#8b5cf6`): Vector API — features and geometries
@@ -134,6 +139,7 @@ Per-service colors exist exclusively inside badge chips and card icon background
 **Character:** A single sans-serif family across all weights. No display/body split — hierarchy is entirely through weight (400 → 600 → 700) and scale. Clean, neutral, system-native. The typeface defers to the data; it never asserts personality of its own.
 
 ### Hierarchy
+
 - **Display** (700, 1.6rem, lh 1.2, ls -0.02em): The wordmark `Agri-SDSS` in the header only. One instance per page.
 - **Title** (600, 0.98rem, lh 1.3): Card titles and section headings. Used sparingly — one title per card.
 - **Body** (400, 0.85rem, lh 1.6): Card descriptions and header tagline. Max line length 65ch. The primary reading weight for all prose content.
@@ -152,7 +158,9 @@ Borders (`--border: #2a2e45`) add structural separation where surfaces meet — 
 ## 5. Components
 
 ### Buttons
+
 Compact, legible, purpose-first. States are immediate — 150ms transitions. No animation on layout properties.
+
 - **Shape:** Gently rounded (6px). Reads as "precise tool button", not "rounded consumer app".
 - **Primary (`btn-primary`):** Acquisition Green background (`#3ecf8e`), Deep Space Black text (`#0f1117`), 1px solid border matching background. Hover: brightens to `#5adeaa`. Font size 0.85rem, weight 500, padding 0.45rem 1rem.
 - **Ghost (`btn-ghost`):** Transparent background, Twilight text (`#8b92a8`), Void Line border (`#2a2e45`). Hover: Elevated Surface background, Starlight text, slightly lighter border. Used for secondary actions (Docs, Collections links).
@@ -161,7 +169,9 @@ Compact, legible, purpose-first. States are immediate — 150ms transitions. No 
 **Focus ring (all buttons):** `outline: 2px solid #3ecf8e; outline-offset: 2px` — WCAG 2.1 AA compliant.
 
 ### Service Cards
+
 The primary content unit. Each card is one service entry point.
+
 - **Corner Style:** Gently curved (10px) — slightly more rounded than buttons, creates visual softness without being consumer-app round.
 - **Background:** Instrument Panel (`#1a1d27`) at rest; Elevated Surface (`#22263a`) on hover.
 - **Border:** Void Line (`#2a2e45`) at rest; slightly lighter (`#3a3f5c`) on hover.
@@ -170,24 +180,31 @@ The primary content unit. Each card is one service entry point.
 - **Card actions:** A row of buttons below the description — primary action first ("Ouvrir" / "Endpoint"), secondary ghost actions after (Docs, Collections). Never more than 4 action buttons per card.
 
 ### Badges
+
 Service protocol identifiers, not status indicators.
+
 - **Style:** Colored background + matching text from the service accent palette. Radius 4px. Font 0.7rem, weight 600, uppercase, ls 0.04em.
 - **Context:** Always inside a card header, below the card title. Never used as standalone status chips outside cards.
 
 ### Card Icons
+
 40×40px rounded square (8px radius). Background is a dark tinted version of the service accent color (e.g. `#0f1e3d` for blue). Icon is an SVG stroke in the service accent color. Provides visual identity without dominating.
 
 ### Navigation
+
 There is currently no top navigation component. If one is introduced: it inherits the header pattern — Instrument Panel background, Void Line bottom border, Starlight active link, Twilight inactive link with hover to Starlight. No dropdown-heavy menus; the services are enumerated on the home page.
 
 ### Endpoint URL
+
 A monospaced label below the card description showing the service URL pattern.
+
 - **Style:** Mono font, 0.75rem, Void Text color (`#555d78`), with a 6px Acquisition Green dot as a live-indicator prefix.
 - **The dot** communicates "this endpoint is reachable" — it is the only non-accent use of `#3ecf8e` that is not interactive.
 
 ## 6. Do's and Don'ts
 
-### Do:
+### Do
+
 - **Do** use Acquisition Green (`#3ecf8e`) for primary buttons, active status indicators, wordmark accents, and focus rings. Nothing else.
 - **Do** keep service accent colors (blue, amber, violet, emerald, pink) inside card badges and icon backgrounds only.
 - **Do** convey depth through tonal surface shifts (bg → surface → surface-hover). No shadows on cards or containers at rest.
@@ -197,7 +214,8 @@ A monospaced label below the card description showing the service URL pattern.
 - **Do** respect `prefers-reduced-motion`: every transition has an `@media (prefers-reduced-motion: reduce)` override.
 - **Do** write UI copy in French first, direct and brief — no tech buzzwords in visible labels.
 
-### Don't:
+### Don't
+
 - **Don't** use dense enterprise GIS aesthetics: crowded navigation, tiny muted body text, navy-on-gray color palettes. The reference is an instrument panel, not ArcGIS Portal or an Oracle forms UI.
 - **Don't** introduce SaaS dashboard conventions: no gradient blobs, no glassmorphism cards, no `background-clip: text` gradient headings, no hero-metric templates with big numbers and stat rows.
 - **Don't** add a second typeface. Not for "character", not for "warmth". The system-font hierarchy carries all needed differentiation.

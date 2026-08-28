@@ -13,7 +13,7 @@ The data is integrated through the eoAPI backend infrastructure using OGC API - 
 ## Data Details
 
 | Property | Value |
-|----------|-------|
+| ---------- | ------- |
 | **Type** | Vector (Relational Database) |
 | **Format** | CSV (linked tables) |
 | **CRS** | Na |
@@ -26,6 +26,7 @@ The data is integrated through the eoAPI backend infrastructure using OGC API - 
 ### Data Structure
 
 There are two datasets:
+
 - Propriétés pédologiques du sol dominant (PPSD)
 - Propriétés physico-chimique par couche (PPC)
 
@@ -37,9 +38,9 @@ Backend: ingested ✓ — Frontend: not yet surfaced
 
 The PPC tables are in PostGIS under the `pgstac` schema:
 
-| Table                                              | Content                                                |
-| -------------------------------------------------- | ------------------------------------------------------ |
-| `couverture_pedologique_2026_01_ppc_eessaq`        | Physico-chemical properties per horizon (EESSAQ study) |
+| Table                                                | Content                                                  |
+| ---------------------------------------------------- | -------------------------------------------------------- |
+| `couverture_pedologique_2026_01_ppc_eessaq`          | Physico-chemical properties per horizon (EESSAQ study)   |
 | `couverture_pedologique_2026_01_ppc_inventaire_1990` | Physico-chemical properties per horizon (1990 inventory) |
 
 Key columns: `codesiscan`, `serie`, `hzn` (horizon), `ph_eau`, `cec_calculee`, `carbonetotal`, plus nutrient concentrations (P, K, Ca, Mg, Al, B, Cu, Fe, Mn, Zn, Na).
@@ -55,6 +56,7 @@ The backend data is available — what remains is wiring it into `frontend/home/
 Live demo: [jsfiddle.net/glenn/8rgpo3q8](https://jsfiddle.net/glenn/8rgpo3q8/)
 
 ### HTML
+
 ```HTML
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 <div id="map"></div>
@@ -62,6 +64,7 @@ Live demo: [jsfiddle.net/glenn/8rgpo3q8](https://jsfiddle.net/glenn/8rgpo3q8/)
 ```
 
 ### CSS
+
 ```CSS
 .map {
   width: 100%;
@@ -73,6 +76,7 @@ Live demo: [jsfiddle.net/glenn/8rgpo3q8](https://jsfiddle.net/glenn/8rgpo3q8/)
 ```
 
 ### JavaScript
+
 ```JavaScript
 /* ============================================
    Exemple GeoJSON avec propriétés imbriquées compatible avec OGCI API - Features
@@ -193,5 +197,5 @@ L.geoJSON(fieldsGeoJSON, {
 - **Data Model**: Relational (main features + linked studies via FK)
 - **API Standard**: OGC API - Features (GeoJSON)
 - **External Links**:
-  - IRDA Soil Data Portal: https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/cartes-pedologiques-quebec-irda/
-  - Données Québec: https://www.donneesquebec.ca/
+  - IRDA Soil Data Portal: <https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/cartes-pedologiques-quebec-irda/>
+  - Données Québec: <https://www.donneesquebec.ca/>

@@ -45,11 +45,13 @@ OPENEO_REFRESH_TOKEN=your_refresh_token_value_here
 ```
 
 To obtain the token value for manual configuration:
-1. Run `./process-api/scripts/get_openeo_token.sh` 
+
+1. Run `./process-api/scripts/get_openeo_token.sh`
 2. Copy the token from the generated `refresh-tokens.json` file
 3. Paste it into your `.env` file
 
 This fallback is useful when:
+
 - Volume mounts are not working correctly
 - Running outside Docker without persistent storage
 - Debugging authentication issues

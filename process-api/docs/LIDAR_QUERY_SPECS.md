@@ -18,7 +18,7 @@ Optimized GeoTIFF (COG), and published to the STAC catalog.
 The process resolves farm geometries to tile download URLs using the MRNF's publicly
 available tile index GeoJSON:
 
-```
+```text
 https://diffusion.mffp.gouv.qc.ca/Diffusion/DonneeGratuite/Foret/IMAGERIE/
 Produits_derives_LiDAR/Produit_derive_lidar/03-Telechargement/URL_Lidar.geojson
 ```
@@ -33,7 +33,7 @@ Produits_derives_LiDAR/Produit_derive_lidar/03-Telechargement/URL_Lidar.geojson
 ## Product Catalogue
 
 | Product key | MRNF column | Description | Resolution | Unit |
-|-------------|-------------|-------------|-----------|------|
+| ------------- | ------------- | ------------- | ----------- | ------ |
 | `dtm` | `MNT` | Digital Terrain Model — bare ground elevation | 1 m | metres ASL |
 | `chm` | `MHC` | Canopy Height Model — vegetation height (DSM − DTM) | 1 m | metres |
 | `hillshade` | `MNT_Ombre` | Shaded relief derived from DTM | 2 m | — |
@@ -57,7 +57,7 @@ conversion (`tan(radians(degrees)) * 100`), not a conversion of the mean degrees
 ### Agricultural relevance
 
 | Product | Precision agriculture use case |
-|---------|-------------------------------|
+| --------- | ------------------------------- |
 | `dtm` | Drainage modelling, water flow, soil depth proxies |
 | `chm` | Crop height monitoring, hedgerow/windbreak mapping |
 | `hillshade` | Visual interpretation, slope aspect proxy |
@@ -69,7 +69,7 @@ conversion (`tan(radians(degrees)) * 100`), not a conversion of the mean degrees
 ## Process Inputs
 
 | Input | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
+| ------- | ------ | ---------- | --------- | ------------- |
 | `farm_id` | integer | one of | — | PostGIS row ID; queries `FARM_TABLE_NAME` |
 | `farm_geometry` | GeoJSON | one of | — | Polygon or MultiPolygon in EPSG:4326 |
 | `products` | array of strings | no | dtm, chm, hillshade, slope | Subset of `["dtm","chm","hillshade","slope","aspect"]`. Requesting `aspect` also fetches `dtm` internally. |
@@ -124,7 +124,7 @@ Exactly one of `farm_id` or `farm_geometry` must be provided.
 ## COG Output Specifications
 
 | Setting | Value |
-|---------|-------|
+| --------- | ------- |
 | Format | Cloud Optimized GeoTIFF (`-of COG`) |
 | Compression | DEFLATE |
 | Block size | 512 × 512 px |
@@ -149,7 +149,7 @@ same farm updates the existing STAC items (HTTP PUT on 409 Conflict).
 ### STAC item properties
 
 | Property | Value |
-|----------|-------|
+| ---------- | ------- |
 | `platform` | `lidar-mrnf` |
 | `instruments` | `["lidar"]` |
 | `lidar:product` | product key (e.g. `dtm`) |

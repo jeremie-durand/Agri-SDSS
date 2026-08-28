@@ -7,6 +7,7 @@ The unified entry point for Agri-SDSS. A static nginx frontend that serves the L
 ## Overview
 
 **Home** is the single URL users visit. It provides:
+
 - **Interactive map**: Leaflet-based map with vector parcels, raster overlays, SOM analysis, and STAC item visualization
 - **Unified navigation**: A shared nav bar injected into every sub-application (STAC Browser, Chatbot) via nginx `sub_filter`
 - **Reverse proxy**: Routes `/stac/`, `/chatbot/`, `/stac-api/`, `/vector-api/`, `/raster-api/`, `/process-api/` to the appropriate services — no CORS issues for the browser
@@ -14,6 +15,7 @@ The unified entry point for Agri-SDSS. A static nginx frontend that serves the L
 - **Bilingual interface**: EN / FR language toggle across all pages
 
 **Key Features:**
+
 - Single-origin access to all Agri-SDSS services
 - Vanilla JS ES modules — no build step required
 - Service Worker (`leaflet-offline-sw.js`) for offline raster tile caching
@@ -44,6 +46,7 @@ graph TD
 ```
 
 **Request flow:**
+
 1. **User opens** `http://<host>:8084` → nginx serves `map.html`
 2. **Map loads** → fetches vector collections from `/vector-api/`, STAC items from `/stac-api/`, tiles from `/raster-api/`
 3. **User navigates to `/stac/`** → nginx proxies to stac-browser and injects the shared nav bar
@@ -63,6 +66,7 @@ docker compose up -d home
 ```
 
 Once running, access:
+
 - **Map**: `http://<host>:8084`
 - **Services**: `http://<host>:8084/services`
 - **Data catalog**: `http://<host>:8084/data`
@@ -103,7 +107,7 @@ To change a proxy route or add a new one:
 The main page. Modules loaded via ES imports from `html/js/`:
 
 | Module | Role |
-|--------|------|
+| -------- | ------ |
 | `app.js` | Entry point — wires map events, basemap switcher, nav buttons |
 | `state.js` | Shared Leaflet map instance and layer registry |
 | `vector.js` | BDPPAD parcel collections from `/vector-api/parquet/collections` |
@@ -121,6 +125,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 ### Unified Navigation
 
 `nav-inject.js` is served at `/sdss-nav.js` and injected into every sub-application via nginx `sub_filter`:
+
 - Injected into STAC Browser HTML (`<body>`)
 - Injected into Chatbot HTML (`<body>`)
 - Provides EN/FR language toggle and links to all pages
@@ -128,6 +133,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 ### Chatbot ↔ Map Bridge
 
 `chatbot-bridge.js` is injected into the chatbot iframe via `sub_filter`. It:
+
 - Listens for `AGRI_SDSS_CONTEXT` postMessages (sent when the user clicks a parcel on the map)
 - Enriches the context with live parcel data and STAC collections, then injects an analysis prompt into the chatbot
 - Intercepts Axios responses from the chatbot backend and forwards map commands to the parent map:
@@ -139,7 +145,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 ## Proxy Routes
 
 | Path | Proxied To | Notes |
-|------|-----------|-------|
+| ------ | ----------- | ------- |
 | `/stac/` | `stac-browser:8085` | `sub_filter` rewrites asset paths and injects nav |
 | `/chatbot/` | `chatbot-frontend:3001` | `sub_filter` injects chatbot-bridge.js and nav |
 | `/api/`, `/chat/`, `/query/`, etc. | `chatbot-backend:8000` | Chatbot SPA uses `window.location.origin` as base URL |

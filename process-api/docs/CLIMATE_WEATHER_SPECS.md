@@ -114,7 +114,7 @@ Multiple variables can be requested in one call. Duplicates are removed automati
 
 ### Examples
 
-**ERA5-Land daily — bbox, temperature + precipitation**
+#### ERA5-Land daily — bbox, temperature + precipitation
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
@@ -131,7 +131,7 @@ curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
   }' | python3 -m json.tool
 ```
 
-**ERA5-Land monthly — point query**
+#### ERA5-Land monthly — point query
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
@@ -149,7 +149,7 @@ curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
   }' | python3 -m json.tool
 ```
 
-**RDRS daily — farm ID, full variable set**
+#### RDRS daily — farm ID, full variable set
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
@@ -166,7 +166,7 @@ curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
   }' | python3 -m json.tool
 ```
 
-**ERA5-Land hourly — precipitation at a point**
+#### ERA5-Land hourly — precipitation at a point
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
@@ -205,7 +205,7 @@ Returns a GeoJSON Feature with scenario and model metadata.
 
 ### Examples
 
-**Daily timeseries — mid-century summer**
+#### Daily timeseries — mid-century summer
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/climate-timeseries/execution \
@@ -224,7 +224,7 @@ curl -s -X POST http://<host>:5000/processes/climate-timeseries/execution \
   }' | python3 -m json.tool
 ```
 
-**Monthly aggregation — end-of-century full year**
+#### Monthly aggregation — end-of-century full year
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/climate-timeseries/execution \
@@ -278,14 +278,14 @@ Computes agronomic climate indicators from gridded weather data. Supports both h
 > `0.0` °C — cool-season crops (winter wheat, canola)
 > `5.0` °C — most cereals (default)
 > `10.0` °C — corn and warm-season crops
-
+>
 > **`pr_days` threshold:** the model default `30.0` is shared with `heat_stress_days`.
 > For wet-day counts, always pass `"threshold": 1.0` explicitly — omitting it will
 > count days with precipitation > 30 mm/day, which is almost always 0.
 
 ### Examples
 
-**gdd — ERA5-Land historical, corn base temperature**
+#### gdd — ERA5-Land historical, corn base temperature
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
@@ -303,7 +303,7 @@ curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
   }' | python3 -m json.tool
 ```
 
-**frost_days — RDRS historical, spring frost risk**
+#### frost_days — RDRS historical, spring frost risk
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
@@ -320,7 +320,7 @@ curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
   }' | python3 -m json.tool
 ```
 
-**heat_stress_days — CMIP6 projection, custom threshold**
+#### heat_stress_days — CMIP6 projection, custom threshold
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
@@ -340,7 +340,7 @@ curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
   }' | python3 -m json.tool
 ```
 
-**pr_total — ERA5-Land, growing season**
+#### pr_total — ERA5-Land, growing season
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
@@ -357,7 +357,7 @@ curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
   }' | python3 -m json.tool
 ```
 
-**pr_days — ERA5-Land, wet-day count (threshold required)**
+#### pr_days — ERA5-Land, wet-day count (threshold required)
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
@@ -375,7 +375,7 @@ curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
   }' | python3 -m json.tool
 ```
 
-**gdd — CMIP6 projection, end-of-century comparison**
+#### gdd — CMIP6 projection, end-of-century comparison
 
 ```bash
 curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \

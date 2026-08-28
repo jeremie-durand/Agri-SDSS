@@ -5,6 +5,7 @@ Scope: This page is a navigational index and how-to guide. For authoritative, up
 ## Data Catalog/Sources
 
 See [CATALOG.md](CATALOG.md) for the single source of truth about integrated data sources, including:
+
 - Data type (raster, vector, tabular)
 - CRS and file formats
 - Update frequency

@@ -31,11 +31,11 @@ Example DDL:
 
 ```sql
 CREATE TABLE public.my_vector_table (
-	gid INTEGER PRIMARY KEY,
-	geometry geometry(Geometry,4326),
-	datetime TIMESTAMP WITH TIME ZONE,
-	metadata JSONB
-	-- + additional inferred columns (TEXT/JSONB/TIMESTAMPTZ)
+ gid INTEGER PRIMARY KEY,
+ geometry geometry(Geometry,4326),
+ datetime TIMESTAMP WITH TIME ZONE,
+ metadata JSONB
+ -- + additional inferred columns (TEXT/JSONB/TIMESTAMPTZ)
 );
 ```
 
@@ -43,7 +43,7 @@ Recommended spatial index (optional):
 
 ```sql
 CREATE INDEX my_vector_table_geom_gix
-	ON public.my_vector_table USING GIST (geometry);
+ ON public.my_vector_table USING GIST (geometry);
 ```
 
 ## Raster STAC Metadata Table
@@ -63,12 +63,12 @@ Example DDL:
 
 ```sql
 CREATE TABLE public.raster_stac (
-	gid TEXT PRIMARY KEY,
-	datetime TIMESTAMP WITH TIME ZONE,
-	bbox FLOAT[],
-	geometry geometry(Polygon,4326),
-	file_url TEXT,
-	metadata JSONB
+ gid TEXT PRIMARY KEY,
+ datetime TIMESTAMP WITH TIME ZONE,
+ bbox FLOAT[],
+ geometry geometry(Polygon,4326),
+ file_url TEXT,
+ metadata JSONB
 );
 ```
 
