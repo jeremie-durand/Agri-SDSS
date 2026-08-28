@@ -108,7 +108,9 @@ server:
   url: ${HOST_PROTOCOL}://${HOST_URL}/process-api
   mimetype: application/json
   encoding: utf-8
-  language: en-US
+  languages:
+    - en-US
+    - fr-CA
   limits:
     default_items: 10
     maximum_items: 1000
