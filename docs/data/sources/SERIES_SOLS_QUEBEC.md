@@ -30,7 +30,7 @@ There are two datasets:
 - Propriétés pédologiques du sol dominant (PPSD)
 - Propriétés physico-chimique par couche (PPC)
 
-These datasets are linked with [CARTE PEDOLOGIQUE](CARTE_PEDOLOGIQUE_QUEBEC.md)
+These datasets are linked with [Cartes pédologiques du Québec](CARTE_PEDOLOGIQUE_QUEBEC.md)
 
 ## Integration Status
 
