@@ -109,8 +109,8 @@ server:
   mimetype: application/json
   encoding: utf-8
   languages:
-    - en-US
     - fr-CA
+    - en-US
   limits:
     default_items: 10
     maximum_items: 1000
