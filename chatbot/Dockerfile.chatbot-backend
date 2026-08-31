@@ -56,6 +56,10 @@ COPY --from=source /src/opengeo-ai-assistant/container-app/ .
 # Layer agri-sdss overrides on top of upstream
 COPY chatbot/overrides/backend/ .
 
+# Shared gettext helpers (runtime pieces only; tests run in the process-api image)
+COPY agri_i18n/__init__.py agri_i18n/middleware.py /app/agri_i18n/
+COPY agri_i18n/locales /app/agri_i18n/locales
+
 # Ollama runtime — only used when LLM_BASE_URL targets localhost:11434
 COPY --from=ollama /usr/bin/ollama /usr/local/bin/ollama
 COPY --from=ollama /usr/lib/ollama /usr/local/lib/ollama

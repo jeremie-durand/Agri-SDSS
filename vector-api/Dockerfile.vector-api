@@ -19,6 +19,10 @@ COPY --chmod=755 vector-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 # Copy custom application code
 COPY --chown=user:user vector-api/src /app/vector_api
 
+# Shared gettext helpers (runtime pieces only; tests run in the process-api image)
+COPY --chown=user:user agri_i18n/__init__.py agri_i18n/middleware.py /app/agri_i18n/
+COPY --chown=user:user agri_i18n/locales /app/agri_i18n/locales
+
 # TiPg base already has user:x:1000:1000; make the USER directive explicit and ensure ownership
 RUN chown -R user:user /app
 USER user

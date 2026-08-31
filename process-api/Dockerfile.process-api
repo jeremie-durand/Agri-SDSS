@@ -21,7 +21,7 @@ COPY process-api/scripts/start.sh /usr/local/bin/start.sh
 COPY process-api/scripts/generate_openapi.py /app/generate_openapi.py
 # Shared gettext helpers. Only the runtime pieces are copied —
 # babel.cfg and the .pot are authoring tools, and tests ship in the test stage.
-COPY agri_i18n/__init__.py /app/agri_i18n/__init__.py
+COPY agri_i18n/__init__.py agri_i18n/middleware.py /app/agri_i18n/
 COPY agri_i18n/locales /app/agri_i18n/locales
 # Install dependencies
 # NOTE: apt packages below are not version-pinned because Debian apt does not provide
