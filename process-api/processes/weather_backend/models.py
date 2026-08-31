@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
+from agri_i18n import _
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..backend_utils import LocationType, LocationValidatorMixin
@@ -50,7 +51,9 @@ class WeatherTimeseriesInput(LocationValidatorMixin):
             date.fromisoformat(v)
         except ValueError as exc:
             raise ValueError(
-                f"Invalid date format (expected YYYY-MM-DD): {v!r}"
+                _("Invalid date format (expected YYYY-MM-DD): {value!r}").format(
+                    value=v
+                )
             ) from exc
         return v
 
@@ -59,7 +62,7 @@ class WeatherTimeseriesInput(LocationValidatorMixin):
     def validate_dataset_not_empty(cls, v: str) -> str:
         """Ensure dataset identifier is a non-empty string."""
         if not v or not v.strip():
-            raise ValueError("'dataset' must be a non-empty string")
+            raise ValueError(_("'dataset' must be a non-empty string"))
         return v
 
     @model_validator(mode="after")
@@ -71,7 +74,9 @@ class WeatherTimeseriesInput(LocationValidatorMixin):
         end = date.fromisoformat(self.end_date)
         if start > end:
             raise ValueError(
-                f"'start_date' ({self.start_date}) must be <= 'end_date' ({self.end_date})"
+                _(
+                    "'start_date' ({start}) must be <= 'end_date' ({end})"
+                ).format(start=self.start_date, end=self.end_date)
             )
         return self
 

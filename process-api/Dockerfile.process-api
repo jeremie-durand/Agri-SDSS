@@ -1,3 +1,11 @@
+# Compile the gettext catalogs. Build-stage only: Babel never reaches runtime,
+# and the .mo files are gitignored so they must be produced here.
+FROM python:3.12-slim AS i18n
+RUN --mount=type=bind,source=agri_i18n/requirements-i18n.txt,target=/tmp/requirements-i18n.txt \
+    pip install --no-cache-dir -r /tmp/requirements-i18n.txt
+COPY agri_i18n/locales /build/locales
+RUN pybabel compile -d /build/locales -D messages --statistics
+
 FROM python:3.11-slim AS runtime
 
 ARG USER_GID=1000
@@ -22,7 +30,7 @@ COPY process-api/scripts/generate_openapi.py /app/generate_openapi.py
 # Shared gettext helpers. Only the runtime pieces are copied —
 # babel.cfg and the .pot are authoring tools, and tests ship in the test stage.
 COPY agri_i18n/__init__.py agri_i18n/middleware.py /app/agri_i18n/
-COPY agri_i18n/locales /app/agri_i18n/locales
+COPY --from=i18n /build/locales /app/agri_i18n/locales
 # Install dependencies
 # NOTE: apt packages below are not version-pinned because Debian apt does not provide
 # stable cross-architecture pin strings and Dependabot cannot track them.

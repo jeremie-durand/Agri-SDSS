@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Self, Tuple
 
 import numpy as np
+from agri_i18n import _
 from pydantic import BaseModel, field_validator, model_validator
 
 
@@ -29,9 +30,13 @@ class LocationValidatorMixin(BaseModel):
             return v
         lon, lat = float(v[0]), float(v[1])
         if not -180 <= lon <= 180:
-            raise ValueError(f"Longitude {lon} out of range [-180, 180]")
+            raise ValueError(
+                _("Longitude {value} out of range [-180, 180]").format(value=lon)
+            )
         if not -90 <= lat <= 90:
-            raise ValueError(f"Latitude {lat} out of range [-90, 90]")
+            raise ValueError(
+                _("Latitude {value} out of range [-90, 90]").format(value=lat)
+            )
         return v
 
     @field_validator("bbox", check_fields=False)
@@ -42,27 +47,32 @@ class LocationValidatorMixin(BaseModel):
             return v
         minx, miny, maxx, maxy = (float(c) for c in v)
         if minx >= maxx:
-            raise ValueError(f"bbox minx ({minx}) must be < maxx ({maxx})")
+            raise ValueError(
+                _("bbox minx ({minx}) must be < maxx ({maxx})").format(
+                    minx=minx, maxx=maxx
+                )
+            )
         if miny >= maxy:
-            raise ValueError(f"bbox miny ({miny}) must be < maxy ({maxy})")
+            raise ValueError(
+                _("bbox miny ({miny}) must be < maxy ({maxy})").format(
+                    miny=miny, maxy=maxy
+                )
+            )
         return v
 
     @model_validator(mode="after")
     def check_location_field_provided(self) -> Self:
         """Ensure the field matching location_type is present."""
         loc = self.location_type
+        missing = _("'{field}' must be provided when location_type is '{field}'")
         if loc == LocationType.FARM_ID and self.farm_id is None:
-            raise ValueError(
-                "'farm_id' must be provided when location_type is 'farm_id'"
-            )
+            raise ValueError(missing.format(field="farm_id"))
         if loc == LocationType.POINT and self.point is None:
-            raise ValueError("'point' must be provided when location_type is 'point'")
+            raise ValueError(missing.format(field="point"))
         if loc == LocationType.BBOX and self.bbox is None:
-            raise ValueError("'bbox' must be provided when location_type is 'bbox'")
+            raise ValueError(missing.format(field="bbox"))
         if loc == LocationType.POLYGON and self.polygon is None:
-            raise ValueError(
-                "'polygon' must be provided when location_type is 'polygon'"
-            )
+            raise ValueError(missing.format(field="polygon"))
         return self
 
 
