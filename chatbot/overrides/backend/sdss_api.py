@@ -9,6 +9,7 @@ import json
 import logging
 import os
 
+from agri_i18n import set_locale
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import APIKeyHeader
 from openai import AsyncOpenAI
@@ -164,6 +165,11 @@ class _QueryResponse(BaseModel):
 )
 async def sdss_query(req: _QueryRequest) -> _QueryResponse:
     """Agentic tool-calling loop for spatial process discovery and execution."""
+    # The caller supplies the language in the body rather than a header, so it
+    # is bound here instead of by middleware. No reset is needed: the binding
+    # is local to this request's task context.
+    set_locale(req.language)
+
     api_key = os.environ.get("LLM_API_KEY", "")
     if not api_key:
         raise HTTPException(status_code=503, detail="LLM_API_KEY is not configured.")

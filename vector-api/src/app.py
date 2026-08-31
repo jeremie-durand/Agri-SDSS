@@ -13,6 +13,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+from agri_i18n.middleware import LocaleASGIMiddleware
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
@@ -133,6 +134,10 @@ app = FastAPI(
     version=API_VERSION,
     lifespan=lifespan,
 )
+
+# Bind the request locale before routing so error messages localise.
+# Accept-Language is CORS-safelisted, so this needs no CORS allowance.
+app.add_middleware(LocaleASGIMiddleware)
 
 # Add CORS middleware
 app.add_middleware(
