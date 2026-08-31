@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 from sdss_api import (
     _build_process_catalog,
     _extract_text_tool_call,
-    _fallback_message,
     _QueryRequest,
     router,
 )
@@ -185,6 +184,9 @@ def test_sdss_query_passes_correct_key_when_auth_enabled(monkeypatch):
     assert resp.status_code == 503  # auth passed, LLM key missing
 
 
+_FALLBACK_MSGID = "I was unable to complete the spatial analysis."
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "language,expected_fragment",
@@ -198,14 +200,21 @@ def test_sdss_query_passes_correct_key_when_auth_enabled(monkeypatch):
     ],
 )
 def test_fallback_message_follows_requested_language(language, expected_fragment):
-    assert expected_fragment in _fallback_message(language)
+    """The tool-loop failure message resolves through the gettext catalog.
+
+    Replaces the hand-written _FALLBACK_MESSAGES dict; asserting real French
+    here also proves the compiled .mo ships in the image.
+    """
+    with agri_i18n.use_locale(language):
+        assert expected_fragment in agri_i18n._(_FALLBACK_MSGID)
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("language", [None, "", "de", "xx"])
 def test_fallback_message_defaults_to_french(language):
     """Absent or unsupported languages fall back to the platform default."""
-    assert "analyse spatiale" in _fallback_message(language)
+    with agri_i18n.use_locale(language):
+        assert "analyse spatiale" in agri_i18n._(_FALLBACK_MSGID)
 
 
 @pytest.mark.unit
