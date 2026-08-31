@@ -1,4 +1,5 @@
 import { map, stacState } from './state.js';
+import { apiFetch } from './utils.js';
 
 function _tL() { return (window.T && window.T[window.lang]) || {}; }
 
@@ -112,7 +113,7 @@ function clearChatLayers() {
 
 async function signUrl(url) {
     try {
-        var r = await fetch('/api/sign-mosaic-url', {
+        var r = await apiFetch('/api/sign-mosaic-url', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: url })

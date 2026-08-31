@@ -1,5 +1,5 @@
 import { map, vectorState, vectorSelectionLayer, somContext } from './state.js';
-import { normalizeUrl, getColorForCollection } from './utils.js';
+import { normalizeUrl, getColorForCollection, apiFetch } from './utils.js';
 import { openSomModal } from './som.js';
 import { showHoverHint, hideHoverHint } from './hover-hint.js';
 
@@ -39,7 +39,7 @@ async function fetchCollectionFeatures(itemsUrl) {
         const pagedUrl = new URL(nextUrl, window.location.origin);
         if (!pagedUrl.searchParams.has("f")) pagedUrl.searchParams.set("f", "json");
         pagedUrl.searchParams.set("limit", "2000");
-        const response = await fetch(pagedUrl.toString(), { headers: { Accept: "application/geo+json,application/json" } });
+        const response = await apiFetch(pagedUrl.toString(), { headers: { Accept: "application/geo+json,application/json" } });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         const features = Array.isArray(data.features) ? data.features : [];
@@ -114,7 +114,7 @@ function buildVectorTileLayer(collectionId, color) {
         const searchPad = 0.0002;
         const clickBbox = [e.latlng.lng - searchPad, e.latlng.lat - searchPad, e.latlng.lng + searchPad, e.latlng.lat + searchPad].join(',');
         const snap = feature;
-        fetch('/vector-api/parquet/collections/' + collectionId + '/items?bbox=' + clickBbox + '&limit=10&f=json')
+        apiFetch('/vector-api/parquet/collections/' + collectionId + '/items?bbox=' + clickBbox + '&limit=10&f=json')
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(fc) {
                 var areaEl = document.getElementById('somArea');
@@ -185,7 +185,7 @@ export async function setVectorCollectionVisible(collectionId, shouldShow, zoomT
         const tileJsonUrl = '/vector-api/postgis/collections/' + encodeURIComponent(postgisId) + '/tiles/WebMercatorQuad/tilejson.json';
         let useTiles = skipTileProbe;
         if (!useTiles) {
-            try { const probe = await fetch(tileJsonUrl); useTiles = probe.ok; } catch(_) {}
+            try { const probe = await apiFetch(tileJsonUrl); useTiles = probe.ok; } catch(_) {}
         }
 
         const color = getColorForCollection(collectionId);
@@ -276,7 +276,7 @@ export async function loadVectorCollections() {
     try {
         const url = new URL(endpoint);
         if (!url.searchParams.has("f")) url.searchParams.set("f", "json");
-        const response = await fetch(url.toString(), { headers: { Accept: "application/json,application/geo+json" } });
+        const response = await apiFetch(url.toString(), { headers: { Accept: "application/json,application/geo+json" } });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         vectorState.collections = Array.isArray(data.collections) ? data.collections : [];
@@ -396,7 +396,7 @@ export async function loadBdppadCollections() {
 
 async function _refreshBdppadList() {
     const tL = function() { return (window.T && window.T[window.lang]) || (window.T && window.T.fr) || {}; };
-    const r = await fetch('/vector-api/postgis/collections?f=json&limit=500');
+    const r = await apiFetch('/vector-api/postgis/collections?f=json&limit=500');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     const all = Array.isArray(data.collections) ? data.collections : [];

@@ -1,6 +1,7 @@
 import { map } from './state.js';
 import { openSomModal } from './som.js';
 import { showHoverHint, hideHoverHint } from './hover-hint.js';
+import { apiFetch } from './utils.js';
 // import { sendFeatureContext } from './chat.js'; // disabled: farm context auto-population
 
 // window.AAC_CROP_CODES is loaded via <script src="/js/aac-crop-codes.js"> in map.html
@@ -99,7 +100,7 @@ async function _identify(dataset, latlng) {
         returnGeometry: 'false',
         f: 'json',
     });
-    const r = await fetch(`${identifyUrl}?${params}`);
+    const r = await apiFetch(`${identifyUrl}?${params}`);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
 }

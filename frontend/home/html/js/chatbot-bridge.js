@@ -143,9 +143,18 @@
   }
 
   /* ── Fetch helpers ──────────────────────────────────────────────────────── */
+  var _ACCEPT_LANGUAGE = { fr: 'fr-CA,fr;q=0.9', en: 'en-US,en;q=0.9' };
+
+  function _acceptLanguage() {
+    var lang = localStorage.getItem('sdss-lang') || 'fr';
+    return _ACCEPT_LANGUAGE[lang] || _ACCEPT_LANGUAGE.fr;
+  }
+
   async function fetchJson(url) {
     try {
-      var r = await fetch(url, { headers: { Accept: 'application/json' } });
+      var r = await fetch(url, {
+        headers: { Accept: 'application/json', 'Accept-Language': _acceptLanguage() }
+      });
       return r.ok ? r.json() : null;
     } catch (_) {
       return null;

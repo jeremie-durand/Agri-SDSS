@@ -1,4 +1,5 @@
 import { map } from './state.js';
+import { apiFetch } from './utils.js';
 
 const GRHQ_COLOR = '#38bdf8';
 
@@ -32,7 +33,7 @@ function _updateUI() {
 async function _loadCollections() {
     if (_collections) return _collections;
     try {
-        var r = await fetch('/vector-api/postgis/collections?f=json&limit=500');
+        var r = await apiFetch('/vector-api/postgis/collections?f=json&limit=500');
         if (!r.ok) throw new Error('HTTP ' + r.status);
         var data = await r.json();
         _collections = (data.collections || []).filter(function(c) {
