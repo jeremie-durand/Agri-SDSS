@@ -10,10 +10,21 @@ import os
 from typing import Callable, Set
 
 import httpx
+from agri_i18n import get_locale
 
 logger = logging.getLogger(__name__)
 
 PYGEOAPI_URL = os.environ.get("PYGEOAPI_INTERNAL_URL", "http://process-api:5000")
+
+
+def _locale_headers() -> dict:
+    """Forward the request's language to process-api.
+
+    These are server-side calls, so no browser header reaches them. Without
+    this the process catalog and error messages fed to the LLM would always
+    be the platform default, whatever language the user is chatting in.
+    """
+    return {"Accept-Language": get_locale()}
 
 
 async def predict_soil_organic_matter(lat: float, lon: float, land_use: str) -> dict:
@@ -42,7 +53,7 @@ async def list_pygeoapi_processes() -> list:
     Call this first to discover what spatial analyses are possible.
     Returns a list of objects with id, title, and description.
     """
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, headers=_locale_headers()) as client:
         resp = await client.get(f"{PYGEOAPI_URL}/processes?f=json")
         resp.raise_for_status()
         data = resp.json()
@@ -62,7 +73,7 @@ async def get_process_schema(process_id: str) -> dict:
     Call this before executing a process to understand required inputs.
     Returns the process metadata including inputs and outputs schemas.
     """
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, headers=_locale_headers()) as client:
         resp = await client.get(f"{PYGEOAPI_URL}/processes/{process_id}?f=json")
         resp.raise_for_status()
         return resp.json()
@@ -75,7 +86,7 @@ async def execute_pygeoapi_process(process_id: str, inputs: dict) -> dict:
     get_process_schema to know what inputs each one requires.
     Returns the process outputs as a dict.
     """
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, headers=_locale_headers()) as client:
         resp = await client.post(
             f"{PYGEOAPI_URL}/processes/{process_id}/execution",
             json={"inputs": inputs},

@@ -52,6 +52,10 @@ i18n-update: i18n-extract
 i18n-compile:
 	$(I18N_RUN) pybabel compile -d agri_i18n/locales -D messages --statistics
 
+# CI gate: no dynamic msgids, .pot in sync with the source, every msgstr filled.
+i18n-check:
+	$(I18N_RUN) python -m agri_i18n.check
+
 test-caddy:
 	@echo "Hot-reloading Caddy with test config (3 exec/5s, 5 browse/5s)..."
 	docker cp caddy/Caddyfile.test $$(docker compose ps -q caddy):/tmp/Caddyfile.test
@@ -69,7 +73,7 @@ test-caddy:
 	docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
 .PHONY: build lint-dockerfiles lint-md scan-secrets test-caddy generate-args \
-	test-i18n i18n-extract i18n-update i18n-compile
+	test-i18n i18n-extract i18n-update i18n-compile i18n-check
 
 lint-dockerfiles:
 	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < chatbot/Dockerfile.chatbot-backend

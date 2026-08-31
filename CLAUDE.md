@@ -125,6 +125,10 @@ Two credentials exist (least-privilege model — see [docs/DEPLOYMENT.md](docs/D
 - Constants in UPPER_SNAKE_CASE
 - Document with docstrings, avoid comments
 - Use f-strings for formatting
+- User-facing messages go through `_()` from `agri_i18n` with **literal** msgids — never
+  f-strings, which pybabel cannot extract. Interpolate after the lookup:
+  `_("Invalid geometry: {error}").format(error=exc)`. See [docs/I18N.md](docs/I18N.md)
+- Log in English (`logger.warning("...: %s", exc)`) even when the raised message is translated
 - Use `is not` operator rather than `not ... is`
   - Correct:
 
@@ -156,8 +160,9 @@ Commit prefixes (conventional style): `feat:`, `fix:`, `docs:`, `test:`, `refact
 GitHub Actions (`.github/workflows/action.yml`) runs on PR/push to main/develop:
 
 1. Validates `ARGS.md` is in sync with CLI arguments
-2. Builds per-service images (`gis-pipeline`, `stac-api`, `vector-api`, `raster-api`, `process-api`, `chatbot-backend`)
-3. Starts the database, then runs `make test-all`
+2. Validates the i18n catalogs (`python -m agri_i18n.check`)
+3. Builds per-service images (`gis-pipeline`, `stac-api`, `vector-api`, `raster-api`, `process-api`, `chatbot-backend`)
+4. Starts the database, then runs `make test-all`
 
 ### Automation
 
