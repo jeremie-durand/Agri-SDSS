@@ -225,13 +225,61 @@ def test_real_mo_roundtrip(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_shipped_catalog_is_loadable():
-    """The committed fr catalog compiles and loads without error.
-
-    Empty until Phase 3 fills it; this asserts the path wiring, not content.
-    """
+    """An msgid absent from the catalog falls through rather than raising."""
     agri_i18n.clear_cache()
     try:
         with use_locale("fr"):
             assert agri_i18n._("untranslated probe") == "untranslated probe"
+    finally:
+        agri_i18n.clear_cache()
+
+
+# --- Shipped catalog ---
+
+# Representative entries from each in-scope service. Asserting real French here
+# proves the .mo is compiled into the image, not just that lookup works.
+_SHIPPED = [
+    ("'geometry' field is required", "Le champ « geometry » est requis"),
+    ("Internal database error", "Erreur interne de la base de données"),
+    ("Internal server error", "Erreur interne du serveur"),
+    ("GeoJSON geometry is invalid or empty",
+     "La géométrie GeoJSON est invalide ou vide"),
+    ("I was unable to complete the spatial analysis.",
+     "Je n’ai pas pu compléter l’analyse spatiale."),
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("msgid,expected", _SHIPPED)
+def test_shipped_catalog_translates_french(msgid, expected):
+    """The compiled catalog resolves real messages into French."""
+    agri_i18n.clear_cache()
+    try:
+        with use_locale("fr"):
+            assert agri_i18n._(msgid) == expected
+    finally:
+        agri_i18n.clear_cache()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("msgid,_expected", _SHIPPED)
+def test_shipped_catalog_english_is_msgid(msgid, _expected):
+    """English ships no catalog, so msgids pass through untouched."""
+    agri_i18n.clear_cache()
+    try:
+        with use_locale("en"):
+            assert agri_i18n._(msgid) == msgid
+    finally:
+        agri_i18n.clear_cache()
+
+
+@pytest.mark.unit
+def test_shipped_catalog_placeholders_survive_translation():
+    """Named placeholders are preserved so .format() still binds them."""
+    agri_i18n.clear_cache()
+    try:
+        with use_locale("fr"):
+            rendered = agri_i18n._("Invalid geometry: {error}").format(error="bad wkt")
+        assert rendered == "Géométrie invalide : bad wkt"
     finally:
         agri_i18n.clear_cache()
