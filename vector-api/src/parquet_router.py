@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from agri_i18n import _
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
@@ -51,18 +52,27 @@ def validate_collection_exists(collection_id: str) -> Path:
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail="Invalid collection ID. Only alphanumeric characters, underscores, and hyphens are allowed.",
+            detail=_(
+                "Invalid collection ID. Only alphanumeric characters, "
+                "underscores, and hyphens are allowed."
+            ),
         )
     except DuckDBSpatialExtensionError as e:
         logger.error(f"Failed to initialize DuckDB manager: {e}")
         raise HTTPException(
             status_code=503,
-            detail="Parquet service unavailable: DuckDB spatial extension could not be loaded. Please check server configuration.",
+            detail=_(
+                "Parquet service unavailable: DuckDB spatial extension could "
+                "not be loaded. Please check server configuration."
+            ),
         )
 
     if parquet_path is None:
         raise HTTPException(
-            status_code=404, detail=f"Collection not found: {collection_id}"
+            status_code=404,
+            detail=_("Collection not found: {collection}").format(
+                collection=collection_id
+            ),
         )
 
     return parquet_path
@@ -85,7 +95,10 @@ def get_duckdb_manager() -> DuckDBManager:
         logger.error(f"Failed to initialize DuckDB manager: {e}")
         raise HTTPException(
             status_code=503,
-            detail="Parquet service unavailable: DuckDB spatial extension could not be loaded. Please check server configuration.",
+            detail=_(
+                "Parquet service unavailable: DuckDB spatial extension could "
+                "not be loaded. Please check server configuration."
+            ),
         )
 
 
@@ -199,7 +212,7 @@ async def list_collections(request: Request) -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Error listing collections: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=_("Internal server error"))
 
 
 @router.get("/collections/{collection_id}", response_class=JSONResponse)
@@ -260,7 +273,7 @@ async def get_collection(request: Request, collection_id: str) -> Dict[str, Any]
         raise
     except Exception as e:
         logger.error(f"Error getting collection {collection_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=_("Internal server error"))
 
 
 @router.get("/collections/{collection_id}/items", response_class=JSONResponse)
@@ -309,7 +322,10 @@ async def get_items(
             except (ValueError, AttributeError) as e:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid bbox format. Expected minx,miny,maxx,maxy: {e}",
+                    detail=_(
+                        "Invalid bbox format. Expected minx,miny,maxx,maxy: "
+                        "{error}"
+                    ).format(error=e),
                 )
 
         # Validate collection exists before opening DB connection
@@ -375,7 +391,7 @@ async def get_items(
         raise
     except Exception as e:
         logger.error(f"Error getting items from {collection_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=_("Internal server error"))
 
 
 @router.get("/collections/{collection_id}/items/{item_id}", response_class=JSONResponse)
@@ -407,7 +423,9 @@ async def get_item(
         if not feature:
             raise HTTPException(
                 status_code=404,
-                detail=f"Item not found: {item_id} in collection {collection_id}",
+                detail=_(
+                    "Item not found: {item} in collection {collection}"
+                ).format(item=item_id, collection=collection_id),
             )
 
         base_url = str(request.base_url).rstrip("/")
@@ -431,7 +449,7 @@ async def get_item(
         logger.error(
             f"Error getting item {item_id} from {collection_id}: {e}", exc_info=True
         )
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=_("Internal server error"))
 
 
 @router.get("/collections/{collection_id}/queryables", response_class=JSONResponse)
@@ -499,7 +517,7 @@ async def get_queryables(request: Request, collection_id: str) -> Dict[str, Any]
         logger.error(
             f"Error getting queryables for {collection_id}: {e}", exc_info=True
         )
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=_("Internal server error"))
 
 
 @router.post("/collections/{collection_id}/invalidate", response_class=JSONResponse)

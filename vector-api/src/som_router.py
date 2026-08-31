@@ -11,6 +11,7 @@ import os
 from typing import Any, Dict
 
 import asyncpg
+from agri_i18n import _
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -37,12 +38,17 @@ async def som_field_match(body: Dict[str, Any]) -> JSONResponse:
     """
     geometry = body.get("geometry")
     if not geometry:
-        raise HTTPException(status_code=422, detail="'geometry' field is required")
+        raise HTTPException(
+            status_code=422, detail=_("'geometry' field is required")
+        )
 
     try:
         geom_json = json.dumps(geometry)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid geometry: {exc}") from exc
+        raise HTTPException(
+            status_code=422,
+            detail=_("Invalid geometry: {error}").format(error=exc),
+        ) from exc
 
     # _TOLERANCE_M: max distance (metres) between polygon edges to still consider
     # a match. Handles slightly offset boundaries from different data sources.
@@ -81,4 +87,6 @@ async def som_field_match(body: Dict[str, Any]) -> JSONResponse:
 
     except asyncpg.PostgresError as exc:
         logger.error("PostGIS query error in som_field_match: %s", exc)
-        raise HTTPException(status_code=500, detail="Internal database error") from exc
+        raise HTTPException(
+            status_code=500, detail=_("Internal database error")
+        ) from exc

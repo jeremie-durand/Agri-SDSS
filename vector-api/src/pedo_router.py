@@ -10,6 +10,7 @@ import os
 from typing import Any, Dict
 
 import asyncpg
+from agri_i18n import _
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -35,12 +36,17 @@ async def pedo_coverage(body: Dict[str, Any]) -> JSONResponse:
     """
     geometry = body.get("geometry")
     if not geometry:
-        raise HTTPException(status_code=422, detail="'geometry' field is required")
+        raise HTTPException(
+            status_code=422, detail=_("'geometry' field is required")
+        )
 
     try:
         geom_json = json.dumps(geometry)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid geometry: {exc}") from exc
+        raise HTTPException(
+            status_code=422,
+            detail=_("Invalid geometry: {error}").format(error=exc),
+        ) from exc
 
     sql = f"""
         SELECT symbole, COUNT(*) OVER () AS total
@@ -64,4 +70,6 @@ async def pedo_coverage(body: Dict[str, Any]) -> JSONResponse:
 
     except asyncpg.PostgresError as exc:
         logger.error("PostGIS query error in pedo_coverage: %s", exc)
-        raise HTTPException(status_code=500, detail="Internal database error") from exc
+        raise HTTPException(
+            status_code=500, detail=_("Internal database error")
+        ) from exc
