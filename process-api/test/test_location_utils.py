@@ -12,6 +12,7 @@ import json
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
+import agri_i18n
 import pytest
 from processes.backend_utils import LocationType
 from processes.location_utils import (
@@ -20,6 +21,18 @@ from processes.location_utils import (
     resolve_location,
 )
 from pygeoapi.process.base import ProcessorExecuteError
+
+
+@pytest.fixture(autouse=True)
+def _english_messages():
+    """Assert against the English msgids rather than the French default.
+
+    Message content is localised, so these tests pin the source language.
+    French rendering is covered in agri_i18n/test and vector-api/test.
+    """
+    with agri_i18n.use_locale("en"):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # Fixtures

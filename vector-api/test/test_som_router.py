@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
+from agri_i18n.middleware import LocaleASGIMiddleware
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from vector_api.som_router import router
@@ -13,6 +14,7 @@ from vector_api.som_router import router
 def client():
     app = FastAPI()
     app.include_router(router)
+    app.add_middleware(LocaleASGIMiddleware)
     return TestClient(app)
 
 
@@ -123,6 +125,49 @@ class TestSomFieldMatch:
         pool.acquire = MagicMock(return_value=acquire_ctx)
 
         with patch("vector_api.som_router.get_pool", new=AsyncMock(return_value=pool)):
-            resp = client.post("/som-field-match", json={"geometry": _POLYGON_GEOM})
+            resp = client.post(
+                "/som-field-match",
+                json={"geometry": _POLYGON_GEOM},
+                headers={"Accept-Language": "en"},
+            )
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Internal database error"
+
+    def test_db_error_message_is_localised(self, client):
+        """The same failure comes back in French for a French client.
+
+        End-to-end proof that the catalog reaches a real HTTP response, not
+        just the gettext helpers.
+        """
+
+        class _FakePostgresError(asyncpg.exceptions.PostgresError):
+            pass
+
+        conn = AsyncMock()
+        conn.fetch = AsyncMock(side_effect=_FakePostgresError("simulated db error"))
+        acquire_ctx = AsyncMock()
+        acquire_ctx.__aenter__ = AsyncMock(return_value=conn)
+        acquire_ctx.__aexit__ = AsyncMock(return_value=False)
+        pool = MagicMock()
+        pool.acquire = MagicMock(return_value=acquire_ctx)
+
+        with patch("vector_api.som_router.get_pool", new=AsyncMock(return_value=pool)):
+            resp = client.post(
+                "/som-field-match",
+                json={"geometry": _POLYGON_GEOM},
+                headers={"Accept-Language": "fr-CA,fr;q=0.9"},
+            )
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Erreur interne de la base de données"
+
+    def test_missing_geometry_is_localised(self, client):
+        """422 validation errors localise too, and default to French."""
+        resp = client.post("/som-field-match", json={})
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "Le champ « geometry » est requis"
+
+        resp = client.post(
+            "/som-field-match", json={}, headers={"Accept-Language": "en"}
+        )
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "'geometry' field is required"

@@ -12,6 +12,7 @@ import json
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
+import agri_i18n
 import numpy as np
 import pandas as pd
 import pytest
@@ -31,6 +32,14 @@ from processes.weather_backend.pavics_backend import (
 from processes.weather_timeseries import WeatherTimeseriesProcessor
 from processes.weather_timeseries_metadata import PROCESS_METADATA
 from pygeoapi.process.base import ProcessorExecuteError
+
+
+@pytest.fixture(autouse=True)
+def _english_messages():
+    """Assert against the English msgids rather than the French default."""
+    with agri_i18n.use_locale("en"):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
