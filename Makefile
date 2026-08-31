@@ -37,8 +37,8 @@ test-i18n:
 # dependency, so no host toolchain is needed. Always invoke from the repo root.
 I18N_RUN = docker compose run --rm --no-deps -T -v $(CURDIR):/repo -w /repo process-api
 
-# Rescan the source for _() calls. --omit-header keeps the .pot byte-stable so
-# CI can diff it; without it POT-Creation-Date churns on every run.
+# Rescan the source for _() calls. The .pot is a local intermediate consumed by
+# i18n-update and is gitignored; the .po catalogs are the versioned artifact.
 i18n-extract:
 	$(I18N_RUN) pybabel extract -F agri_i18n/babel.cfg --omit-header \
 		-o agri_i18n/messages.pot .
@@ -52,7 +52,7 @@ i18n-update: i18n-extract
 i18n-compile:
 	$(I18N_RUN) pybabel compile -d agri_i18n/locales -D messages --statistics
 
-# CI gate: no dynamic msgids, .pot in sync with the source, every msgstr filled.
+# CI gate: no dynamic msgids, catalogs cover the source, every msgstr filled.
 i18n-check:
 	$(I18N_RUN) python -m agri_i18n.check
 

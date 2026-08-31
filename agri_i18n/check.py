@@ -2,8 +2,8 @@
 
 Three failures are caught here because none of them break a test or a build:
 
-1. A new ``_()`` call whose msgid was never extracted, so the catalog silently
-   lacks it and the message never translates.
+1. A new ``_()`` call whose msgid never reached the catalogs, so the message
+   silently never translates.
 2. An empty or fuzzy ``msgstr``, so a translated locale falls back to English
    for that one message.
 3. A non-literal argument to ``_()`` -- typically an f-string. pybabel extracts
@@ -26,7 +26,6 @@ from typing import Iterator, List, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 BABEL_CFG = ROOT / "agri_i18n" / "babel.cfg"
-POT = ROOT / "agri_i18n" / "messages.pot"
 LOCALES = ROOT / "agri_i18n" / "locales"
 
 TRANSLATION_FUNCS = {"_", "gettext", "ngettext"}
@@ -101,24 +100,20 @@ def _msgids(po_path: Path) -> set:
         return {message.id for message in read_po(handle) if message.id}
 
 
-def check_pot_is_current() -> List[str]:
-    """Report msgids present in the source but missing from the committed .pot.
+def _source_msgids() -> Tuple[set, List[str]]:
+    """Extract msgids from the source tree into a throwaway .pot.
 
-    Compares msgid sets rather than file bytes: different Babel versions wrap
-    and order the .pot differently, and that formatting drift is not a defect.
-    What matters is that no message escapes the catalog.
+    The .pot is a build intermediate for ``pybabel update``, not a committed
+    artifact, so it is regenerated here rather than read from disk.
     """
-    if not POT.exists():
-        return [f"{POT.relative_to(ROOT)} is missing. Run: make i18n-extract"]
-
     with tempfile.TemporaryDirectory() as tmp:
-        fresh = Path(tmp) / "messages.pot"
+        pot = Path(tmp) / "messages.pot"
         result = subprocess.run(
             [
                 "pybabel", "extract",
                 "-F", str(BABEL_CFG),
                 "--omit-header",
-                "-o", str(fresh),
+                "-o", str(pot),
                 ".",
             ],
             cwd=ROOT,
@@ -126,16 +121,33 @@ def check_pot_is_current() -> List[str]:
             text=True,
         )
         if result.returncode != 0:
-            return [f"pybabel extract failed:\n{result.stderr}"]
+            return set(), [f"pybabel extract failed:\n{result.stderr}"]
+        return _msgids(pot), []
 
-        in_source = _msgids(fresh)
 
-    committed = _msgids(POT)
-    errors = []
-    for msgid in sorted(in_source - committed):
-        errors.append(f"msgid in source but missing from messages.pot: {msgid!r}")
-    for msgid in sorted(committed - in_source):
-        errors.append(f"msgid in messages.pot but no longer in source: {msgid!r}")
+def check_catalogs_cover_source() -> List[str]:
+    """Report msgids in the source that no catalog carries, and vice versa.
+
+    Compares msgid sets rather than file bytes: different Babel versions wrap
+    and order catalogs differently, and that formatting drift is not a defect.
+    What matters is that no message escapes translation.
+    """
+    in_source, errors = _source_msgids()
+    if errors:
+        return errors
+
+    catalogs = sorted(LOCALES.glob("*/LC_MESSAGES/messages.po"))
+    if not catalogs:
+        return [f"no catalogs found under {LOCALES.relative_to(ROOT)}"]
+
+    for po_path in catalogs:
+        rel = po_path.relative_to(ROOT)
+        translated = _msgids(po_path)
+        for msgid in sorted(in_source - translated):
+            errors.append(f"{rel}: missing msgid from source: {msgid!r}")
+        for msgid in sorted(translated - in_source):
+            errors.append(f"{rel}: stale msgid no longer in source: {msgid!r}")
+
     if errors:
         errors.append("Run: make i18n-update (then translate any new entries)")
     return errors
@@ -164,7 +176,7 @@ def main() -> int:
     """Run every check, reporting all failures rather than the first."""
     checks: List[Tuple[str, List[str]]] = [
         ("no dynamic msgids", check_no_dynamic_msgids()),
-        ("messages.pot in sync", check_pot_is_current()),
+        ("catalogs cover the source", check_catalogs_cover_source()),
         ("catalogs fully translated", check_catalogs_complete()),
     ]
 
