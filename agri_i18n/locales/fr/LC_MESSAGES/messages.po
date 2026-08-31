@@ -1,0 +1,17 @@
+# French translations for Agri-SDSS backend services.
+# Copyright (C) 2026 Agri-SDSS contributors
+# This file is distributed under the same license as the Agri-SDSS project.
+#
+# Message ids are the English source strings; only non-English catalogs exist.
+# Regenerate with `make i18n-update`, then fill in every empty msgstr.
+# Entries arrive here in Phase 3, when the service messages are converted.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Agri-SDSS\n"
+"Language: fr\n"
+"Language-Team: fr <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"

@@ -19,6 +19,10 @@ COPY process-api/config/climate_datasets.yaml /app/config/climate_datasets.yaml
 COPY process-api/processes /app/processes
 COPY process-api/scripts/start.sh /usr/local/bin/start.sh
 COPY process-api/scripts/generate_openapi.py /app/generate_openapi.py
+# Shared gettext helpers. Only the runtime pieces are copied —
+# babel.cfg and the .pot are authoring tools, and tests ship in the test stage.
+COPY agri_i18n/__init__.py /app/agri_i18n/__init__.py
+COPY agri_i18n/locales /app/agri_i18n/locales
 # Install dependencies
 # NOTE: apt packages below are not version-pinned because Debian apt does not provide
 # stable cross-architecture pin strings and Dependabot cannot track them.
@@ -56,3 +60,4 @@ RUN --mount=type=bind,source=process-api/requirements-process-api-test.txt,targe
 USER appuser
 COPY --chown=appuser:appuser process-api/test /app/process_api/test
 COPY --chown=appuser:appuser process-api/pytest.ini /app/pytest.ini
+COPY --chown=appuser:appuser agri_i18n/test /app/agri_i18n/test

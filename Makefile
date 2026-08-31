@@ -2,7 +2,7 @@ build:
 	mkdir -p data/input data/duckdb/duckdb_extensions data/output/raster_cog
 	docker compose build || docker compose build
 
-test-all: test-gis-pipeline test-stac-api test-vector-api test-raster-api test-process-api test-chatbot
+test-all: test-i18n test-gis-pipeline test-stac-api test-vector-api test-raster-api test-process-api test-chatbot
 	docker compose up -d --force-recreate --wait vector-api raster-api process-api
 	docker compose restart home
 
@@ -29,6 +29,29 @@ test-process-api:
 test-chatbot:
 	docker compose run --build --rm chatbot-backend pytest chatbot/test/ -v
 
+test-i18n:
+	docker compose run --build --rm --no-deps process-api pytest agri_i18n/test/ -v
+
+# --- i18n catalog authoring -------------------------------------------------
+# Runs inside process-api, whose image already carries Babel as a pygeoapi
+# dependency, so no host toolchain is needed. Always invoke from the repo root.
+I18N_RUN = docker compose run --rm --no-deps -T -v $(CURDIR):/repo -w /repo process-api
+
+# Rescan the source for _() calls. --omit-header keeps the .pot byte-stable so
+# CI can diff it; without it POT-Creation-Date churns on every run.
+i18n-extract:
+	$(I18N_RUN) pybabel extract -F agri_i18n/babel.cfg --omit-header \
+		-o agri_i18n/messages.pot .
+
+# Merge new msgids into the per-language catalogs, keeping old msgids as
+# comments. New or changed entries land as fuzzy for a translator to confirm.
+i18n-update: i18n-extract
+	$(I18N_RUN) pybabel update -i agri_i18n/messages.pot -d agri_i18n/locales \
+		-D messages --previous
+
+i18n-compile:
+	$(I18N_RUN) pybabel compile -d agri_i18n/locales -D messages --statistics
+
 test-caddy:
 	@echo "Hot-reloading Caddy with test config (3 exec/5s, 5 browse/5s)..."
 	docker cp caddy/Caddyfile.test $$(docker compose ps -q caddy):/tmp/Caddyfile.test
@@ -45,7 +68,8 @@ test-caddy:
 	@echo "Restoring production Caddyfile..."
 	docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
-.PHONY: build lint-dockerfiles lint-md scan-secrets test-caddy generate-args
+.PHONY: build lint-dockerfiles lint-md scan-secrets test-caddy generate-args \
+	test-i18n i18n-extract i18n-update i18n-compile
 
 lint-dockerfiles:
 	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < chatbot/Dockerfile.chatbot-backend
