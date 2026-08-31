@@ -236,6 +236,16 @@ def test_shipped_catalog_is_loadable():
 
 # --- Shipped catalog ---
 
+# The .mo is a build artifact: gitignored, and compiled into each image by the
+# `i18n` Docker stage. Inside the containers it is always present, which is
+# where these assertions matter. On a bare host checkout it is absent until
+# `make i18n-compile` runs, so skip rather than fail on a missing artifact.
+_COMPILED_CATALOG = agri_i18n.LOCALE_DIR / "fr" / "LC_MESSAGES" / "messages.mo"
+requires_compiled_catalog = pytest.mark.skipif(
+    not _COMPILED_CATALOG.exists(),
+    reason="compiled fr catalog absent; run `make i18n-compile`",
+)
+
 # Representative entries from each in-scope service. Asserting real French here
 # proves the .mo is compiled into the image, not just that lookup works.
 _SHIPPED = [
@@ -250,6 +260,7 @@ _SHIPPED = [
 
 
 @pytest.mark.unit
+@requires_compiled_catalog
 @pytest.mark.parametrize("msgid,expected", _SHIPPED)
 def test_shipped_catalog_translates_french(msgid, expected):
     """The compiled catalog resolves real messages into French."""
@@ -274,6 +285,7 @@ def test_shipped_catalog_english_is_msgid(msgid, _expected):
 
 
 @pytest.mark.unit
+@requires_compiled_catalog
 def test_shipped_catalog_placeholders_survive_translation():
     """Named placeholders are preserved so .format() still binds them."""
     agri_i18n.clear_cache()
