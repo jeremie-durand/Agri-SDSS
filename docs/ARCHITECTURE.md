@@ -92,3 +92,13 @@ curl "http://<host>:8082/cog/tiles/{z}/{x}/{y}.png?url=<COG_URL>"
 curl http://<host>:5000/processes
 curl http://<host>:5000/processes/{processId}
 ```
+
+Error messages are returned in **French by default**. To get English, send an `Accept-Language`
+header or a `lang` query parameter:
+
+```bash
+curl -H "Accept-Language: en" .../vector-api/som-field-match
+curl '.../processes/msc-observations?f=json&lang=en'
+```
+
+See [Internationalization](I18N.md) for the full language contract.

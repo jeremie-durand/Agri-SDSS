@@ -65,6 +65,7 @@ Containerized services cover the full path from raw geodata to public APIs and f
 | [Deployment](docs/DEPLOYMENT.md) | Production setup with Caddy TLS |
 | [Data catalog](docs/data/CATALOG.md) | Integrated datasets |
 | [Contributing](docs/CONTRIBUTING.md) | Branching, commits, PRs |
+| [Internationalization](docs/I18N.md) | FR/EN error messages and how to request a language |
 | [Technical docs](docs/README.md) | Full documentation index |
 
 ## Credits & Acknowledgments

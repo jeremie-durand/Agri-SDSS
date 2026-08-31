@@ -36,6 +36,18 @@ docker compose up -d vector-api
 - **CQL filtering** — attribute and spatial filters on PostGIS collections (`/postgis/` only)
 - **Output formats** — GeoJSON (default), CSV (`?f=csv`), GeoJSON-seq (`?f=geojsonseq`)
 - **Pagination** — `limit` + `offset` on all item endpoints
+- **Localised errors** — French by default; send `Accept-Language: en` or `?lang=en` for English
+
+## Language
+
+Error messages are returned in **French by default**:
+
+```bash
+curl -H "Accept-Language: en" .../vector-api/som-field-match
+```
+
+Status codes and response structure are identical in both languages — only the `detail` text
+changes. See [Internationalization](../docs/I18N.md).
 
 ## Configuration
 

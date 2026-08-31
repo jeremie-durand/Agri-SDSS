@@ -9,6 +9,7 @@ Central index for Agri-SDSS documentation. Service-specific deep-dives live next
 | [Architecture](ARCHITECTURE.md) | System diagram, data flow, service table, common API commands |
 | [Deployment](DEPLOYMENT.md) | Production setup — Linux, Docker, Caddy TLS, DB restore |
 | [Contributing](CONTRIBUTING.md) | Branching strategy, commit conventions, PR process |
+| [Internationalization](I18N.md) | FR/EN error messages, how to request a language, gettext workflow |
 | [Third-party licenses](THIRD_PARTY_LICENSES.md) | License inventory of external tools, copyleft implications |
 
 ## Services

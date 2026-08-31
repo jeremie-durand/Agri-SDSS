@@ -32,6 +32,18 @@ curl -X POST http://<host>:5000/processes/weather-timeseries/execution \
   -d '{"inputs": {"bbox": [-72.5, 45.3, -72.0, 45.7], "start_date": "2023-01-01", "end_date": "2023-12-31"}}'
 ```
 
+## Language
+
+Process titles, descriptions and error messages are returned in **French by default**. Request
+English with a header or pygeoapi's `lang` parameter:
+
+```bash
+curl '.../processes/msc-observations?f=json&lang=en'
+curl -H "Accept-Language: en" .../processes/msc-observations?f=json
+```
+
+See [Internationalization](../docs/I18N.md).
+
 ## Configuration
 
 `process-api/config/pygeoapi-config.yaml` — processes and providers  
