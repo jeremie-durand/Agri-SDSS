@@ -3,6 +3,14 @@
 # CUDA kernel bundle in CI where the LLM is reached over an external URL.
 ARG INCLUDE_OLLAMA=full
 
+# Compile the gettext catalogs. Build-stage only: Babel never reaches runtime,
+# and the .mo files are gitignored so they must be produced here.
+FROM python:3.12-slim AS i18n
+RUN --mount=type=bind,source=agri_i18n/requirements-i18n.txt,target=/tmp/requirements-i18n.txt \
+    pip install --no-cache-dir -r /tmp/requirements-i18n.txt
+COPY agri_i18n/locales /build/locales
+RUN pybabel compile -d /build/locales -D messages --statistics
+
 FROM ollama/ollama:latest AS ollama-full
 
 # Minimal stub for CI: empty placeholders so COPY commands below still succeed.
@@ -58,7 +66,7 @@ COPY chatbot/overrides/backend/ .
 
 # Shared gettext helpers (runtime pieces only; tests run in the process-api image)
 COPY agri_i18n/__init__.py agri_i18n/middleware.py /app/agri_i18n/
-COPY agri_i18n/locales /app/agri_i18n/locales
+COPY --from=i18n /build/locales /app/agri_i18n/locales
 
 # Ollama runtime — only used when LLM_BASE_URL targets localhost:11434
 COPY --from=ollama /usr/bin/ollama /usr/local/bin/ollama

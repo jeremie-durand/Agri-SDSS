@@ -9,7 +9,7 @@ import json
 import logging
 import os
 
-from agri_i18n import set_locale
+from agri_i18n import _, set_locale
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import APIKeyHeader
 from openai import AsyncOpenAI
@@ -31,7 +31,9 @@ async def _verify_api_key(x_api_key: str | None = Depends(_api_key_header)) -> N
         return
     expected = os.environ.get("API_KEY", "")
     if not expected or x_api_key != expected:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+        raise HTTPException(
+            status_code=401, detail=_("Invalid or missing API key.")
+        )
 
 
 _TOOL_DEFS = [
@@ -128,24 +130,6 @@ async def _build_process_catalog() -> str:
         except Exception as exc:
             logger.warning("Could not fetch schema for %s: %s", pid, exc)
     return "\n".join(lines)
-
-
-_FALLBACK_MESSAGES = {
-    "en": "I was unable to complete the spatial analysis.",
-    "fr": "Je n’ai pas pu compléter l’analyse spatiale.",
-}
-_DEFAULT_LANGUAGE = "fr"
-
-
-def _fallback_message(language: str | None) -> str:
-    """Return the tool-loop failure message in the caller's language.
-
-    The LLM is told to answer in the user's language, but this message never
-    reaches the model, so the caller must supply the language. Falls back to
-    the platform default when absent or unrecognised.
-    """
-    code = (language or "").strip().lower()[:2]
-    return _FALLBACK_MESSAGES.get(code, _FALLBACK_MESSAGES[_DEFAULT_LANGUAGE])
 
 
 class _QueryRequest(BaseModel):
@@ -248,7 +232,9 @@ async def sdss_query(req: _QueryRequest) -> _QueryResponse:
                 }
             )
 
-    return _QueryResponse(response=_fallback_message(req.language))
+    # The LLM is told to answer in the user's language, but this message
+    # never reaches the model, so it comes from the catalog instead.
+    return _QueryResponse(response=_("I was unable to complete the spatial analysis."))
 
 
 def _extract_text_tool_call(content: str) -> list[dict] | None:
