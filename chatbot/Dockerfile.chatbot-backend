@@ -23,7 +23,7 @@ FROM ollama-${INCLUDE_OLLAMA} AS ollama
 # ── Stage 1: Clone OpenGeo-AI-Assistant at pinned version ────────────────────
 FROM alpine/git:2.43.0 AS source
 # Default, override with --build-arg CHATBOT_VERSION=... when building
-ARG CHATBOT_VERSION=v0.1.2-alpha
+ARG CHATBOT_VERSION=v.0.1.3-alpha
 RUN git clone --depth 1 --branch ${CHATBOT_VERSION} \
     https://github.com/jeremie-durand/OpenGeo-AI-Assistant.git /src
 
