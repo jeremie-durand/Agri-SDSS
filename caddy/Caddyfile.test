@@ -30,6 +30,42 @@ localhost, agri-sdss.local, caddy {
 		}
 	}
 
+	rate_limit {
+		zone chatbot_llm {
+			match {
+				method POST
+				path /api/query /api/process-comparison-query /api/geoint/* /sdss/*
+			}
+			key    {remote_host}
+			window 5s
+			events 2
+		}
+	}
+
+	rate_limit {
+		zone chatbot_search {
+			match {
+				method POST
+				path /api/stac-search /api/veda-search /api/structured-search /api/sign-mosaic-url /api/session-reset
+			}
+			key    {remote_host}
+			window 5s
+			events 3
+		}
+	}
+
+	rate_limit {
+		zone chatbot_browse {
+			match {
+				method GET
+				path /api/*
+			}
+			key    {remote_host}
+			window 5s
+			events 4
+		}
+	}
+
 	reverse_proxy home:8080
 }
 
