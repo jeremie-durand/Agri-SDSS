@@ -40,14 +40,17 @@ overrides/
 │       ├── land_use_analyzer.py   # STAC items + parcel GeoJSON → LandUseHistory
 │       ├── quebec_zones.py        # region name → bounding box
 │       └── som_predictor.py       # raster-api SOM response → SomPrediction
-└── frontend/                      # both replace an upstream file
-    ├── nginx.conf                 # proxies /api/* → backend:8000
-    └── vite.config.ts             # Vite 8 / Rolldown build settings
+└── frontend/
+    └── nginx.conf                 # replaces upstream; proxies /api/* → backend:8000
 ```
 
-Every backend override is currently **additive** — none shadows an upstream path, so
-upstream refactors cannot silently change their behaviour. The two frontend files do
-replace their upstream counterparts and are the ones to diff on an upgrade.
+Every backend override is **additive** — none shadows an upstream path, so upstream
+refactors cannot silently change their behaviour. `nginx.conf` is the only file that
+replaces an upstream counterpart, and so the only one to diff on an upgrade.
+
+`vite.config.ts` used to sit here too, carrying the Vite 8 / Rolldown build fixes. Those
+were upstreamed in `v0.2.1-alpha`, which also strips `console` output from production
+bundles, so the override was deleted rather than kept in sync.
 
 ## Internal service wiring
 
@@ -142,7 +145,7 @@ Before merging:
 5. All chatbot tools resolve correctly against internal APIs
 
 To upgrade manually: bump `CHATBOT_VERSION` in the four files above plus `.env`, then
-rebuild. Diff the upstream files that the frontend overrides replace (`nginx.conf`,
-`vite.config.ts`) to catch interface drift.
+rebuild. Diff the upstream counterpart of `nginx.conf`, the only file an override
+replaces, to catch interface drift.
 
 Development guidelines and test commands are in [CLAUDE.md](../CLAUDE.md).

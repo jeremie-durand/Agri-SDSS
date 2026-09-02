@@ -1,5 +1,5 @@
 x-chatbot-build-args: &chatbot-build-args
-  CHATBOT_VERSION: ${CHATBOT_VERSION:-v0.2.0-alpha}
+  CHATBOT_VERSION: ${CHATBOT_VERSION:-v0.2.1-alpha}
   INCLUDE_OLLAMA: ${INCLUDE_OLLAMA:-full}
 
 services:
