@@ -364,6 +364,17 @@ services:
       - OPEN_METEO_API_KEY=${OPEN_METEO_API_KEY:-}
       - RATE_LIMIT_LLM=${RATE_LIMIT_LLM:-10/minute}
       - RATE_LIMIT_SEARCH=${RATE_LIMIT_SEARCH:-30/minute}
+      # Bound the local Ollama so queued work cannot outlive the 600s proxy
+      # timeout. Defaults are sized for the 2 CPU / 4 GB limit below: one
+      # decode at a time (KV cache stays within the memory cap) and a short
+      # queue, so overflow gets an immediate 503 instead of a 10-minute hang.
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
+      - OLLAMA_MAX_QUEUE=${OLLAMA_MAX_QUEUE:-8}
+      # Which forwarded hops uvicorn may trust when resolving the client IP the
+      # rate limiter buckets on. "*" walks the whole chain to the leftmost
+      # entry, which Caddy sets from the real remote address (it has no
+      # trusted_proxies, so a client-supplied header is replaced, not appended).
+      - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-*}
     expose:
       - "8000"
     volumes:

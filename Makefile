@@ -57,7 +57,7 @@ i18n-check:
 	$(I18N_RUN) python -m agri_i18n.check
 
 test-caddy:
-	@echo "Hot-reloading Caddy with test config (3 exec/5s, 5 browse/5s)..."
+	@echo "Hot-reloading Caddy with test config (pygeoapi 3+5/5s, chatbot 2+3+4/5s)..."
 	docker cp caddy/Caddyfile.test $$(docker compose ps -q caddy):/tmp/Caddyfile.test
 	docker compose exec caddy caddy reload --config /tmp/Caddyfile.test --adapter caddyfile
 	@echo "Running rate limiting integration tests..."
@@ -67,6 +67,9 @@ test-caddy:
 		-e CADDY_BASE_URL=https://caddy \
 		-e RATE_LIMIT_PYGEOAPI_EXEC_EVENTS=3 \
 		-e RATE_LIMIT_PYGEOAPI_BROWSE_EVENTS=5 \
+		-e RATE_LIMIT_CHATBOT_LLM_EVENTS=2 \
+		-e RATE_LIMIT_CHATBOT_SEARCH_EVENTS=3 \
+		-e RATE_LIMIT_CHATBOT_BROWSE_EVENTS=4 \
 		python:3.11-slim \
 		sh -c "pip install pytest requests urllib3 -q && pytest /test/ -v -m integration -p no:cacheprovider"
 	@echo "Restoring production Caddyfile..."

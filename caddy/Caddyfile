@@ -1,3 +1,18 @@
+# Connection timeouts. Deliberately no "write" timeout: a chat turn can stream
+# for minutes (see proxy_read_timeout 600s in the home nginx config), and a
+# write timeout would cut those responses off. read_header/read_body only bound
+# how long a client may take to send its *request*, which is what a slow-loris
+# style attack abuses.
+{
+	servers {
+		timeouts {
+			read_header 10s
+			read_body   30s
+			idle        2m
+		}
+	}
+}
+
 # To change on prod, domain — When DNS points to this server:
 #   1. Replace "localhost, agri-sdss.local {" with "your-domain.ca {"
 #   2. Remove the "tls internal" line
@@ -30,6 +45,53 @@
 			match {
 				method GET
 				path /process-api/*
+			}
+			key    {remote_host}
+			window 1m
+			events 60
+		}
+	}
+	# ─────────────────────────────────────────────────────────────────────────
+
+	# ── Rate limiting chatbot ─────────────────────────────────────────────────
+	# The backend's own limiter keys on request.client.host, which behind this
+	# proxy is always the "home" container IP — one shared bucket for every
+	# visitor. These zones key on {remote_host}, the real client, and are the
+	# only per-IP limit the chatbot actually has.
+
+	# LLM agent loop (Ollama completions + tool calls): minutes of CPU per call
+	rate_limit {
+		zone chatbot_llm {
+			match {
+				method POST
+				path /api/query /api/process-comparison-query /api/geoint/* /sdss/*
+			}
+			key    {remote_host}
+			window 1m
+			events 10
+		}
+	}
+
+	# Catalogue searches: external STAC/VEDA calls, cheaper than a completion
+	rate_limit {
+		zone chatbot_search {
+			match {
+				method POST
+				path /api/stac-search /api/veda-search /api/structured-search /api/sign-mosaic-url /api/session-reset
+			}
+			key    {remote_host}
+			window 1m
+			events 30
+		}
+	}
+
+	# Light reads (health, config, collections). POSTs are counted in the zones
+	# above only, so a chat turn never burns the browse quota.
+	rate_limit {
+		zone chatbot_browse {
+			match {
+				method GET
+				path /api/*
 			}
 			key    {remote_host}
 			window 1m
