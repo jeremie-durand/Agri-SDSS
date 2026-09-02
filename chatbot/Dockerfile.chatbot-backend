@@ -23,7 +23,7 @@ FROM ollama-${INCLUDE_OLLAMA} AS ollama
 # ── Stage 1: Clone OpenGeo-AI-Assistant at pinned version ────────────────────
 FROM alpine/git:2.43.0 AS source
 # Default, override with --build-arg CHATBOT_VERSION=... when building
-ARG CHATBOT_VERSION=v0.1.2-alpha
+ARG CHATBOT_VERSION=v0.2.0-alpha
 RUN git clone --depth 1 --branch ${CHATBOT_VERSION} \
     https://github.com/jeremie-durand/OpenGeo-AI-Assistant.git /src
 
@@ -75,9 +75,6 @@ COPY --from=ollama /usr/lib/ollama /usr/local/lib/ollama
 # Fix deprecated datetime.utcnow() calls in upstream fastapi_app.py (Python 3.12+)
 RUN sed -i 's/^from datetime import datetime$/from datetime import datetime, timezone/' /app/fastapi_app.py \
     && sed -i 's/datetime\.utcnow()/datetime.now(timezone.utc)/g' /app/fastapi_app.py
-
-# Agri-SDSS patches to upstream generic_query_translator.py (see overrides/backend/patch_generic_query_translator.py)
-RUN python3 /app/patch_generic_query_translator.py
 
 RUN mkdir -p /app/uploads /app/.ollama && \
     groupadd --system appuser && \
