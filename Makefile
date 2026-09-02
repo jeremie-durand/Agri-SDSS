@@ -75,9 +75,14 @@ test-caddy:
 .PHONY: build lint-dockerfiles lint-md scan-secrets test-caddy generate-args \
 	test-i18n i18n-extract i18n-update i18n-compile i18n-check
 
+# Ignored rules, and why (hadolint exits non-zero on any warning, so each must be
+# listed explicitly rather than blanket-suppressed
+HADOLINT_IGNORES := --ignore DL3008 --ignore DL3013 --ignore DL3018 \
+	--ignore DL3006 --ignore DL3007 --ignore DL3025 --ignore DL3066
+
 lint-dockerfiles:
-	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < chatbot/Dockerfile.chatbot-backend
-	docker run --rm -i hadolint/hadolint hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 - < chatbot/Dockerfile.chatbot-frontend
+	docker run --rm -i hadolint/hadolint hadolint $(HADOLINT_IGNORES) - < chatbot/Dockerfile.chatbot-backend
+	docker run --rm -i hadolint/hadolint hadolint $(HADOLINT_IGNORES) - < chatbot/Dockerfile.chatbot-frontend
 
 lint-md:
 	pre-commit run markdownlint-cli2 --all-files

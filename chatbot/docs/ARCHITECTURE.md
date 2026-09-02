@@ -29,19 +29,25 @@ Files in `overrides/` with the same relative path as an upstream file **replace*
 
 ```text
 overrides/
-├── backend/
-│   ├── tools_registry.py          # replaces upstream; exports SDSS_TOOLS
+├── backend/                       # all additive — no upstream counterpart
+│   ├── entrypoint.sh              # starts local Ollama only when LLM_BASE_URL targets :11434
+│   ├── sdss_main.py               # uvicorn entry point; mounts the SDSS router + locale middleware
+│   ├── sdss_api.py                # /sdss/* router for OGC API - Processes queries
+│   ├── sitecustomize.py           # auto-imported at startup; fixes the MODIS NDVI rescale range
+│   ├── tools_registry.py          # exports SDSS_TOOLS for the upstream agent kernel
 │   └── tools/
+│       ├── __init__.py            # re-exports the tool helpers
 │       ├── land_use_analyzer.py   # STAC items + parcel GeoJSON → LandUseHistory
-│       ├── som_predictor.py       # raster-api SOM response → SomPrediction
-│       └── quebec_zones.py        # region name → bounding box
-└── frontend/
+│       ├── quebec_zones.py        # region name → bounding box
+│       └── som_predictor.py       # raster-api SOM response → SomPrediction
+└── frontend/                      # both replace an upstream file
     ├── nginx.conf                 # proxies /api/* → backend:8000
-    └── src/components/
-        ├── SoilMapViewer.tsx      # SOM tile layer; postMessages bbox to parent map
-        ├── ParcelSelector.tsx     # parcel ID input for Quebec workflows
-        └── QuebecToolbar.tsx      # quick-action prompts for SDSS workflows
+    └── vite.config.ts             # Vite 8 / Rolldown build settings
 ```
+
+Every backend override is currently **additive** — none shadows an upstream path, so
+upstream refactors cannot silently change their behaviour. The two frontend files do
+replace their upstream counterparts and are the ones to diff on an upgrade.
 
 ## Internal service wiring
 
@@ -87,18 +93,56 @@ The backend is provider-agnostic via the upstream framework:
 | `LLM_BASE_URL` | `https://api.openai.com/v1` | Override for local models |
 | `LLM_MAX_TOKENS` | `1000` | Max tokens per response |
 
+## Language (FR/EN)
+
+Language is shared between `home` and the chatbot through `localStorage` — which works
+only because every sub-application is proxied through the single `home` origin.
+
+| Step | Who | What |
+| --- | --- | --- |
+| 1 | `nav-inject.js` (home) | writes `localStorage['sdss-lang']` (`fr` \| `en`) and dispatches an `sdss-lang-change` CustomEvent on `window` |
+| 2 | upstream `i18n/I18nContext.tsx` | reads the same key on mount, then listens for `sdss-lang-change` (same tab) and `storage` (other tabs) |
+| 3 | `chatbot-bridge.js` | maps the key to an `Accept-Language` header on its own API calls |
+| 4 | `LocaleASGIMiddleware` (`sdss_main.py`) | binds the request locale so backend messages come back translated |
+
+Upstream's `I18nContext` is written against this contract on purpose (it names
+`sdss-lang` and `sdss-lang-change` directly), so the chatbot UI follows the home nav
+toggle with no extra wiring on our side. Do not add a second language mechanism.
+
+**Greeting override:** the chat greeting is the one string we deliberately override.
+Upstream owns and translates it (`chat.welcome`), but its wording is generic
+("OpenGeo AI Assistant"); `chatbot-bridge.js` rewrites it after render so the user sees
+Agri-SDSS branding and the Québec framing in both languages.
+
+This is a permanent override, not a workaround — keep it across upgrades. It matches
+upstream's greeting *and* its own output, so it stays correct whether upstream fixes the
+greeting at mount (older builds) or re-translates it on every language switch, and its
+`MutationObserver` is loop-safe because it writes nothing once the text already matches.
+If upstream ever changes its greeting wording, add the new opening words to `SNIPPETS`.
+
 ## Upstream upgrade process
 
-A daily GitHub Actions workflow ([`chatbot-release-watcher.yml`](../../.github/workflows/chatbot-release-watcher.yml)) monitors `OpenGeo-AI-Assistant` releases and auto-opens a PR bumping `CHATBOT_VERSION` in `.env.example`.
+A daily GitHub Actions workflow ([`chatbot-release-watcher.yml`](../../.github/workflows/chatbot-release-watcher.yml)) monitors `OpenGeo-AI-Assistant` releases and auto-opens a PR bumping `CHATBOT_VERSION` in the four pinned files:
+
+- `.env.example`
+- `docker-compose.yml`
+- `chatbot/Dockerfile.chatbot-backend`
+- `chatbot/Dockerfile.chatbot-frontend`
+
+`.env.ci` does not pin the version — CI inherits the `docker-compose.yml` default. Your
+local `.env` is untracked, so bump it by hand as well.
 
 Before merging:
 
-1. CI security scan passes (CVE, secrets, Hadolint)
-2. `verify-overrides` job confirms override paths are still valid
-3. Tested locally with `make build-safe`
-4. All chatbot tools resolve correctly against internal APIs
-5. Quebec UI components render as expected
+1. CI security scan passes (CVE, secrets)
+2. `verify-overrides` job lists each override against the new tag — note that it is
+   **informational only** and never fails the build; read its output
+3. `docker compose build chatbot-backend` succeeds
+4. `make test-chatbot` passes
+5. All chatbot tools resolve correctly against internal APIs
 
-To upgrade manually: update `CHATBOT_VERSION` in `.env`, then rebuild.
+To upgrade manually: bump `CHATBOT_VERSION` in the four files above plus `.env`, then
+rebuild. Diff the upstream files that the frontend overrides replace (`nginx.conf`,
+`vite.config.ts`) to catch interface drift.
 
 Development guidelines and test commands are in [CLAUDE.md](../CLAUDE.md).

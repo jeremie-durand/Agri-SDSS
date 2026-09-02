@@ -460,28 +460,43 @@
     mountBanner();
   }
 
-  /* ── Welcome message translation ─────────────────────────────────────────── */
+  /* ── Agri-SDSS greeting override ─────────────────────────────────────────── */
+  /* Upstream owns the greeting and (since the chat.welcome key landed) translates
+     it. We override only the wording, to carry Agri-SDSS branding and the Québec
+     framing. Matching covers upstream's greeting in both languages and our own,
+     so one pass finds the message whatever it currently says and writes the text
+     for the active language — correct in both directions, and on upstream builds
+     that still fix the greeting in English at mount time. */
   (function () {
     var MSGS = {
-      en: 'Welcome to OpenGeo AI Assistant! I\'m here to help you find datasets that include location and date details. Whether you\'re tracking time-sensitive trends or exploring geospatial insights, I\'ve got you covered. Just tell me what you\'re working on, and we\'ll get started!',
+      en: 'Welcome to the Agri-SDSS AI Assistant! I\'m here to help you find geospatial data with location and date details. Whether you\'re analysing temporal trends or exploring spatial insights across Québec, I\'ve got you covered. Just tell me what you\'re working on, and we\'ll get started!',
       fr: 'Bienvenue sur l\'Assistant IA Agri-SDSS ! Je suis ici pour vous aider à trouver des données géospatiales avec des détails de localisation et de date. Que vous analysiez des tendances temporelles ou exploriez des aperçus spatiaux sur le Québec, je suis là pour vous. Dites-moi sur quoi vous travaillez, et commençons !'
     };
 
-    // Unique snippets to detect which language version is currently in the DOM
-    var SNIPPET = { en: 'Welcome to OpenGeo AI Assistant', fr: 'Bienvenue sur l\'Assistant IA' };
+    // Opening words of every greeting we may meet in the DOM — upstream's, and ours.
+    var SNIPPETS = [
+      'Welcome to OpenGeo AI Assistant',
+      'Bienvenue sur OpenGeo AI Assistant',
+      'Welcome to the Agri-SDSS AI Assistant',
+      'Bienvenue sur l\'Assistant IA Agri-SDSS'
+    ];
+
+    function isGreeting(text) {
+      for (var i = 0; i < SNIPPETS.length; i++) {
+        if (text.indexOf(SNIPPETS[i]) !== -1) return true;
+      }
+      return false;
+    }
 
     function applyWelcome(lang) {
-      // Search for the *opposite* language text currently in the DOM and replace with target
-      var currentLang = lang === 'fr' ? 'en' : 'fr';
-      var searchFor = SNIPPET[currentLang];
-      var to = MSGS[lang];
+      var to = MSGS[lang] || MSGS.fr;
 
       // Text node path (plain React render)
       var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
       var node;
       while ((node = walker.nextNode())) {
-        if (node.nodeValue && node.nodeValue.indexOf(searchFor) !== -1) {
-          node.nodeValue = to;
+        if (node.nodeValue && isGreeting(node.nodeValue)) {
+          if (node.nodeValue !== to) node.nodeValue = to;
           return true;
         }
       }
@@ -489,29 +504,34 @@
       var all = document.querySelectorAll('*');
       for (var i = 0; i < all.length; i++) {
         var el = all[i];
-        if (el.children.length === 0 && el.innerHTML && el.innerHTML.indexOf(searchFor) !== -1) {
-          el.innerHTML = to;
+        if (el.children.length === 0 && el.innerHTML && isGreeting(el.innerHTML)) {
+          if (el.innerHTML !== to) el.innerHTML = to;
           return true;
         }
       }
       return false;
     }
 
-    // Observer only needed when loading with FR: waits for the EN message to appear then swaps it
+    function currentLang() {
+      return localStorage.getItem('sdss-lang') || 'fr';
+    }
+
+    // Stays connected: the greeting is rendered on mount and, on upstream builds
+    // that translate it reactively, re-rendered on every host language switch.
+    // Loop-safe — applyWelcome writes nothing once the text already matches.
     var observer = new MutationObserver(function () {
-      if (applyWelcome('fr')) observer.disconnect();
+      applyWelcome(currentLang());
     });
 
     function start() {
-      var lang = localStorage.getItem('sdss-lang') || 'fr';
-      if (lang === 'fr' && !applyWelcome('fr')) {
-        observer.observe(document.body, { childList: true, subtree: true });
-      }
+      applyWelcome(currentLang());
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     }
 
-    // Handle language switch while already on the chatbot page
+    // Upstream builds that fix the greeting in English at mount never re-render
+    // it, so the observer alone would leave it stale — apply the switch directly.
     window.addEventListener('sdss-lang-change', function (e) {
-      applyWelcome(e.detail.lang);
+      applyWelcome((e.detail && e.detail.lang) || currentLang());
     });
 
     if (document.readyState === 'loading') {

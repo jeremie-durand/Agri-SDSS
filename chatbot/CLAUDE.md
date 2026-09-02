@@ -13,10 +13,13 @@ To upgrade the upstream chatbot, bump `CHATBOT_VERSION` in `.env` and verify tha
 ## Testing
 
 ```bash
-# Run all chatbot tests (also lints both Dockerfiles with hadolint)
+# Run all chatbot tests (rebuilds the image first)
 make test-chatbot
 
-# Tests only (no hadolint)
+# Lint both Dockerfiles with hadolint (separate target)
+make lint-dockerfiles
+
+# Tests only, against the existing image
 docker compose run --rm chatbot-backend pytest chatbot/test/ -v
 
 # Single test file
