@@ -9,7 +9,7 @@ SQLAlchemy==2.0.52
 stac-fastapi.api==6.3.2
 stac-fastapi.extensions==6.2.1
 stac-fastapi.pgstac==6.2.1
-stac-fastapi.types==6.2.1
+stac-fastapi.types==6.5.0
 stac-pydantic==3.6.0
 starlette_cramjam==0.6.0
 typing_extensions==4.16.0
