@@ -194,12 +194,8 @@ def detect_non_spatial_csv(csv_files: list[Path]) -> list[Path]:
                 df = pd.read_csv(csv_file, nrows=3)  # Only read first 3 rows for speed
                 columns_lower = [c.lower() for c in df.columns]
 
-                lat_cols = [c.lower() for c in ColumnMappings.LATITUDE.value.alias] + [
-                    ColumnMappings.LATITUDE.value.canonical
-                ]
-                lon_cols = [c.lower() for c in ColumnMappings.LONGITUDE.value.alias] + [
-                    ColumnMappings.LONGITUDE.value.canonical
-                ]
+                lat_cols = ColumnMappings.LATITUDE.value.all_names()
+                lon_cols = ColumnMappings.LONGITUDE.value.all_names()
 
                 if not any(c in columns_lower for c in lat_cols) or not any(
                     c in columns_lower for c in lon_cols
