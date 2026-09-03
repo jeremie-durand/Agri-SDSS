@@ -850,35 +850,6 @@ class DataInserter:
             )
             handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
-    def read_data(self, table_name: str) -> gpd.GeoDataFrame:
-        """Read spatial data from a PostGIS table into a GeoDataFrame.
-
-        Args:
-            table_name: Name of the table to read.
-
-        Returns:
-            GeoDataFrame containing the spatial data.
-        """
-        try:
-            metadata = sqlalchemy.MetaData()
-            table = sqlalchemy.Table(table_name, metadata, autoload_with=self.engine)
-
-            stmt = sqlalchemy.select(
-                table.c.gid,
-                table.c.geometry,
-                table.c.datetime,
-                table.c.bbox,
-                table.c.file_url,
-                table.c.metadata,
-            )
-
-            gdf = gpd.read_postgis(stmt, self.engine, geom_col="geometry")
-            logger.info(f"Data read from PostGIS table '{table_name}' successfully.")
-            return gdf
-        except Exception as exc:
-            error_msg = f"Error reading data from PostGIS: {exc}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
 
 class PostGISManager:
     """Manager class for PostGIS database operations."""
@@ -1148,14 +1119,3 @@ class PostGISManager:
         except Exception:
             error_msg = "Error inserting COG metadata into PostGIS"
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
-    def read_data(self, table_name: str) -> gpd.GeoDataFrame:
-        """Read spatial data from a PostGIS table into a GeoDataFrame.
-
-        Args:
-            table_name: Name of the table to read.
-
-        Returns:
-            GeoDataFrame containing the spatial data.
-        """
-        return self._inserter.read_data(table_name)

@@ -1145,53 +1145,7 @@ def test_insert_cog_metadata_edge_case_values(postgis_manager):
 
 
 # ------------------------------------------
-# Test cases for read_data()
 # ------------------------------------------
-def test_read_data_success(postgis_manager, mock_gdf):
-    """Test successful data reading."""
-    table_name = "test_table"
-
-    with patch("sqlalchemy.MetaData"):
-        with patch("sqlalchemy.Table"):
-            with patch("sqlalchemy.select"):
-                with patch("geopandas.read_postgis", return_value=mock_gdf):
-                    result = postgis_manager.read_data(table_name=table_name)
-
-                    assert isinstance(result, gpd.GeoDataFrame)
-                    assert len(result) == 2
-
-
-def test_read_data_nonexistent_table(postgis_manager):
-    """Test reading data from nonexistent table."""
-    table_name = "nonexistent_table"
-
-    with patch("sqlalchemy.MetaData"):
-        with patch("sqlalchemy.Table"):
-            with patch("sqlalchemy.select"):
-                with patch(
-                    "geopandas.read_postgis", side_effect=Exception("Table not found")
-                ):
-                    with pytest.raises(
-                        RuntimeError,
-                        match="Error reading data from PostGIS",
-                    ):
-                        postgis_manager.read_data(table_name=table_name)
-
-
-def test_read_data_with_limit(postgis_manager, mock_gdf):
-    """Test reading data with limit."""
-    table_name = "test_table"
-
-    with patch("sqlalchemy.MetaData"):
-        with patch("sqlalchemy.Table"):
-            with patch("sqlalchemy.select"):
-                with patch("geopandas.read_postgis", return_value=mock_gdf.head(1)):
-                    result = postgis_manager.read_data(table_name=table_name)
-
-                    assert isinstance(result, gpd.GeoDataFrame)
-                    assert len(result) == 1
-
-
 # ------------------------------------------
 # Test cases for GID column handling
 # ------------------------------------------
