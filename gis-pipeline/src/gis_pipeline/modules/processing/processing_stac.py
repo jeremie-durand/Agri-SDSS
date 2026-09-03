@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
-from collections import OrderedDict
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -38,14 +37,6 @@ logger = structlog.get_logger()
 _DATETIME_KEYS = ColumnMappings.DATETIME.value.alias + [
     ColumnMappings.DATETIME.value.canonical
 ]
-
-_DATETIME_KEY_VARIANTS = []
-
-for k in _DATETIME_KEYS:
-    _DATETIME_KEY_VARIANTS.extend([k, k.upper(), k.lower()])
-
-# preserve order, remove duplicates
-_DATETIME_KEY_VARIANTS = list(OrderedDict.fromkeys(_DATETIME_KEY_VARIANTS))
 
 _DATETIME_KEYS_LOWER = {k.lower() for k in _DATETIME_KEYS}
 
@@ -521,11 +512,6 @@ def build_stac_collection_from_items(
     Returns:
         pystac.Collection: The generated STAC Collection.
     """
-    for i, item in enumerate(items):
-        logger.info(f"Item {i}: type={type(item)}, is_Item={isinstance(item, Item)}")
-        if hasattr(item, "id"):
-            logger.info(f"Item {i}: id={item.id}")
-    logger.info("=== END DEBUG ===")
     logger.info(
         f"Creating STAC Collection with ID: {collection_id}, Title: {collection_id}"
     )
