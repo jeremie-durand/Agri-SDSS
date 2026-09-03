@@ -1,129 +1,98 @@
-![License](https://img.shields.io/badge/license-TBD-lightgrey)
-![Project Status](https://img.shields.io/badge/status-en%20développement-yellow)
-![Platform](https://img.shields.io/badge/platform-linux--windows-lightgrey)
-![Python](https://img.shields.io/badge/python-3.11-blue)
-![Docker](https://img.shields.io/badge/docker-ready-blue)
-![PostgreSQL](https://img.shields.io/badge/postgresql-blue)
+# Agri-SDSS
 
-# Geospatial Data API (mos-gis)
-A geospatial data API centralizes access to GIS data from multiple sources and formats, providing a standardized interface. It allows users to query, filter and retrieve data efficiently without handling raw data or performing preprocessing steps. By exposing data through an API, it enables automation, interoperbility and ease of integration with frontend tools. This approach ensures that new spatial data can be added seamlessly, processed consistently and made available to downstream applications in a reproductible and scalable manner.
+Geospatial data platform for sustainable agriculture research in Quebec. Automated pipeline from raw geodata to OGC-compliant APIs, a STAC catalog, and an AI assistant.
 
-A geoprocessing pipeline has been developed to automate the extraction, preprocessing, ingestion and diffusion of GIS data from various sources and formats. This pipeline supports the addition of new data by automating the processing steps tailored to each data type. The data are published in a custom API based on [eoAPI](https://github.com/developmentseed/eoAPI), an open-source, modular and cloud-native architecture designed to make large-scale Earth Observation data accessible, discoverable and interoperable. It enables quick deployment of a standards API for exploring geospatial raster and vector data, leveraging powerful open-source tools and modern web standards.
+Currently specialized for Soil Organic Matter (SOM) potential mapping and decision support for Quebec agricultural parcels. The modular architecture based on microservices and Docker makes each service independently reusable. Adapt or replace individual components (pipeline, APIs, frontend, chatbot) for your own geospatial use case.
 
-**eoAPI** is built from a collection of interoperable services:
-- [pgSTAC](https://github.com/stac-utils/pgstac) -> PostgreSQL extension for managing and querying STAC metadata.
-- [stac-fastapi](https://github.com/stac-utils/stac-fastapi) -> A FastAPI-based implementation of the STAC API.
-- [TiTiler-pgSTAC](https://github.com/stac-utils/titiler-pgstac) -> Tile server to dynamically render Cloud Optimized GeoTIFFs using STAC items.
-- [TiPg](https://github.com/developmentseed/tipg) -> OGC-compliant vector tile server for PostGIS data.
+## Quick start
 
-On the frontend, it uses [STAC Browser](https://github.com/radiantearth/stac-browser), which connects to the API for some simple UI components.
-
-This project is part of a larger research project and forms the basis of the backend for the platform described [here](https://rqrad.com/projet/developpement-dun-systeme-daide-a-la-decision-pour-determiner-le-potentiel-daccumulation-de-matiere-organique-du-sol-au-quebec-et-les-pratiques-pour-latteindre/).
-This backend includes the plateform architecture, a geoprocessing pipeline and a geospatial API.
-
-Currently, only the local version is availaible.
-
-## Geospatials Standards & Formats natively supported by eoAPI
-- [STAC (SpatioTemporel Asset Catalog)](https://stacspec.org/en)
-- [COG (Cloud Optimized GeoTIFF)](https://cogeo.org/)
-- [OGC API - Tiles](https://www.ogc.org/standards/ogcapi-tiles/)
-- [OGC API - Features](https://www.ogc.org/standards/ogcapi-features/)
-
-## Custom features and additions
-A new endpoint "/processes" has been added to the API using [pygeoapi](https://pygeoapi.io/). It enables publishing processes via [OGC API - Processes](https://ogcapi.ogc.org/processes/) standard. Processes are algorithms that take inputs, perform calculations, and produce outputs. For example: A terrain analysis process could take a DEM as input and produce a slope map as output. This endpoint uses openapi specifications and is dynamically created when it is built. 
-
-[DuckDB](https://github.com/duckdb/duckdb) has been integrated as a high-performance, in-process SQL analytics engine within the API. DuckDB enables fast querying and transformation of large tabular datasets (such as Parquet or CSV files) directly on disk, without the need for a separate database server. With DuckDB, users can run complex SQL queries, compute spatial operations, and generate new datasets on the fly, all within the local environment and with minimal setup. This integration brings powerful analytics capabilities to the API, complementing the traditional database and cloud-based approaches.
-
-**NOTE:** DuckDB uses Parquet or GeoParquet files. They are built for vector data, such as GeoJSON. This is not for raster data.
-
-## Planned Features / Future Work
-**New features in pipeline:**
-- Earth Observation data integration
-- Add specific usage processes that uses OGC API Processes
-
-**New features in API:**
-- Documention for API using tools like Swagger UI
-- Proxy services integration for legacy OGC standards
-
-**Frontend:**
-- VEDA UI integration
-
-# Requirements
-- Docker
-
-**NOTE:** Dependencies for each service are automaticaly installed in independent containers.
-
-# Local Deployment with Docker
-Follow these steps to set up the project locally using Docker.
-
-## 1. Set Environment Variables
-Copy **env.example** and rename it to **.env** in the project root.
-
-Public variables for the pipeline are located in **stac-fastapi/config.yaml** file. These are the ones that can be modified.
-
-**NOTE:** The script **scripts/001_create_postgres_role.sql** automatically creates the PostgreSQL role used by Docker. You do not need to modify database credentials.
-
-## 2. Build and Run Docker
-Open a new terminal and run: 
 ```bash
-docker compose up --build
-```
-This will build the images and start the services.
-
-## 3. Add Data Locally
-- Select data (they can be rasters, vectors or both).
-- Place them in the repo **/data/input/**. If **INPUT_DATA_PATH** has been modified, placed them in the corresponding path instead.
-
-**NOTE:** Data can be placed in nested folder within the repo, for exemple **/data/input/rasters** or /**data/input/vectors**.
-
-## 4. Python Pipeline
-### About
-This pipeline automates the extraction, preprocessing, ingestion and publication of GIS data into the Geospatial Data API. It is designed to handle multiple data types and formats, applying the necessary transformations and metadata enrihment automatically. Running the pipeline ensures that new dataset are processed consistently and made avaible in the API. This automation reduces manual work, enforces reproductibility and enables inegration with frontend tools.
-
-### Running the Pipeline
-1. Open a new terminal and run:
-```bash
-docker compose exec stac-fastapi python3 pipeline/main.py
+git clone https://github.com/jeremie-durand/Agri-SDSS.git
+cd Agri-SDSS && cp .env.example .env
 ```
 
-The pipeline accepts several arguments for customization. \
-You can override default settings using command-line arguments. \
-See the full, automatically generated [ARGS.md](stac-fastapi/pipeline/docs/ARGS.md) for details, including `--help` output.
-
-To generate a new ARGS.md (for updated arguments), run:
 ```bash
-docker compose exec stac-fastapi python3 pipeline/docs/generate_args_md.py
+# Set the two required database passwords
+sed -i.bak -e "s|^POSTGRES_PASS=.*|POSTGRES_PASS=$(openssl rand -hex 24)|" \
+           -e "s|^DB_PASS=.*|DB_PASS=$(openssl rand -hex 24)|" .env && rm .env.bak
 ```
 
-**NOTE:** If not provided, the default arguments from stac-fastapi/config.yaml will be used.
-
-## 5. Run processes
-Information about running processes in HTTP requests are avaible in the [docs](/pygeoapi/docs/processes_endpoint.md)
-
-## 6. Endpoints
-The API exposes several services.  
-See the automatically generated [ENDPOINTS.md](stac-fastapi/pipeline/docs/ENDPOINTS.md) for full URLs and example paths.
-
-To generate a new ENDPOINTS.md (for updated API urls), run:
 ```bash
-docker compose exec stac-fastapi python3 pipeline/docs/generate_endpoints_md.py
+# Build the app
+make build
 ```
 
-More information in the [docs](docs/api_services.md)
+`make build` downloads several GB on first run and retries automatically if the connection drops mid-download. May take several minutes.
 
-## 7. Testing
-- Open a new terminal and run:
 ```bash
-docker compose exec stac-fastapi pytest
+# Start the app
+docker compose up -d
 ```
-- To run a specific test script :
+
+The platform is now available at **[https://localhost](https://localhost)** — accept the browser's certificate warning (local self-signed TLS). The home page links to the interactive map, the STAC catalog browser, the AI assistant, and the APIs.
+
+### Load the demo data
+
+A small BDPPAD extract (~14,500 FADQ farm parcels, Montérégie 2025) ships in
+the repo so the map has data out of the box:
+
 ```bash
-pytest
+cp data/demo/bdppad/bdppad_demo_an_2025.gpkg data/input/
+docker compose exec gis-pipeline python3 -m gis_pipeline.main
 ```
-- Run a specific test script: `test_name_of_file.py`
-All test scripts are located in the /tests/ folder and start with test_.
-Replace test_name_of_file.py with the desired test file:
+
+Reload the page, or run `docker compose restart vector-api` to see the result: Parcels now appear on the interactive map — open the **BDPPAD**  panel and select **2025**.
+
+### Adding more data
+
+Drop files in `data/input/`, then run the pipeline:
+
 ```bash
-pytest pytest test/directory/test_name_of_file.py
+docker compose exec gis-pipeline python3 -m gis_pipeline.main
 ```
-**NOTE:** Replace **test_name_of_file.py** with the desired test file.
+
+Data is now available across all APIs and frontends. See **[https://localhost/data](https://localhost/data)**.
+
+## Services
+
+Containerized services cover the full path from raw geodata to public APIs and frontends: the ETL pipeline (`gis-pipeline`), four standards-based APIs (`stac-api`, `vector-api`, `raster-api`, `process-api`), the AI assistant (`chatbot`), the `stac-browser` explorer, the unified `home` frontend, `caddy` for TLS, and the PostGIS `database`.
+
+## Documentation
+
+| | |
+| --- | --- |
+| [Architecture](docs/ARCHITECTURE.md) | System diagram, data flow, common API commands |
+| [Deployment](docs/DEPLOYMENT.md) | Production setup with Caddy TLS |
+| [Data catalog](docs/data/CATALOG.md) | Integrated datasets |
+| [Contributing](docs/CONTRIBUTING.md) | Branching, commits, PRs |
+| [Internationalization](docs/I18N.md) | FR/EN error messages and how to request a language |
+| [Technical docs](docs/README.md) | Full documentation index |
+
+## Credits & Acknowledgments
+
+This project was originally developed as part of a master's degree at Université de Sherbrooke with a research internship at Mon Système Fourrager, and is an open-source contribution to the [RQRAD's Spatial Decision Support System SOM project](https://rqrad.com/projet/developpement-dun-systeme-daide-a-la-decision-pour-determiner-le-potentiel-daccumulation-de-matiere-organique-du-sol-au-quebec-et-les-pratiques-pour-latteindre/).
+
+### Authors
+
+| Name | Role | Affiliation |
+| --- | --- | --- |
+| Jérémie Durand | Lead developer & maintainer | [Université de Sherbrooke](https://www.usherbrooke.ca/) & [Mon Système Fourrager](https://msfourrager.com/) |
+| Rami Albasha | Reviewer | [Mon Système Fourrager](https://msfourrager.com/) |
+| Jules Robichaud-Gagnon | Reviewer | [Mon Système Fourrager](https://msfourrager.com/) |
+| Mickaël Germain | Reviewer & Project supervisor | [Université de Sherbrooke](https://www.usherbrooke.ca/) |
+| Maxime Leduc | Project supervisor | [Mon Système Fourrager](https://msfourrager.com/) |
+| Yacine Bouroubi | Project supervisor | [Université de Sherbrooke](https://www.usherbrooke.ca/) |
+
+### Contributors
+
+- Hamed Etezadi — author of the mos-predict SOM prediction model, integrated into the process-api.
+
+Thanks to everyone who contributes code, issues, or reviews. All contributors are listed automatically on the [contributors graph](https://github.com/jeremie-durand/Agri-SDSS/graphs/contributors).
+
+### Built on open-source projects
+
+This project was inspired by [eoAPI](https://github.com/developmentseed/eoAPI) by [Development Seed](https://developmentseed.org/), whose STAC + raster + vector API architecture served as the starting point for this platform. This project assembles and extends existing open-source work — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technology stack and links to upstream repositories.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE). Licenses of the open-source components it builds on are inventoried in [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).

@@ -1,4 +1,4 @@
-name: Run Mocked API Tests
+name: Run Tests
 
 on:
   pull_request:
@@ -16,27 +16,45 @@ jobs:
     permissions:
       contents: read
 
-    env:
-      STAC_API_URL: "http://localhost:8081"
-      RASTER_API_URL: "http://localhost:8082"
-      VECTOR_API_URL: "http://localhost:8083"
-      STAC_BROWSER_URL: "http://localhost:8085"
-      PYGEOAPI_URL: "http://localhost:5000"
-      DUCKDB_DATABASE: "/tmp/eoapi.duckdb"
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Check ARGS.md is up-to-date
         run: |
+          set -a && source .env.ci && set +a
           python -m pip install --upgrade pip
-          pip install -r stac-fastapi/requirements-stac-fastapi.txt
+          python -m pip install -r gis-pipeline/requirements-gis-pipeline.txt
+          PYTHONPATH=gis-pipeline/src python -m gis_pipeline.generate_args_md
+          if ! git diff --quiet gis-pipeline/docs/ARGS.md; then
+            echo "ARGS.md is out of sync!"
+            echo "Run: PYTHONPATH=gis-pipeline/src python -m gis_pipeline.generate_args_md"
+            git diff gis-pipeline/docs/ARGS.md
+            exit 1
+          fi
+          echo "ARGS.md is up-to-date"
 
-      - name: Run tests with mocked endpoints
-        run: pytest -m mocked test/
+      - name: Check i18n catalogs
+        run: |
+          python -m pip install -r agri_i18n/requirements-i18n.txt
+          python -m agri_i18n.check
+
+      - name: Create .env file
+        run: cp .env.ci .env
+
+      - name: Validate nginx configs
+        run: make lint-nginx
+
+      - name: Build service images
+        run: docker compose build gis-pipeline stac-api vector-api raster-api process-api chatbot-backend
+
+      - name: Start database
+        run: docker compose up -d database
+
+      - name: Run all tests
+        run: make test-all

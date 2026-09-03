@@ -1,17 +1,50 @@
+# Compile the gettext catalogs. Build-stage only: Babel never reaches runtime,
+# and the .mo files are gitignored so they must be produced here.
+FROM python:3.12-slim AS i18n
+RUN --mount=type=bind,source=agri_i18n/requirements-i18n.txt,target=/tmp/requirements-i18n.txt \
+    pip install --no-cache-dir -r /tmp/requirements-i18n.txt
+COPY agri_i18n/locales /build/locales
+RUN pybabel compile -d /build/locales -D messages --statistics
+
 # Official TiPg image
-FROM ghcr.io/developmentseed/tipg:1.1.2
+FROM ghcr.io/developmentseed/tipg:1.4.0 AS runtime
 
 # Set environment variables
 ENV VECTOR_API_PORT=8083
 ENV HOST=0.0.0.0
+ENV DUCKDB_DATA_DIR=/data/duckdb
+ENV PYTHONPATH=/app
+ENV PATH="/home/user/.local/bin:${PATH}"
+
+# Install DuckDB and related dependencies for Parquet/GeoParquet support
+RUN --mount=type=bind,source=vector-api/requirements-vector-api.txt,target=/tmp/requirements-vector-api.txt \
+    pip install --no-cache-dir -r /tmp/requirements-vector-api.txt
 
 # Copy canonical wait-for-it script and entrypoint
-COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
-COPY vector-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/wait-for-it.sh /usr/local/bin/entrypoint.sh
+COPY --chmod=755 scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
+COPY --chmod=755 vector-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-# Expose port for vector API
+# Copy custom application code
+COPY --chown=user:user vector-api/src /app/vector_api
+
+# Shared gettext helpers (runtime pieces only; tests run in the process-api image)
+COPY --chown=user:user agri_i18n/__init__.py agri_i18n/middleware.py /app/agri_i18n/
+COPY --from=i18n --chown=user:user /build/locales /app/agri_i18n/locales
+
+# TiPg base already has user:x:1000:1000; make the USER directive explicit and ensure ownership
+RUN chown -R user:user /app
+USER user
+
 EXPOSE ${VECTOR_API_PORT}
 
-# Command to wait for the database to be ready before starting TiPg
+# Command to wait for the database to be ready before starting the API
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["sh", "-c", "uvicorn vector_api.app:app --host 0.0.0.0 --port ${VECTOR_API_PORT:-8083}"]
+
+FROM runtime AS test
+USER root
+RUN --mount=type=bind,source=vector-api/requirements-vector-api-test.txt,target=/tmp/requirements-vector-api-test.txt \
+    pip install --no-cache-dir -r /tmp/requirements-vector-api-test.txt
+USER user
+COPY --chown=user:user vector-api/test /app/vector_api/test
+COPY --chown=user:user vector-api/pytest.ini /app/pytest.ini

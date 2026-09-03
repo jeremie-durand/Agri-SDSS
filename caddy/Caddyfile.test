@@ -1,0 +1,74 @@
+# Caddyfile for rate limiting tests only.
+# Short windows to avoid waiting 1 minute between tests.
+# Used by "make test-caddy" — do not use in production.
+
+# "caddy" = hostname resolved by Docker from the Python test container
+localhost, agri-sdss.local, caddy {
+	tls internal
+
+	rate_limit {
+		zone pygeoapi_exec {
+			match {
+				method POST
+				path /process-api/processes/*/execution
+			}
+			key    {remote_host}
+			window 5s
+			events 3
+		}
+	}
+
+	rate_limit {
+		zone pygeoapi_browse {
+			match {
+				method GET
+				path /process-api/*
+			}
+			key    {remote_host}
+			window 5s
+			events 5
+		}
+	}
+
+	rate_limit {
+		zone chatbot_llm {
+			match {
+				method POST
+				path /api/query /api/process-comparison-query /api/geoint/* /sdss/*
+			}
+			key    {remote_host}
+			window 5s
+			events 2
+		}
+	}
+
+	rate_limit {
+		zone chatbot_search {
+			match {
+				method POST
+				path /api/stac-search /api/veda-search /api/structured-search /api/sign-mosaic-url /api/session-reset
+			}
+			key    {remote_host}
+			window 5s
+			events 3
+		}
+	}
+
+	rate_limit {
+		zone chatbot_browse {
+			match {
+				method GET
+				path /api/*
+			}
+			key    {remote_host}
+			window 5s
+			events 4
+		}
+	}
+
+	reverse_proxy home:8080
+}
+
+:80 {
+	redir https://{host}{uri} permanent
+}

@@ -1,0 +1,263 @@
+"""Integration tests for Caddy rate limiting on PyGeoAPI routes.
+
+Two zones are tested:
+- pygeoapi_exec : POST /process-api/processes/*/execution  (heavy compute)
+- pygeoapi_browse: GET  /process-api/*                     (lightweight reads)
+
+Run the stack with short windows before executing these tests:
+    RATE_LIMIT_PYGEOAPI_EXEC_EVENTS=3   RATE_LIMIT_PYGEOAPI_EXEC_WINDOW=5s
+    RATE_LIMIT_PYGEOAPI_BROWSE_EVENTS=5 RATE_LIMIT_PYGEOAPI_BROWSE_WINDOW=5s
+"""
+
+import os
+import time
+
+import pytest
+
+CADDY_BASE_URL = os.getenv("CADDY_BASE_URL", "https://localhost")
+EXEC_URL = f"{CADDY_BASE_URL}/process-api/processes/eo-sentinel-fetch/execution"
+BROWSE_URL = f"{CADDY_BASE_URL}/process-api/processes"
+OTHER_URL = f"{CADDY_BASE_URL}/services"
+
+EXEC_LIMIT = int(os.getenv("RATE_LIMIT_PYGEOAPI_EXEC_EVENTS", "3"))
+BROWSE_LIMIT = int(os.getenv("RATE_LIMIT_PYGEOAPI_BROWSE_EVENTS", "5"))
+WINDOW_SECONDS = 6  # safe margin above the 5s test window
+
+
+# ---------------------------------------------------------------------------
+# Execution zone — POST /process-api/processes/*/execution
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_execution_within_limit_not_blocked(caddy_session):
+    """Every request up to the limit must reach PyGeoAPI (not return 429)."""
+    for i in range(EXEC_LIMIT):
+        r = caddy_session.post(EXEC_URL, json={})
+        assert (
+            r.status_code != 429
+        ), f"Request {i + 1}/{EXEC_LIMIT} was blocked (429) before reaching the limit"
+
+
+@pytest.mark.integration
+def test_execution_over_limit_returns_429(caddy_session):
+    """The (limit + 1)th POST must be rejected with 429."""
+    for _ in range(EXEC_LIMIT):
+        caddy_session.post(EXEC_URL, json={})
+    r = caddy_session.post(EXEC_URL, json={})
+    assert r.status_code == 429
+
+
+@pytest.mark.integration
+def test_execution_429_has_retry_after_header(caddy_session):
+    """A 429 response must carry a Retry-After header so clients can back off."""
+    for _ in range(EXEC_LIMIT + 1):
+        r = caddy_session.post(EXEC_URL, json={})
+    assert r.status_code == 429
+    assert "retry-after" in r.headers, "429 missing Retry-After header"
+    assert int(r.headers["retry-after"]) > 0
+
+
+@pytest.mark.integration
+def test_execution_limit_resets_after_window(caddy_session):
+    """After the window expires the counter resets and requests pass again."""
+    for _ in range(EXEC_LIMIT + 1):
+        caddy_session.post(EXEC_URL, json={})
+    time.sleep(WINDOW_SECONDS)
+    r = caddy_session.post(EXEC_URL, json={})
+    assert r.status_code != 429, "Rate limit was not reset after the window expired"
+
+
+# ---------------------------------------------------------------------------
+# Browse zone — GET /process-api/*
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_browse_within_limit_not_blocked(caddy_session):
+    """Every GET up to the browse limit must return a non-429 status."""
+    for i in range(BROWSE_LIMIT):
+        r = caddy_session.get(BROWSE_URL)
+        assert (
+            r.status_code != 429
+        ), f"Browse request {i + 1}/{BROWSE_LIMIT} blocked before limit"
+
+
+@pytest.mark.integration
+def test_browse_over_limit_returns_429(caddy_session):
+    """The (limit + 1)th GET must be rejected with 429."""
+    for _ in range(BROWSE_LIMIT):
+        caddy_session.get(BROWSE_URL)
+    r = caddy_session.get(BROWSE_URL)
+    assert r.status_code == 429
+
+
+# ---------------------------------------------------------------------------
+# Zone isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_exec_zone_does_not_bleed_into_browse_zone(caddy_session):
+    """Exhausting the exec quota must not block browse requests."""
+    time.sleep(
+        WINDOW_SECONDS
+    )  # ensure a clean window — previous tests may have exhausted browse
+    for _ in range(EXEC_LIMIT + 1):
+        caddy_session.post(EXEC_URL, json={})
+    r = caddy_session.get(BROWSE_URL)
+    assert (
+        r.status_code != 429
+    ), "Browse zone was incorrectly blocked by exec zone exhaustion"
+
+
+@pytest.mark.integration
+def test_browse_zone_does_not_bleed_into_exec_zone(caddy_session):
+    """Exhausting the browse quota must not block execution requests."""
+    time.sleep(
+        WINDOW_SECONDS
+    )  # ensure a clean window — previous tests may have exhausted exec
+    for _ in range(BROWSE_LIMIT + 1):
+        caddy_session.get(BROWSE_URL)
+    r = caddy_session.post(EXEC_URL, json={})
+    assert (
+        r.status_code != 429
+    ), "Exec zone was incorrectly blocked by browse zone exhaustion"
+
+
+# ---------------------------------------------------------------------------
+# Non-PyGeoAPI routes — must never be rate limited
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_non_pygeoapi_path_not_rate_limited(caddy_session):
+    """Paths outside /process-api/ must never receive 429 regardless of volume."""
+    for _ in range(EXEC_LIMIT + BROWSE_LIMIT + 5):
+        r = caddy_session.get(OTHER_URL)
+        assert (
+            r.status_code != 429
+        ), "/services returned 429 — rate limit leaked outside pygeoapi zone"
+
+
+# ---------------------------------------------------------------------------
+# Chatbot zones — the backend's own limiter keys on request.client.host, which
+# behind Caddy + home nginx is always the "home" container IP (one bucket for
+# every visitor). These zones are the only per-IP limit the chatbot has, so
+# they are tested here rather than in the chatbot suite.
+# ---------------------------------------------------------------------------
+
+LLM_URL = f"{CADDY_BASE_URL}/api/query"
+SDSS_URL = f"{CADDY_BASE_URL}/sdss/query"
+GEOINT_URL = f"{CADDY_BASE_URL}/api/geoint/orchestrate"
+CHAT_SEARCH_URL = f"{CADDY_BASE_URL}/api/stac-search"
+CHAT_BROWSE_URL = f"{CADDY_BASE_URL}/api/health"
+
+LLM_LIMIT = int(os.getenv("RATE_LIMIT_CHATBOT_LLM_EVENTS", "2"))
+CHAT_SEARCH_LIMIT = int(os.getenv("RATE_LIMIT_CHATBOT_SEARCH_EVENTS", "3"))
+CHAT_BROWSE_LIMIT = int(os.getenv("RATE_LIMIT_CHATBOT_BROWSE_EVENTS", "4"))
+
+
+@pytest.mark.integration
+def test_llm_query_within_limit_not_blocked(caddy_session):
+    """Every POST /api/query up to the limit must reach the backend."""
+    time.sleep(WINDOW_SECONDS)
+    for i in range(LLM_LIMIT):
+        r = caddy_session.post(LLM_URL, json={})
+        assert (
+            r.status_code != 429
+        ), f"Request {i + 1}/{LLM_LIMIT} was blocked (429) before reaching the limit"
+
+
+@pytest.mark.integration
+def test_llm_query_over_limit_returns_429(caddy_session):
+    """The (limit + 1)th POST /api/query must be rejected with 429."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(LLM_LIMIT):
+        caddy_session.post(LLM_URL, json={})
+    r = caddy_session.post(LLM_URL, json={})
+    assert r.status_code == 429
+
+
+@pytest.mark.integration
+def test_sdss_query_shares_the_llm_zone(caddy_session):
+    """POST /sdss/query runs the same agent loop and must share the LLM quota."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(LLM_LIMIT):
+        caddy_session.post(LLM_URL, json={})
+    r = caddy_session.post(SDSS_URL, json={})
+    assert r.status_code == 429, "/sdss/query escaped the chatbot_llm zone"
+
+
+@pytest.mark.integration
+def test_geoint_subpaths_are_rate_limited(caddy_session):
+    """The /api/geoint/* wildcard must cover nested paths, not just one level."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(LLM_LIMIT + 1):
+        r = caddy_session.post(GEOINT_URL, json={})
+    assert r.status_code == 429
+
+
+@pytest.mark.integration
+def test_llm_429_has_retry_after_header(caddy_session):
+    """A 429 on the LLM zone must carry Retry-After so clients can back off."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(LLM_LIMIT + 1):
+        r = caddy_session.post(LLM_URL, json={})
+    assert r.status_code == 429
+    assert "retry-after" in r.headers, "429 missing Retry-After header"
+    assert int(r.headers["retry-after"]) > 0
+
+
+@pytest.mark.integration
+def test_llm_limit_resets_after_window(caddy_session):
+    """After the window expires the LLM counter resets and requests pass again."""
+    for _ in range(LLM_LIMIT + 1):
+        caddy_session.post(LLM_URL, json={})
+    time.sleep(WINDOW_SECONDS)
+    r = caddy_session.post(LLM_URL, json={})
+    assert r.status_code != 429, "LLM rate limit was not reset after the window"
+
+
+@pytest.mark.integration
+def test_chatbot_search_over_limit_returns_429(caddy_session):
+    """POST search endpoints have their own, looser quota."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(CHAT_SEARCH_LIMIT):
+        caddy_session.post(CHAT_SEARCH_URL, json={})
+    r = caddy_session.post(CHAT_SEARCH_URL, json={})
+    assert r.status_code == 429
+
+
+@pytest.mark.integration
+def test_chatbot_browse_over_limit_returns_429(caddy_session):
+    """GET /api/* is capped by the browse zone."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(CHAT_BROWSE_LIMIT):
+        caddy_session.get(CHAT_BROWSE_URL)
+    r = caddy_session.get(CHAT_BROWSE_URL)
+    assert r.status_code == 429
+
+
+@pytest.mark.integration
+def test_llm_zone_does_not_bleed_into_chatbot_browse_zone(caddy_session):
+    """Exhausting the LLM quota must leave GET /api/* reachable."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(LLM_LIMIT + 1):
+        caddy_session.post(LLM_URL, json={})
+    r = caddy_session.get(CHAT_BROWSE_URL)
+    assert (
+        r.status_code != 429
+    ), "Chatbot browse zone was incorrectly blocked by LLM zone exhaustion"
+
+
+@pytest.mark.integration
+def test_llm_zone_does_not_bleed_into_pygeoapi_zone(caddy_session):
+    """Chatbot and PyGeoAPI quotas must stay independent."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(LLM_LIMIT + 1):
+        caddy_session.post(LLM_URL, json={})
+    r = caddy_session.post(EXEC_URL, json={})
+    assert (
+        r.status_code != 429
+    ), "PyGeoAPI exec zone was incorrectly blocked by chatbot LLM exhaustion"
