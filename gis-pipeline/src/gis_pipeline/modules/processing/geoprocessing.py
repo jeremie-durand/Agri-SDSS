@@ -12,10 +12,12 @@ import rasterio
 import structlog
 from rasterio.coords import BoundingBox
 from rasterio.warp import transform_bounds
+from shapely import get_dimensions, get_parts, make_valid
+from shapely.ops import unary_union
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.exceptions import RasterProcessingError, VectorProcessingError
 from gis_pipeline.core.logging_setup import handle_error
-from gis_pipeline.core.utils import harmonize_name
+from gis_pipeline.core.utils import add_process_to_logger, harmonize_name
 from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
 from gis_pipeline.modules.db.materialize_trigger import trigger_materialize_and_notify
 from gis_pipeline.modules.db.pg_utils import PostGISManager
@@ -33,7 +35,6 @@ from gis_pipeline.services.mapping import (
     QGISInternalLayers,
     RasterTargetCRSOverrides,
 )
-from gis_pipeline.utils import add_process_to_logger
 
 logger = structlog.get_logger()
 
@@ -50,12 +51,38 @@ class GeoprocessingVector:
         self.collection_id = collection_id
 
     @staticmethod
-    def _harmonize_name_gdf(name: str) -> str:
-        return harmonize_name(
-            name,
-            NamingPatterns.PATTERN_GDF_NAME.value,
-            Config.POSTGRES_MAX_NAME_LENGTH,
-        )
+    def _repair_geometry(geom):
+        """Return a valid geometry of the same dimension, or None if unrepairable.
+
+        make_valid resolves self-intersections without discarding area the way
+        buffer(0) does, but its linework method can return a GeometryCollection
+        mixing dimensions -- a repaired polygon plus the dangling lines that
+        caused the invalidity. Only parts matching the input dimension are kept,
+        so a polygon layer never receives stray lines or points.
+
+        Args:
+            geom: The geometry to repair.
+
+        Returns:
+            A valid geometry of the same dimension, or None if the repair left
+            nothing of that dimension (caller drops these rows).
+        """
+        if geom is None or geom.is_empty:
+            return geom
+
+        repaired = make_valid(geom)
+
+        dimension = get_dimensions(geom)
+
+        if repaired.geom_type == "GeometryCollection":
+            parts = [p for p in get_parts(repaired) if get_dimensions(p) == dimension]
+            if not parts:
+                return None
+            repaired = parts[0] if len(parts) == 1 else unary_union(parts)
+
+        if repaired.is_empty or get_dimensions(repaired) != dimension:
+            return None
+        return repaired
 
     def _find_overlapping_polygons(self, geometry_column: str) -> list[tuple[int, int]]:
         """Find overlapping polygons in a GeoDataFrame.
@@ -173,14 +200,8 @@ class GeoprocessingVector:
             df.columns = df.columns.str.lower()
 
             # Identify coordinate columns
-            x_col = set(
-                ColumnMappings.LONGITUDE.value.alias
-                + [ColumnMappings.LONGITUDE.value.canonical]
-            ).intersection(df.columns)
-            y_col = set(
-                ColumnMappings.LATITUDE.value.alias
-                + [ColumnMappings.LATITUDE.value.canonical]
-            ).intersection(df.columns)
+            x_col = ColumnMappings.LONGITUDE.value.all_names() & set(df.columns)
+            y_col = ColumnMappings.LATITUDE.value.all_names() & set(df.columns)
 
             # Determine CRS from registry (if defined)
             source_crs = (
@@ -250,11 +271,12 @@ class GeoprocessingVector:
 
         try:
             epsg_code = self.gdf.crs.to_epsg()
-            if epsg_code is None:
-                error_msg = "GeoDataFrame CRS is invalid or not EPSG compatible."
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
         except Exception:
             error_msg = "GeoDataFrame CRS is invalid or unreadable."
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
+        if epsg_code is None:
+            error_msg = "GeoDataFrame CRS is invalid or not EPSG compatible."
             handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
         # Final cleanup
@@ -346,10 +368,31 @@ class GeoprocessingVector:
 
         # Fix invalid geometries if requested
         if is_fix_invalid:
-            logger.info("Fixing invalid geometries...")
             if geometry_column not in self.gdf.columns:
                 error_msg = f"GeoDataFrame must contain a geometry column named '{geometry_column}'."
                 handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
+            geometries = self.gdf[geometry_column]
+            invalid_mask = geometries.notna() & ~geometries.is_valid
+            invalid_count = int(invalid_mask.sum())
+
+            if invalid_count:
+                logger.info(f"Repairing {invalid_count} invalid geometries...")
+                self.gdf.loc[invalid_mask, geometry_column] = self.gdf.loc[
+                    invalid_mask, geometry_column
+                ].apply(self._repair_geometry)
+
+                unrepaired = int(
+                    self.gdf.loc[invalid_mask, geometry_column].isna().sum()
+                )
+                logger.info(f"Repaired {invalid_count - unrepaired} geometries.")
+                if unrepaired:
+                    logger.warning(
+                        f"{unrepaired} geometries could not be repaired and will be "
+                        "dropped."
+                    )
+            else:
+                logger.info("No invalid geometries found.")
 
         # Remove geometries that are still invalid after fixing and listed them in a warning
         if self.gdf[geometry_column].isnull().any():
@@ -665,20 +708,16 @@ def geoprocessing_vector_data(
         for table, gdf in gdf_list:
             logger.info(f"Processing vector data for table: {table}")
 
-        processor = GeoprocessingVector(
-            gdf=gdf,
-            target_crs=target_crs,
-            collection_id=collection_id,
-        )
+            processor = GeoprocessingVector(
+                gdf=gdf,
+                target_crs=target_crs,
+                collection_id=collection_id,
+            )
 
-        geometry_cols = set(
-            ColumnMappings.GEOMETRY.value.alias
-            + [ColumnMappings.GEOMETRY.value.canonical]
-        ).intersection(gdf.columns)
+            geometry_cols = ColumnMappings.GEOMETRY.value.all_names() & set(gdf.columns)
 
-        if geometry_cols:
-            logger.info(f"Table {table} is spatial. Processing geometry steps.")
-            if (
+            if geometry_cols:
+                logger.info(f"Table {table} is spatial. Processing geometry steps.")
                 _process_spatial_table(
                     table,
                     processor,
@@ -687,40 +726,11 @@ def geoprocessing_vector_data(
                     gid_offset=gid_offset,
                     chunk_index=chunk_index,
                 )
-                is None
-            ):
-                return
-
-        # Fallback non-spatial table handling
-        if not geometry_cols:
-            logger.warning(
-                f"Table {table} is non-spatial. Skipping geometry processing steps."
-            )
-
-            geometry_cols = set(
-                ColumnMappings.GEOMETRY.value.alias
-                + [ColumnMappings.GEOMETRY.value.canonical]
-            ).intersection(gdf.columns)
-
-            if geometry_cols:
-                logger.info(f"Table {table} is spatial. Processing geometry steps.")
-                if (
-                    _process_spatial_table(
-                        table,
-                        processor,
-                        override_method=override_method,
-                        write_parquet=write_parquet,
-                        chunk_index=chunk_index,
-                    )
-                    is None
-                ):
-                    return
             else:
                 logger.warning(
                     f"Table {table} is non-spatial. Skipping geometry processing steps."
                 )
-                if _process_non_spatial_table(table, processor) is None:
-                    return
+                _process_non_spatial_table(table, processor)
     except VectorProcessingError:
         raise
     except Exception as e:
@@ -1309,17 +1319,10 @@ class GeoprocessingRaster:
 
             return (raster_path, output_cog)
 
-        except subprocess.CalledProcessError as e:
-            error_msg = f"gdalwarp failed for {raster_path}: exit code {e.returncode}"
-            logger.error(error_msg)
-            logger.error(f"STDERR:\n{e.stderr}")
-            self._restore_backup_file(backup_file, output_path)
-            raise RuntimeError(error_msg) from e
-
         except Exception as e:
             error_msg = f"Unexpected error processing {raster_path}: {e}"
             logger.error(error_msg, exc_info=True)
-            self._restore_backup_file(backup_file, output_path)
+            self._restore_backup_file(backup_file, output_cog)
             raise RuntimeError(error_msg) from e
 
     def process_raster_to_cog(
@@ -1445,11 +1448,11 @@ def _process_single_cog(
         Metadata dict, or None if processing failed.
     """
     logger.info(f"Processing COG file: {cog_file}")
-    try:
-        if not cog_file.exists():
-            error_msg = f"COG file does not exist: {cog_file}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+    if not cog_file.exists():
+        logger.warning("COG file does not exist: %s", cog_file)
+        return None
 
+    try:
         metadata = processing.prepare_cog_metadata_for_stac(
             original_raster_path=original_raster, cog_file_path=cog_file
         )
@@ -1551,12 +1554,16 @@ def geoprocessing_raster_data(
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
         processing = GeoprocessingRaster(config=Config, raster_paths=rasters)
-        harmonized_cog_pairs = _create_cog_files(
-            rasters, output_dir, target_crs, processing
-        )
-        all_raster_metadata = _collect_cog_metadata(harmonized_cog_pairs, processing)
-        _publish_stac(all_raster_metadata, stac_collection_id, api_url)
-        processing.close_all_rasters()
+        try:
+            harmonized_cog_pairs = _create_cog_files(
+                rasters, output_dir, target_crs, processing
+            )
+            all_raster_metadata = _collect_cog_metadata(
+                harmonized_cog_pairs, processing
+            )
+            _publish_stac(all_raster_metadata, stac_collection_id, api_url)
+        finally:
+            processing.close_all_rasters()
     except RasterProcessingError:
         raise
     except Exception as e:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
-from collections import OrderedDict
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -35,19 +34,7 @@ logger = structlog.get_logger()
 # Precomputed constants
 # ---------------------------------------
 # precompute datetime keys and their case variants once
-_DATETIME_KEYS = ColumnMappings.DATETIME.value.alias + [
-    ColumnMappings.DATETIME.value.canonical
-]
-
-_DATETIME_KEY_VARIANTS = []
-
-for k in _DATETIME_KEYS:
-    _DATETIME_KEY_VARIANTS.extend([k, k.upper(), k.lower()])
-
-# preserve order, remove duplicates
-_DATETIME_KEY_VARIANTS = list(OrderedDict.fromkeys(_DATETIME_KEY_VARIANTS))
-
-_DATETIME_KEYS_LOWER = {k.lower() for k in _DATETIME_KEYS}
+_DATETIME_KEYS_LOWER = ColumnMappings.DATETIME.value.all_names()
 
 
 # ---------------------------------------
@@ -521,11 +508,6 @@ def build_stac_collection_from_items(
     Returns:
         pystac.Collection: The generated STAC Collection.
     """
-    for i, item in enumerate(items):
-        logger.info(f"Item {i}: type={type(item)}, is_Item={isinstance(item, Item)}")
-        if hasattr(item, "id"):
-            logger.info(f"Item {i}: id={item.id}")
-    logger.info("=== END DEBUG ===")
     logger.info(
         f"Creating STAC Collection with ID: {collection_id}, Title: {collection_id}"
     )
@@ -565,14 +547,18 @@ def validate_stac(stac_obj: dict, stac_type: str):
         stac_obj: The STAC object as a dictionary.
         stac_type: Either 'item' or 'collection'.
     """
+    if stac_type not in ("item", "collection"):
+        error_msg = (
+            "stac_type must be either 'item' or 'collection'. "
+            f"It is currently: {stac_type}"
+        )
+        handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
     try:
         if stac_type == "item":
             PydanticItem(**stac_obj)
-        elif stac_type == "collection":
-            PydanticCollection(**stac_obj)
         else:
-            error_msg = f"stac_type must be either 'item' or 'collection'. It is currently: {stac_type}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+            PydanticCollection(**stac_obj)
         logger.info(f"STAC {stac_type} validation successful.")
     except ValidationError as e:
         error_msg = f"STAC {stac_type} validation error: {str(e)}"

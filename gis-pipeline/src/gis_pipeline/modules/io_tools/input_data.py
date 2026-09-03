@@ -108,7 +108,10 @@ def extract_gpkg_fk_schema(
 
     Returns:
         List of dicts with keys {from_table, from_col, to_table, to_col}, all pg-safe.
-        Returns an empty list on any failure — logged as warning, never raises.
+        Never raises. A layer that cannot be read is skipped and logged as
+        gpkg_fk_layer_failed, so the result may be partial — gpkg_fk_partial_extraction
+        then reports which layers were lost. A file that cannot be opened at all
+        yields an empty list, logged as gpkg_fk_extraction_failed.
     """
 
     def _h(name: str) -> str:
@@ -117,36 +120,55 @@ def extract_gpkg_fk_schema(
         )
 
     fk_defs: list[dict] = []
+    failed_layers: list[str] = []
     try:
         with sqlite3.connect(str(gpkg_path)) as conn:
             cursor = conn.cursor()
             for sqlite_table, pg_table in layer_name_map.items():
-                cursor.execute(f'PRAGMA foreign_key_list("{sqlite_table}")')
-                for row in cursor.fetchall():
-                    # PRAGMA columns: id, seq, table, from, to, on_update, on_delete, match
-                    _, _, ref_table, from_col, to_col = row[:5]
-                    pg_ref = layer_name_map.get(ref_table)
-                    if pg_ref is None:
-                        logger.warning(
-                            "gpkg_fk_unknown_ref_table",
-                            from_table=sqlite_table,
-                            ref_table=ref_table,
-                            path=str(gpkg_path),
+                try:
+                    cursor.execute(f'PRAGMA foreign_key_list("{sqlite_table}")')
+                    for row in cursor.fetchall():
+                        # PRAGMA columns: id, seq, table, from, to, on_update,
+                        # on_delete, match
+                        _, _, ref_table, from_col, to_col = row[:5]
+                        pg_ref = layer_name_map.get(ref_table)
+                        if pg_ref is None:
+                            logger.warning(
+                                "gpkg_fk_unknown_ref_table",
+                                from_table=sqlite_table,
+                                ref_table=ref_table,
+                                path=str(gpkg_path),
+                            )
+                            continue
+                        fk_defs.append(
+                            {
+                                "from_table": pg_table,
+                                "from_col": _h(from_col),
+                                "to_table": pg_ref,
+                                "to_col": _h(to_col),
+                            }
                         )
-                        continue
-                    fk_defs.append(
-                        {
-                            "from_table": pg_table,
-                            "from_col": _h(from_col),
-                            "to_table": pg_ref,
-                            "to_col": _h(to_col),
-                        }
+                except Exception as exc:
+                    failed_layers.append(sqlite_table)
+                    logger.warning(
+                        "gpkg_fk_layer_failed",
+                        layer=sqlite_table,
+                        path=str(gpkg_path),
+                        error=str(exc),
                     )
     except Exception as exc:
         logger.warning(
             "gpkg_fk_extraction_failed",
             path=str(gpkg_path),
             error=str(exc),
+        )
+
+    if failed_layers:
+        logger.warning(
+            "gpkg_fk_partial_extraction",
+            path=str(gpkg_path),
+            failed_layers=failed_layers,
+            extracted=len(fk_defs),
         )
     return fk_defs
 
@@ -172,12 +194,8 @@ def detect_non_spatial_csv(csv_files: list[Path]) -> list[Path]:
                 df = pd.read_csv(csv_file, nrows=3)  # Only read first 3 rows for speed
                 columns_lower = [c.lower() for c in df.columns]
 
-                lat_cols = [c.lower() for c in ColumnMappings.LATITUDE.value.alias] + [
-                    ColumnMappings.LATITUDE.value.canonical
-                ]
-                lon_cols = [c.lower() for c in ColumnMappings.LONGITUDE.value.alias] + [
-                    ColumnMappings.LONGITUDE.value.canonical
-                ]
+                lat_cols = ColumnMappings.LATITUDE.value.all_names()
+                lon_cols = ColumnMappings.LONGITUDE.value.all_names()
 
                 if not any(c in columns_lower for c in lat_cols) or not any(
                     c in columns_lower for c in lon_cols

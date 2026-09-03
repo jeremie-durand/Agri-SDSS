@@ -45,7 +45,7 @@ try:
                 option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY,
             )
 
-    # TODO(stac-fastapi): if a future release drops its internal ORJSONResponse
+    # (stac-fastapi): if a future release drops its internal ORJSONResponse
     # usage, this entire try/except block becomes dead code and should be removed.
     _stac_models.JSONResponse = _OrjsonResponse  # type: ignore[attr-defined]
 except ImportError:

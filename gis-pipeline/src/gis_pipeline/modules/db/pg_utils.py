@@ -75,25 +75,21 @@ class ConnectionManager:
                     )
                 else:
                     logger.info("PostGIS extension is enabled in the database")
+        except RuntimeError:
+            raise
         except Exception:
             error_msg = "Error checking PostGIS extension"
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
     def _check_postgis_variables(self) -> None:
         """Check if PostGIS-related configuration variables are valid."""
-        try:
-            if Config.POSTGRES_MAX_NAME_LENGTH < 7:
-                error_msg = (
-                    "POSTGRES_MAX_NAME_LENGTH must be greater than or equal to 7"
-                )
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-            if Config.POSTGRES_MAX_NAME_LENGTH >= 63:
-                error_msg = "POSTGRES_MAX_NAME_LENGTH must be less than 63"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-            logger.info("PostGIS configuration variables are valid")
-        except Exception:
-            error_msg = "Error checking PostGIS variables"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+        if Config.POSTGRES_MAX_NAME_LENGTH < 7:
+            error_msg = "POSTGRES_MAX_NAME_LENGTH must be greater than or equal to 7"
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+        if Config.POSTGRES_MAX_NAME_LENGTH >= 63:
+            error_msg = "POSTGRES_MAX_NAME_LENGTH must be less than 63"
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+        logger.info("PostGIS configuration variables are valid")
 
     def close(self) -> None:
         """Close the database connection."""
@@ -297,9 +293,7 @@ class TypeMapper:
             ),
         }
 
-        handler = type_handlers.get(col_type) or type_handlers.get(
-            col_type.lower() if col_type.lower() == "geometry" else None
-        )
+        handler = type_handlers.get(col_type)
 
         if handler is None:
             raise ValueError(f"Unsupported SQLAlchemy type: {col_type}")
@@ -334,45 +328,8 @@ class TypeMapper:
             found = False
 
             for member in SqlAlchemyTypes:
-                member_value = getattr(member, "value", None)
-
-                # direct string match (member.value is a string)
-                if isinstance(member_value, str) and member_value == pg_type:
-                    # prefer returning a dict config when available via indexing
-                    try:
-                        sqlalchemy_mapping[col] = SqlAlchemyTypes[member.name].value
-                    except Exception:
-                        sqlalchemy_mapping[col] = member_value
-                    found = True
-                    break
-
-                # if member.value is a SqlAlchemyTypeConfig object
-                if hasattr(member_value, "postgres_type"):
-                    if member_value.postgres_type == pg_type:
-                        sqlalchemy_mapping[col] = member_value
-                        found = True
-                        break
-
-                # if member.value is a dict, try common keys that might store the Postgres representation
-                if isinstance(member_value, dict):
-                    if (
-                        member_value.get("postgres_type") == pg_type
-                        or member_value.get("postgres") == pg_type
-                        or member_value.get("pg") == pg_type
-                    ):
-                        sqlalchemy_mapping[col] = member_value
-                        found = True
-                        break
-
-                # fallback: match by enum member name (e.g. "TEXT", "INTEGER")
-                if member.name == pg_type:
-                    sqlalchemy_mapping[col] = member_value
-                    found = True
-                    break
-
-                # last resort: stringified member value
-                if str(member_value) == pg_type:
-                    sqlalchemy_mapping[col] = member_value
+                if member.value.postgres_type == pg_type:
+                    sqlalchemy_mapping[col] = member.value
                     found = True
                     break
 
@@ -493,15 +450,7 @@ class SchemaBuilder:
             ValueError: If table name or schema name is invalid.
         """
         # Compile the validation pattern
-        pattern_obj = NamingPatterns.VALID_PG_IDENTIFIER.value
-        if isinstance(pattern_obj, str):
-            try:
-                compiled_pattern = re.compile(pattern_obj)
-            except re.error as e:
-                error_msg = f"Invalid regex pattern for validating table names: {e}"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-        else:
-            compiled_pattern = pattern_obj
+        compiled_pattern = re.compile(NamingPatterns.VALID_PG_IDENTIFIER.value)
 
         # Extract schema and table name for individual validation
         schema, table = (
@@ -530,25 +479,10 @@ class SchemaBuilder:
             column_mapping: Dictionary mapping column names to their SQL types.
             schema: Optional schema name (e.g., "public").
         """
-        pattern_obj = NamingPatterns.VALID_PG_IDENTIFIER.value
-        if isinstance(pattern_obj, str):
-            try:
-                compiled_pattern = re.compile(pattern_obj)
-            except re.error as e:
-                error_msg = f"Invalid regex pattern for validating table names: {e}"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-        else:
-            compiled_pattern = pattern_obj
+        compiled_pattern = re.compile(NamingPatterns.VALID_PG_IDENTIFIER.value)
 
         if not compiled_pattern.match(table_name):
-            # Provide the original pattern string when available for clearer error messages
-            pattern_text = getattr(
-                NamingPatterns.VALID_PG_IDENTIFIER,
-                "value",
-                getattr(
-                    NamingPatterns.VALID_PG_IDENTIFIER, "pattern", str(compiled_pattern)
-                ),
-            )
+            pattern_text = NamingPatterns.VALID_PG_IDENTIFIER.value
             error_msg = (
                 f"Invalid table name '{table_name}'. Must match regex {pattern_text}"
             )
@@ -916,51 +850,6 @@ class DataInserter:
             )
             handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
-    def _ensure_cog_table(self, table_name: str) -> None:
-        """Create the COG metadata table if it does not already exist.
-
-        Args:
-            table_name: Qualified or unqualified table name.
-        """
-        if not sqlalchemy.inspect(self.engine).has_table(table_name, schema="public"):
-            logger.info(f"Table '{table_name}' does not exist. Creating it.")
-            SchemaBuilder(self.engine)._create_table_from_mapping(
-                table_name=table_name,
-                column_mapping=TypeMapper._convert_pg_mapping_to_sqlalchemy(
-                    {col.name.lower(): col.value for col in RasterStacColumns}
-                ),
-                schema="public",
-            )
-
-    def read_data(self, table_name: str) -> gpd.GeoDataFrame:
-        """Read spatial data from a PostGIS table into a GeoDataFrame.
-
-        Args:
-            table_name: Name of the table to read.
-
-        Returns:
-            GeoDataFrame containing the spatial data.
-        """
-        try:
-            metadata = sqlalchemy.MetaData()
-            table = sqlalchemy.Table(table_name, metadata, autoload_with=self.engine)
-
-            stmt = sqlalchemy.select(
-                table.c.gid,
-                table.c.geometry,
-                table.c.datetime,
-                table.c.bbox,
-                table.c.file_url,
-                table.c.metadata,
-            )
-
-            gdf = gpd.read_postgis(stmt, self.engine, geom_col="geometry")
-            logger.info(f"Data read from PostGIS table '{table_name}' successfully.")
-            return gdf
-        except Exception as exc:
-            error_msg = f"Error reading data from PostGIS: {exc}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
 
 class PostGISManager:
     """Manager class for PostGIS database operations."""
@@ -1055,9 +944,9 @@ class PostGISManager:
     def stamp_gee_flags(self, table_name: str, gee_field_ids: set[int]) -> None:
         """Ensure has_gee_data column exists and stamp TRUE for fields with GEE data.
 
-        Idempotent: safe to call on every pipeline run. Runs ADD COLUMN +
-        two UPDATEs in a single transaction. If gee_field_ids is empty, all
-        rows get has_gee_data=FALSE.
+        Idempotent: safe to call on every pipeline run. Runs ADD COLUMN + one
+        UPDATE in a single transaction. If gee_field_ids is empty, ANY('{}') is
+        FALSE for every row, so all rows get has_gee_data=FALSE.
 
         Args:
             table_name: Target PostGIS table (e.g. 'som_field_boundaries').
@@ -1072,16 +961,11 @@ class PostGISManager:
                     )
                 )
                 conn.execute(
-                    sqlalchemy.text(f'UPDATE "{table_name}" SET has_gee_data = FALSE')
+                    sqlalchemy.text(
+                        f'UPDATE "{table_name}" ' "SET has_gee_data = (gid = ANY(:ids))"
+                    ),
+                    {"ids": list(gee_field_ids)},
                 )
-                if gee_field_ids:
-                    conn.execute(
-                        sqlalchemy.text(
-                            f'UPDATE "{table_name}" SET has_gee_data = TRUE '
-                            "WHERE gid = ANY(:ids)"
-                        ),
-                        {"ids": list(gee_field_ids)},
-                    )
             logger.info(
                 "gee_flags_stamped", table=table_name, flagged=len(gee_field_ids)
             )
@@ -1121,8 +1005,12 @@ class PostGISManager:
     # --- Public API ---
 
     def insert_table_data(
-        self, gdf, table_name, override_method="replace", gid_offset: int = 0
-    ):
+        self,
+        gdf: pd.DataFrame,
+        table_name: str,
+        override_method: str = "replace",
+        gid_offset: int = 0,
+    ) -> None:
         """
         Insert a GeoDataFrame or DataFrame into PostGIS.
 
@@ -1139,6 +1027,12 @@ class PostGISManager:
             - Function handles GeoDataFrames first and falls back to DataFrames.
         """
         with structlog.contextvars.bound_contextvars(table=table_name):
+            if not isinstance(gdf, pd.DataFrame):
+                error_msg = (
+                    f"Input must be a GeoDataFrame or DataFrame, got {type(gdf)}"
+                )
+                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
             try:
                 # Ensure gid column exists for GeoDataFrames before creating table schema
                 gdf_with_gid = gdf
@@ -1150,15 +1044,8 @@ class PostGISManager:
                 # Insert data with to_postgis (handles PostGIS metadata correctly)
                 if isinstance(gdf, gpd.GeoDataFrame):
                     self._insert_geodataframe(gdf_with_gid, table_name, override_method)
-                elif isinstance(gdf, pd.DataFrame):
-                    self._insert_dataframe(gdf, table_name, override_method)
                 else:
-                    error_msg = (
-                        f"Input must be a GeoDataFrame or DataFrame, got {type(gdf)}"
-                    )
-                    handle_error(
-                        logger=logger, error_msg=error_msg, exc_class=ValueError
-                    )
+                    self._insert_dataframe(gdf, table_name, override_method)
 
                 # Add PRIMARY KEY constraint on gid after data insertion
                 # This ensures TiPg can detect gid as the primary key for clean IDs
@@ -1226,17 +1113,8 @@ class PostGISManager:
                 f"COG metadata inserted into PostGIS table '{table_name}' successfully."
             )
 
+        except ValueError:
+            raise
         except Exception:
             error_msg = "Error inserting COG metadata into PostGIS"
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
-    def read_data(self, table_name: str) -> gpd.GeoDataFrame:
-        """Read spatial data from a PostGIS table into a GeoDataFrame.
-
-        Args:
-            table_name: Name of the table to read.
-
-        Returns:
-            GeoDataFrame containing the spatial data.
-        """
-        return self._inserter.read_data(table_name)
