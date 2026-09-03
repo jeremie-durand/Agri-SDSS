@@ -666,36 +666,10 @@ def geoprocessing_vector_data(
         for table, gdf in gdf_list:
             logger.info(f"Processing vector data for table: {table}")
 
-        processor = GeoprocessingVector(
-            gdf=gdf,
-            target_crs=target_crs,
-            collection_id=collection_id,
-        )
-
-        geometry_cols = set(
-            ColumnMappings.GEOMETRY.value.alias
-            + [ColumnMappings.GEOMETRY.value.canonical]
-        ).intersection(gdf.columns)
-
-        if geometry_cols:
-            logger.info(f"Table {table} is spatial. Processing geometry steps.")
-            if (
-                _process_spatial_table(
-                    table,
-                    processor,
-                    override_method=override_method,
-                    write_parquet=write_parquet,
-                    gid_offset=gid_offset,
-                    chunk_index=chunk_index,
-                )
-                is None
-            ):
-                return
-
-        # Fallback non-spatial table handling
-        if not geometry_cols:
-            logger.warning(
-                f"Table {table} is non-spatial. Skipping geometry processing steps."
+            processor = GeoprocessingVector(
+                gdf=gdf,
+                target_crs=target_crs,
+                collection_id=collection_id,
             )
 
             geometry_cols = set(
@@ -705,23 +679,19 @@ def geoprocessing_vector_data(
 
             if geometry_cols:
                 logger.info(f"Table {table} is spatial. Processing geometry steps.")
-                if (
-                    _process_spatial_table(
-                        table,
-                        processor,
-                        override_method=override_method,
-                        write_parquet=write_parquet,
-                        chunk_index=chunk_index,
-                    )
-                    is None
-                ):
-                    return
+                _process_spatial_table(
+                    table,
+                    processor,
+                    override_method=override_method,
+                    write_parquet=write_parquet,
+                    gid_offset=gid_offset,
+                    chunk_index=chunk_index,
+                )
             else:
                 logger.warning(
                     f"Table {table} is non-spatial. Skipping geometry processing steps."
                 )
-                if _process_non_spatial_table(table, processor) is None:
-                    return
+                _process_non_spatial_table(table, processor)
     except VectorProcessingError:
         raise
     except Exception as e:
@@ -1314,13 +1284,13 @@ class GeoprocessingRaster:
             error_msg = f"gdalwarp failed for {raster_path}: exit code {e.returncode}"
             logger.error(error_msg)
             logger.error(f"STDERR:\n{e.stderr}")
-            self._restore_backup_file(backup_file, output_path)
+            self._restore_backup_file(backup_file, output_cog)
             raise RuntimeError(error_msg) from e
 
         except Exception as e:
             error_msg = f"Unexpected error processing {raster_path}: {e}"
             logger.error(error_msg, exc_info=True)
-            self._restore_backup_file(backup_file, output_path)
+            self._restore_backup_file(backup_file, output_cog)
             raise RuntimeError(error_msg) from e
 
     def process_raster_to_cog(
@@ -1446,11 +1416,11 @@ def _process_single_cog(
         Metadata dict, or None if processing failed.
     """
     logger.info(f"Processing COG file: {cog_file}")
-    try:
-        if not cog_file.exists():
-            error_msg = f"COG file does not exist: {cog_file}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+    if not cog_file.exists():
+        logger.warning("COG file does not exist: %s", cog_file)
+        return None
 
+    try:
         metadata = processing.prepare_cog_metadata_for_stac(
             original_raster_path=original_raster, cog_file_path=cog_file
         )
