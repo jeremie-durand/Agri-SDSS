@@ -37,6 +37,10 @@ class ColumnName:
         self.alias = [a.lower() for a in self.alias]
         self.canonical = self.canonical.lower()
 
+    def all_names(self) -> set[str]:
+        """Return the canonical name plus every alias, all lowercase."""
+        return {self.canonical, *self.alias}
+
 
 class ColumnMappings(Enum):
     """Column mappings for various data formats."""
