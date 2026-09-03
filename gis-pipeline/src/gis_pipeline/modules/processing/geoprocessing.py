@@ -12,6 +12,8 @@ import rasterio
 import structlog
 from rasterio.coords import BoundingBox
 from rasterio.warp import transform_bounds
+from shapely import get_dimensions, get_parts, make_valid
+from shapely.ops import unary_union
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.exceptions import RasterProcessingError, VectorProcessingError
 from gis_pipeline.core.logging_setup import handle_error
@@ -48,6 +50,40 @@ class GeoprocessingVector:
         self.gdf = gdf
         self.target_crs = target_crs
         self.collection_id = collection_id
+
+    @staticmethod
+    def _repair_geometry(geom):
+        """Return a valid geometry of the same dimension, or None if unrepairable.
+
+        make_valid resolves self-intersections without discarding area the way
+        buffer(0) does, but its linework method can return a GeometryCollection
+        mixing dimensions -- a repaired polygon plus the dangling lines that
+        caused the invalidity. Only parts matching the input dimension are kept,
+        so a polygon layer never receives stray lines or points.
+
+        Args:
+            geom: The geometry to repair.
+
+        Returns:
+            A valid geometry of the same dimension, or None if the repair left
+            nothing of that dimension (caller drops these rows).
+        """
+        if geom is None or geom.is_empty:
+            return geom
+
+        repaired = make_valid(geom)
+
+        dimension = get_dimensions(geom)
+
+        if repaired.geom_type == "GeometryCollection":
+            parts = [p for p in get_parts(repaired) if get_dimensions(p) == dimension]
+            if not parts:
+                return None
+            repaired = parts[0] if len(parts) == 1 else unary_union(parts)
+
+        if repaired.is_empty or get_dimensions(repaired) != dimension:
+            return None
+        return repaired
 
     def _find_overlapping_polygons(self, geometry_column: str) -> list[tuple[int, int]]:
         """Find overlapping polygons in a GeoDataFrame.
@@ -339,10 +375,31 @@ class GeoprocessingVector:
 
         # Fix invalid geometries if requested
         if is_fix_invalid:
-            logger.info("Fixing invalid geometries...")
             if geometry_column not in self.gdf.columns:
                 error_msg = f"GeoDataFrame must contain a geometry column named '{geometry_column}'."
                 handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
+            geometries = self.gdf[geometry_column]
+            invalid_mask = geometries.notna() & ~geometries.is_valid
+            invalid_count = int(invalid_mask.sum())
+
+            if invalid_count:
+                logger.info(f"Repairing {invalid_count} invalid geometries...")
+                self.gdf.loc[invalid_mask, geometry_column] = self.gdf.loc[
+                    invalid_mask, geometry_column
+                ].apply(self._repair_geometry)
+
+                unrepaired = int(
+                    self.gdf.loc[invalid_mask, geometry_column].isna().sum()
+                )
+                logger.info(f"Repaired {invalid_count - unrepaired} geometries.")
+                if unrepaired:
+                    logger.warning(
+                        f"{unrepaired} geometries could not be repaired and will be "
+                        "dropped."
+                    )
+            else:
+                logger.info("No invalid geometries found.")
 
         # Remove geometries that are still invalid after fixing and listed them in a warning
         if self.gdf[geometry_column].isnull().any():
