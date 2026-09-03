@@ -565,14 +565,18 @@ def validate_stac(stac_obj: dict, stac_type: str):
         stac_obj: The STAC object as a dictionary.
         stac_type: Either 'item' or 'collection'.
     """
+    if stac_type not in ("item", "collection"):
+        error_msg = (
+            "stac_type must be either 'item' or 'collection'. "
+            f"It is currently: {stac_type}"
+        )
+        handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
     try:
         if stac_type == "item":
             PydanticItem(**stac_obj)
-        elif stac_type == "collection":
-            PydanticCollection(**stac_obj)
         else:
-            error_msg = f"stac_type must be either 'item' or 'collection'. It is currently: {stac_type}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+            PydanticCollection(**stac_obj)
         logger.info(f"STAC {stac_type} validation successful.")
     except ValidationError as e:
         error_msg = f"STAC {stac_type} validation error: {str(e)}"
