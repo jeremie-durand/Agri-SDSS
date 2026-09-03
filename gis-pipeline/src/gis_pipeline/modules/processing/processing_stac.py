@@ -34,11 +34,7 @@ logger = structlog.get_logger()
 # Precomputed constants
 # ---------------------------------------
 # precompute datetime keys and their case variants once
-_DATETIME_KEYS = ColumnMappings.DATETIME.value.alias + [
-    ColumnMappings.DATETIME.value.canonical
-]
-
-_DATETIME_KEYS_LOWER = {k.lower() for k in _DATETIME_KEYS}
+_DATETIME_KEYS_LOWER = ColumnMappings.DATETIME.value.all_names()
 
 
 # ---------------------------------------
