@@ -49,14 +49,6 @@ class GeoprocessingVector:
         self.target_crs = target_crs
         self.collection_id = collection_id
 
-    @staticmethod
-    def _harmonize_name_gdf(name: str) -> str:
-        return harmonize_name(
-            name,
-            NamingPatterns.PATTERN_GDF_NAME.value,
-            Config.POSTGRES_MAX_NAME_LENGTH,
-        )
-
     def _find_overlapping_polygons(self, geometry_column: str) -> list[tuple[int, int]]:
         """Find overlapping polygons in a GeoDataFrame.
 
@@ -1279,13 +1271,6 @@ class GeoprocessingRaster:
                 logger.debug(f"Backup removed: {backup_file}")
 
             return (raster_path, output_cog)
-
-        except subprocess.CalledProcessError as e:
-            error_msg = f"gdalwarp failed for {raster_path}: exit code {e.returncode}"
-            logger.error(error_msg)
-            logger.error(f"STDERR:\n{e.stderr}")
-            self._restore_backup_file(backup_file, output_cog)
-            raise RuntimeError(error_msg) from e
 
         except Exception as e:
             error_msg = f"Unexpected error processing {raster_path}: {e}"
