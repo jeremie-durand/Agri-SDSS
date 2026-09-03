@@ -87,7 +87,7 @@ graph TD
 ## Module Structure
 
 - **modules/io_tools**: `input_data.py` handles discovery of rasters/vectors and robust CSV loading with encoding/geometry detection.
-- **modules/processing**: `geoprocessing.py` runs vector/raster workflows; `processing_stac.py` builds/ingests STAC collections/items; `stac_models.py` holds Pydantic STAC models.
+- **modules/processing**: `geoprocessing.py` runs vector/raster workflows; `processing_stac.py` builds/ingests STAC collections/items.
 - **modules/db**: `pg_utils.py` wraps PostGIS ingestion/indexing via SQLAlchemy; `duckdb_utils.py` manages DuckDB + spatial extension and Parquet export.
 - **services/mapping.py**: Enums for supported formats, column aliases, null normalization, and type mappings used across the pipeline.
 
