@@ -75,25 +75,21 @@ class ConnectionManager:
                     )
                 else:
                     logger.info("PostGIS extension is enabled in the database")
+        except RuntimeError:
+            raise
         except Exception:
             error_msg = "Error checking PostGIS extension"
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
     def _check_postgis_variables(self) -> None:
         """Check if PostGIS-related configuration variables are valid."""
-        try:
-            if Config.POSTGRES_MAX_NAME_LENGTH < 7:
-                error_msg = (
-                    "POSTGRES_MAX_NAME_LENGTH must be greater than or equal to 7"
-                )
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-            if Config.POSTGRES_MAX_NAME_LENGTH >= 63:
-                error_msg = "POSTGRES_MAX_NAME_LENGTH must be less than 63"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-            logger.info("PostGIS configuration variables are valid")
-        except Exception:
-            error_msg = "Error checking PostGIS variables"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+        if Config.POSTGRES_MAX_NAME_LENGTH < 7:
+            error_msg = "POSTGRES_MAX_NAME_LENGTH must be greater than or equal to 7"
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+        if Config.POSTGRES_MAX_NAME_LENGTH >= 63:
+            error_msg = "POSTGRES_MAX_NAME_LENGTH must be less than 63"
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+        logger.info("PostGIS configuration variables are valid")
 
     def close(self) -> None:
         """Close the database connection."""
@@ -1139,6 +1135,12 @@ class PostGISManager:
             - Function handles GeoDataFrames first and falls back to DataFrames.
         """
         with structlog.contextvars.bound_contextvars(table=table_name):
+            if not isinstance(gdf, pd.DataFrame):
+                error_msg = (
+                    f"Input must be a GeoDataFrame or DataFrame, got {type(gdf)}"
+                )
+                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
             try:
                 # Ensure gid column exists for GeoDataFrames before creating table schema
                 gdf_with_gid = gdf
@@ -1150,15 +1152,8 @@ class PostGISManager:
                 # Insert data with to_postgis (handles PostGIS metadata correctly)
                 if isinstance(gdf, gpd.GeoDataFrame):
                     self._insert_geodataframe(gdf_with_gid, table_name, override_method)
-                elif isinstance(gdf, pd.DataFrame):
-                    self._insert_dataframe(gdf, table_name, override_method)
                 else:
-                    error_msg = (
-                        f"Input must be a GeoDataFrame or DataFrame, got {type(gdf)}"
-                    )
-                    handle_error(
-                        logger=logger, error_msg=error_msg, exc_class=ValueError
-                    )
+                    self._insert_dataframe(gdf, table_name, override_method)
 
                 # Add PRIMARY KEY constraint on gid after data insertion
                 # This ensures TiPg can detect gid as the primary key for clean IDs
@@ -1226,6 +1221,8 @@ class PostGISManager:
                 f"COG metadata inserted into PostGIS table '{table_name}' successfully."
             )
 
+        except ValueError:
+            raise
         except Exception:
             error_msg = "Error inserting COG metadata into PostGIS"
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
