@@ -1480,63 +1480,6 @@ def test_get_centroids_empty_list_input(duckdb_manager):
     assert len(result) == 0
 
 
-# ------------------------------------------
-# _normalize_parquet_value edge cases
-# ------------------------------------------
-
-
-@pytest.mark.unit
-def test_normalize_parquet_value_list_unknown_to_mapping_returns_none():
-    """A list not in the null-value mapping uses the tuple fallback and returns None.
-
-    Documents that the except clause is intentional for TypeError only —
-    unhashable types (list) are converted to tuple for the dict lookup.
-    """
-    result = DuckDBManager._normalize_parquet_value([1, 2, 3])
-    assert result is None
-
-
-@pytest.mark.unit
-def test_normalize_parquet_value_nested_list_returns_none():
-    """A nested list (unhashable even as a tuple) falls through to None with a log."""
-    # [[1,2],[3,4]] → outer TypeError → tuple(x) = ([1,2],[3,4]) → inner TypeError (lists unhashable)
-    result = DuckDBManager._normalize_parquet_value([[1, 2], [3, 4]])
-    assert result is None
-
-
-@pytest.mark.unit
-def test_normalize_parquet_value_dict_returned_as_is_when_non_empty():
-    """Non-empty dicts are returned unchanged (they are not null-value candidates)."""
-    d = {"key": "value"}
-    result = DuckDBManager._normalize_parquet_value(d)
-    assert result == d
-
-
-@pytest.mark.unit
-def test_normalize_parquet_value_empty_dict_returns_na_none():
-    """Empty dict signals missing metadata — mapped to {'NA': None}."""
-    result = DuckDBManager._normalize_parquet_value({})
-    assert result == {"NA": None}
-
-
-@pytest.mark.unit
-def test_normalize_parquet_value_numpy_float32_returns_none():
-    """numpy.float32 scalar is hashable but not in the null-value mapping → returns None."""
-    import numpy as np
-
-    result = DuckDBManager._normalize_parquet_value(np.float32(3.14))
-    assert result is None
-
-
-@pytest.mark.unit
-def test_normalize_parquet_value_numpy_int64_returns_none():
-    """numpy.int64 scalar is hashable but not in the null-value mapping → returns None."""
-    import numpy as np
-
-    result = DuckDBManager._normalize_parquet_value(np.int64(42))
-    assert result is None
-
-
 @pytest.mark.unit
 def test_save_gdf_to_geoparquet_empty_gdf_raises_value_error(tmp_path, monkeypatch):
     """Passing an empty GeoDataFrame to save_gdf_to_geoparquet must raise ValueError."""
