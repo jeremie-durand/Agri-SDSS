@@ -944,9 +944,9 @@ class PostGISManager:
     def stamp_gee_flags(self, table_name: str, gee_field_ids: set[int]) -> None:
         """Ensure has_gee_data column exists and stamp TRUE for fields with GEE data.
 
-        Idempotent: safe to call on every pipeline run. Runs ADD COLUMN +
-        two UPDATEs in a single transaction. If gee_field_ids is empty, all
-        rows get has_gee_data=FALSE.
+        Idempotent: safe to call on every pipeline run. Runs ADD COLUMN + one
+        UPDATE in a single transaction. If gee_field_ids is empty, ANY('{}') is
+        FALSE for every row, so all rows get has_gee_data=FALSE.
 
         Args:
             table_name: Target PostGIS table (e.g. 'som_field_boundaries').
@@ -961,16 +961,11 @@ class PostGISManager:
                     )
                 )
                 conn.execute(
-                    sqlalchemy.text(f'UPDATE "{table_name}" SET has_gee_data = FALSE')
+                    sqlalchemy.text(
+                        f'UPDATE "{table_name}" ' "SET has_gee_data = (gid = ANY(:ids))"
+                    ),
+                    {"ids": list(gee_field_ids)},
                 )
-                if gee_field_ids:
-                    conn.execute(
-                        sqlalchemy.text(
-                            f'UPDATE "{table_name}" SET has_gee_data = TRUE '
-                            "WHERE gid = ANY(:ids)"
-                        ),
-                        {"ids": list(gee_field_ids)},
-                    )
             logger.info(
                 "gee_flags_stamped", table=table_name, flagged=len(gee_field_ids)
             )
@@ -1010,8 +1005,12 @@ class PostGISManager:
     # --- Public API ---
 
     def insert_table_data(
-        self, gdf, table_name, override_method="replace", gid_offset: int = 0
-    ):
+        self,
+        gdf: pd.DataFrame,
+        table_name: str,
+        override_method: str = "replace",
+        gid_offset: int = 0,
+    ) -> None:
         """
         Insert a GeoDataFrame or DataFrame into PostGIS.
 
