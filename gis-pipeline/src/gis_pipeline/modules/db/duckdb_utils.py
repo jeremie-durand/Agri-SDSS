@@ -9,7 +9,6 @@ import structlog
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.logging_setup import handle_error
 from gis_pipeline.services.mapping import (
-    AttributeNullValues,
     ColumnMappings,
     NamingPatterns,
 )
@@ -62,36 +61,6 @@ class DuckDBManager:
     def _init_extensions(self) -> None:
         """Install/load spatial extension."""
         DuckDBManager._load_spatial_extension(self.conn)
-
-    @staticmethod
-    def _normalize_parquet_value(x: object) -> object:
-        """Helper function to normalize values for Parquet compatibility.
-
-        Args:
-            x: The value to normalize. Expected common types:
-               - dict: metadata-like objects (empty dict -> {"NA": None})
-               - str: attribute keys looked up in AttributeNullValues mapping
-               - tuple/list: sequences (lists are unhashable; function will try tuple fallback)
-               - other scalar types
-
-        Returns:
-            The normalized value. If the mapping does not contain the key, returns None.
-        """
-        if isinstance(x, dict):
-            return {"NA": None} if len(x) == 0 else x
-
-        mapping: dict = {m.value: None for m in AttributeNullValues}
-
-        try:
-            # Try direct lookup
-            return mapping.get(x, None)
-        except TypeError:
-            try:
-                # Try tuple fallback for unhashable types (e.g., lists)
-                return mapping.get(tuple(x), None)
-            except TypeError:
-                logger.exception(f"Failed to normalize value: {x}")
-                return None
 
     @staticmethod
     def _cleanup_temp_file(tmp_path: Path) -> None:
@@ -356,22 +325,6 @@ class DuckDBManager:
                 if col == gdf_copy.geometry.name:
                     continue
                 gdf_copy = DuckDBManager._resolve_column_alias_gdf(gdf_copy, col)
-
-            for col in gdf.columns:
-                # Skip geometry column (keep original geometry)
-                if col == gdf.geometry.name:
-                    continue
-
-                # Only handle object-dtype columns for normalization
-                if gdf[col].dtype == "object":
-                    # Create a normalized column and keep the original column untouched
-                    norm_col = f"{col}_normalized"
-                    gdf[norm_col] = gdf[col].apply(
-                        DuckDBManager._normalize_parquet_value
-                    )
-                    logger.warning(
-                        f"Created normalized column '{norm_col}' from '{col}' for Parquet compatibility."
-                    )
 
             # Ensure output directory exists
             Path(Config.DUCKDB_DATA_DIR).mkdir(parents=True, exist_ok=True)
