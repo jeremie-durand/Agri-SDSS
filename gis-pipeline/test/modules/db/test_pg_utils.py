@@ -277,7 +277,9 @@ def test_init_connection_failure(mock_create_engine):
 
 def test_init_no_postgis_extension(mock_engine_no_postgis):
     """Test PostGISManager initialization when PostGIS extension is missing."""
-    with pytest.raises(RuntimeError, match="Error checking PostGIS extension"):
+    with pytest.raises(
+        RuntimeError, match="PostGIS extension is not enabled in the database"
+    ):
         PostGISManager(engine=mock_engine_no_postgis)
 
 
@@ -301,7 +303,9 @@ def test_init_postgis_check_variables_error():
 
     # Mock Config.POSTGRES_MAX_NAME_LENGTH to an invalid value
     with patch("gis_pipeline.modules.db.pg_utils.Config.POSTGRES_MAX_NAME_LENGTH", 5):
-        with pytest.raises(RuntimeError, match="Error checking PostGIS variables"):
+        with pytest.raises(
+            ValueError, match="POSTGRES_MAX_NAME_LENGTH must be greater than or equal"
+        ):
             PostGISManager(engine=mock_engine)
 
 
@@ -917,6 +921,27 @@ def test_ensure_cog_table_checks_existence_in_public_schema(
 
     mock_inspector.has_table.assert_called_once_with(table_name, schema="public")
     mock_create.assert_not_called()
+
+
+def test_insert_cog_metadata_validation_error_is_not_rewritten(postgis_manager):
+    """A missing required field surfaces as its own ValueError, not a generic wrap.
+
+    The other missing-field tests below fail earlier, inside _ensure_cog_table on
+    the mocked engine, so they never reach validation. Stubbing it out is what
+    exercises _validate_cog_metadata.
+    """
+    with patch.object(postgis_manager, "_ensure_cog_table", return_value=None):
+        with pytest.raises(ValueError, match="Missing required field 'bbox'"):
+            postgis_manager.insert_cog_metadata(
+                metadata={"id": 1, "file_url": "http://example.com/a.tif"},
+                table_name="cogs",
+            )
+
+
+def test_insert_table_data_rejects_non_dataframe(postgis_manager):
+    """A non-DataFrame input raises ValueError rather than a generic RuntimeError."""
+    with pytest.raises(ValueError, match="Input must be a GeoDataFrame or DataFrame"):
+        postgis_manager.insert_table_data(gdf="not a dataframe", table_name="t")
 
 
 def test_insert_cog_metadata_missing_id(postgis_manager, cog_metadata_missing_id):
