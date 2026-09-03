@@ -293,9 +293,7 @@ class TypeMapper:
             ),
         }
 
-        handler = type_handlers.get(col_type) or type_handlers.get(
-            col_type.lower() if col_type.lower() == "geometry" else None
-        )
+        handler = type_handlers.get(col_type)
 
         if handler is None:
             raise ValueError(f"Unsupported SQLAlchemy type: {col_type}")
@@ -330,45 +328,8 @@ class TypeMapper:
             found = False
 
             for member in SqlAlchemyTypes:
-                member_value = getattr(member, "value", None)
-
-                # direct string match (member.value is a string)
-                if isinstance(member_value, str) and member_value == pg_type:
-                    # prefer returning a dict config when available via indexing
-                    try:
-                        sqlalchemy_mapping[col] = SqlAlchemyTypes[member.name].value
-                    except Exception:
-                        sqlalchemy_mapping[col] = member_value
-                    found = True
-                    break
-
-                # if member.value is a SqlAlchemyTypeConfig object
-                if hasattr(member_value, "postgres_type"):
-                    if member_value.postgres_type == pg_type:
-                        sqlalchemy_mapping[col] = member_value
-                        found = True
-                        break
-
-                # if member.value is a dict, try common keys that might store the Postgres representation
-                if isinstance(member_value, dict):
-                    if (
-                        member_value.get("postgres_type") == pg_type
-                        or member_value.get("postgres") == pg_type
-                        or member_value.get("pg") == pg_type
-                    ):
-                        sqlalchemy_mapping[col] = member_value
-                        found = True
-                        break
-
-                # fallback: match by enum member name (e.g. "TEXT", "INTEGER")
-                if member.name == pg_type:
-                    sqlalchemy_mapping[col] = member_value
-                    found = True
-                    break
-
-                # last resort: stringified member value
-                if str(member_value) == pg_type:
-                    sqlalchemy_mapping[col] = member_value
+                if member.value.postgres_type == pg_type:
+                    sqlalchemy_mapping[col] = member.value
                     found = True
                     break
 
@@ -489,15 +450,7 @@ class SchemaBuilder:
             ValueError: If table name or schema name is invalid.
         """
         # Compile the validation pattern
-        pattern_obj = NamingPatterns.VALID_PG_IDENTIFIER.value
-        if isinstance(pattern_obj, str):
-            try:
-                compiled_pattern = re.compile(pattern_obj)
-            except re.error as e:
-                error_msg = f"Invalid regex pattern for validating table names: {e}"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-        else:
-            compiled_pattern = pattern_obj
+        compiled_pattern = re.compile(NamingPatterns.VALID_PG_IDENTIFIER.value)
 
         # Extract schema and table name for individual validation
         schema, table = (
@@ -526,25 +479,10 @@ class SchemaBuilder:
             column_mapping: Dictionary mapping column names to their SQL types.
             schema: Optional schema name (e.g., "public").
         """
-        pattern_obj = NamingPatterns.VALID_PG_IDENTIFIER.value
-        if isinstance(pattern_obj, str):
-            try:
-                compiled_pattern = re.compile(pattern_obj)
-            except re.error as e:
-                error_msg = f"Invalid regex pattern for validating table names: {e}"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-        else:
-            compiled_pattern = pattern_obj
+        compiled_pattern = re.compile(NamingPatterns.VALID_PG_IDENTIFIER.value)
 
         if not compiled_pattern.match(table_name):
-            # Provide the original pattern string when available for clearer error messages
-            pattern_text = getattr(
-                NamingPatterns.VALID_PG_IDENTIFIER,
-                "value",
-                getattr(
-                    NamingPatterns.VALID_PG_IDENTIFIER, "pattern", str(compiled_pattern)
-                ),
-            )
+            pattern_text = NamingPatterns.VALID_PG_IDENTIFIER.value
             error_msg = (
                 f"Invalid table name '{table_name}'. Must match regex {pattern_text}"
             )
@@ -911,22 +849,6 @@ class DataInserter:
                 "bbox must be a list/tuple of 4 coordinates [minx, miny, maxx, maxy]"
             )
             handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
-    def _ensure_cog_table(self, table_name: str) -> None:
-        """Create the COG metadata table if it does not already exist.
-
-        Args:
-            table_name: Qualified or unqualified table name.
-        """
-        if not sqlalchemy.inspect(self.engine).has_table(table_name, schema="public"):
-            logger.info(f"Table '{table_name}' does not exist. Creating it.")
-            SchemaBuilder(self.engine)._create_table_from_mapping(
-                table_name=table_name,
-                column_mapping=TypeMapper._convert_pg_mapping_to_sqlalchemy(
-                    {col.name.lower(): col.value for col in RasterStacColumns}
-                ),
-                schema="public",
-            )
 
     def read_data(self, table_name: str) -> gpd.GeoDataFrame:
         """Read spatial data from a PostGIS table into a GeoDataFrame.
