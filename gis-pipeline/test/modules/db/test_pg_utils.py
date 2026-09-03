@@ -1748,19 +1748,31 @@ def test_add_fk_constraints_skips_unique_violation(postgis_manager):
 
 @pytest.mark.unit
 class TestStampGeeFlags:
-    def test_three_sql_statements_when_ids_provided(self, postgis_manager, mock_engine):
-        """ADD COLUMN + reset FALSE + set TRUE = 3 execute() calls."""
+    def test_add_column_then_one_combined_update(self, postgis_manager, mock_engine):
+        """ADD COLUMN + a single UPDATE that both sets and clears the flag."""
         mock_conn = mock_engine.begin.return_value
         mock_conn.execute.reset_mock()
         postgis_manager.stamp_gee_flags("som_field_boundaries", {1, 42})
-        assert mock_conn.execute.call_count == 3
 
-    def test_two_sql_statements_when_ids_empty(self, postgis_manager, mock_engine):
-        """ADD COLUMN + reset FALSE only (no TRUE update) when set is empty."""
+        assert mock_conn.execute.call_count == 2
+        statements = [str(call.args[0]) for call in mock_conn.execute.call_args_list]
+        assert "ADD COLUMN IF NOT EXISTS has_gee_data" in statements[0]
+        assert "SET has_gee_data = (gid = ANY(:ids))" in statements[1]
+
+    def test_empty_id_set_still_clears_every_row(self, postgis_manager, mock_engine):
+        """An empty set must still run the UPDATE, so stale TRUE flags are cleared.
+
+        ANY('{}') is FALSE for every row, so the combined statement covers the
+        empty case without a separate reset pass.
+        """
         mock_conn = mock_engine.begin.return_value
         mock_conn.execute.reset_mock()
         postgis_manager.stamp_gee_flags("som_field_boundaries", set())
+
         assert mock_conn.execute.call_count == 2
+        update = mock_conn.execute.call_args_list[-1]
+        assert "SET has_gee_data = (gid = ANY(:ids))" in str(update.args[0])
+        assert update.args[1] == {"ids": []}
 
     def test_db_error_raises_runtime_error(self, postgis_manager, mock_engine):
         """A PostGIS error must surface as RuntimeError so the pipeline notices."""

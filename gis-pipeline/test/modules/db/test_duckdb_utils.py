@@ -1,15 +1,11 @@
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import duckdb
 import geopandas as gpd
 import pandas as pd
 import pytest
 from gis_pipeline.core.config import Config
-from gis_pipeline.modules.db.duckdb_utils import (
-    DuckDBManager,
-    DuckDBSpatialExtensionError,
-)
+from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
 
 
 @pytest.fixture(autouse=True)
