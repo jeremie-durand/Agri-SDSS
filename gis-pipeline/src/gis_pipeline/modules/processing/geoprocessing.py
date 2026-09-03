@@ -250,11 +250,12 @@ class GeoprocessingVector:
 
         try:
             epsg_code = self.gdf.crs.to_epsg()
-            if epsg_code is None:
-                error_msg = "GeoDataFrame CRS is invalid or not EPSG compatible."
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
         except Exception:
             error_msg = "GeoDataFrame CRS is invalid or unreadable."
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
+        if epsg_code is None:
+            error_msg = "GeoDataFrame CRS is invalid or not EPSG compatible."
             handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
         # Final cleanup

@@ -801,6 +801,25 @@ def test_validate_vector_data_crs_no_epsg():
 
     with patch.object(geoprocessing_vector.gdf.crs, "to_epsg", return_value=None):
         with pytest.raises(
+            ValueError, match="GeoDataFrame CRS is invalid or not EPSG compatible"
+        ):
+            geoprocessing_vector.validate_vector_data()
+
+
+def test_validate_vector_data_crs_unreadable():
+    """Validation fails when the CRS cannot be read at all."""
+    gdf = gpd.GeoDataFrame({"attr": [1, 2]}, geometry=[Point(0, 0), Point(1, 1)])
+    gdf.crs = "EPSG:4326"
+    geoprocessing_vector = GeoprocessingVector(
+        gdf=gdf,
+        target_crs=Config.GLOBAL_CRS,
+        collection_id=Config.STAC_COLLECTION_ID,
+    )
+
+    with patch.object(
+        geoprocessing_vector.gdf.crs, "to_epsg", side_effect=RuntimeError("boom")
+    ):
+        with pytest.raises(
             ValueError, match="GeoDataFrame CRS is invalid or unreadable"
         ):
             geoprocessing_vector.validate_vector_data()
