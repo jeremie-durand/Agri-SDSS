@@ -6,6 +6,8 @@ cp /usr/share/nginx/html/index.html.template /usr/share/nginx/html/index.html
 
 # Generate full nginx server block (single-quoted heredoc prevents shell expansion of $host etc.)
 cat > /etc/nginx/conf.d/default.conf << 'NGINX_EOF'
+limit_conn_zone $server_name zone=chatbot_conn:1m;
+
 server {
     listen 8080;
     listen [::]:8080;
@@ -195,5 +197,12 @@ NGINX_EOF
 sed -i "s|proxy_pass http://stac-api:8080/|proxy_pass http://stac-api:${STAC_API_PORT}/|g" /etc/nginx/conf.d/default.conf
 sed -i "s|proxy_pass http://vector-api:8080/|proxy_pass http://vector-api:${VECTOR_API_PORT}/|g" /etc/nginx/conf.d/default.conf
 sed -i "s|proxy_pass http://raster-api:8080/|proxy_pass http://raster-api:${RASTER_API_PORT}/|g" /etc/nginx/conf.d/default.conf
+
+# Config-only mode for `make lint-nginx`: parse what this script just generated
+# and exit, instead of serving. nginx renders its config at container start, so
+# a bad directive would otherwise surface on deploy rather than in CI.
+if [ "${1:-}" = "validate" ]; then
+    exec nginx -t
+fi
 
 exec nginx -g 'daemon off;'

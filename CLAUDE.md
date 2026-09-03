@@ -34,6 +34,7 @@ docker compose run --rm stac-api pytest stac_api/test/test_foo.py::test_bar -v
 # Auxiliary targets (not part of test-all)
 make test-caddy         # Rate-limit integration tests (hot-reloads Caddyfile.test)
 make lint-dockerfiles   # hadolint on the chatbot Dockerfiles
+make lint-nginx         # nginx -t on the generated home and chatbot-frontend configs
 make scan-secrets       # Trivy secret scan over the repo
 make generate-args      # Regenerate gis-pipeline/docs/ARGS.md from the CLI parser
 ```
@@ -161,8 +162,9 @@ GitHub Actions (`.github/workflows/action.yml`) runs on PR/push to main/develop:
 
 1. Validates `ARGS.md` is in sync with CLI arguments
 2. Validates the i18n catalogs (`python -m agri_i18n.check`)
-3. Builds per-service images (`gis-pipeline`, `stac-api`, `vector-api`, `raster-api`, `process-api`, `chatbot-backend`)
-4. Starts the database, then runs `make test-all`
+3. Validates the nginx configs (`make lint-nginx`)
+4. Builds per-service images (`gis-pipeline`, `stac-api`, `vector-api`, `raster-api`, `process-api`, `chatbot-backend`)
+5. Starts the database, then runs `make test-all`
 
 ### Automation
 
