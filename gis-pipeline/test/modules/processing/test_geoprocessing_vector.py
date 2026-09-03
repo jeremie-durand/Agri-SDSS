@@ -11,6 +11,7 @@ from gis_pipeline.core.utils import harmonize_name
 from gis_pipeline.modules.processing.geoprocessing import (
     GeoprocessingVector,
     _process_spatial_table,
+    geoprocessing_vector_data,
 )
 from gis_pipeline.services.mapping import NamingPatterns
 from shapely.geometry import MultiPolygon, Point, Polygon
@@ -1674,3 +1675,60 @@ def test_process_spatial_table_writes_final_path_and_triggers_when_not_chunked(
 
         assert (tmp_path / "my_table.parquet").exists()
         mock_trigger.assert_called_once_with("my_table")
+
+
+# ------------------------------------------
+# Test cases for geoprocessing_vector_data()
+# ------------------------------------------
+
+
+def _point_gdf() -> gpd.GeoDataFrame:
+    return gpd.GeoDataFrame(
+        {"attr": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"
+    )
+
+
+@pytest.mark.unit
+def test_geoprocessing_vector_data_processes_every_table():
+    """Every entry in gdf_list is processed, not just the last one."""
+    gdf_list = [(f"table{i}", _point_gdf()) for i in (1, 2, 3)]
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing._process_spatial_table"
+    ) as mock_spatial:
+        geoprocessing_vector_data(gdf_list=gdf_list, collection_id="c")
+
+    processed = [call.args[0] for call in mock_spatial.call_args_list]
+    assert processed == ["table1", "table2", "table3"]
+
+
+@pytest.mark.unit
+def test_geoprocessing_vector_data_empty_table_does_not_abort_the_rest():
+    """An empty result for one table must not stop the tables after it.
+
+    _process_spatial_table returns None when a GeoDataFrame is empty, which is a
+    skip, not a failure.
+    """
+    gdf_list = [(f"table{i}", _point_gdf()) for i in (1, 2, 3)]
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing._process_spatial_table",
+        side_effect=[None, None, None],
+    ) as mock_spatial:
+        geoprocessing_vector_data(gdf_list=gdf_list, collection_id="c")
+
+    assert mock_spatial.call_count == 3
+
+
+@pytest.mark.unit
+def test_geoprocessing_vector_data_routes_non_spatial_tables():
+    """A table without a geometry column goes to the non-spatial path."""
+    df = gpd.GeoDataFrame(pd.DataFrame({"attr": [1, 2]}))
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing._process_non_spatial_table"
+    ) as mock_non_spatial:
+        geoprocessing_vector_data(gdf_list=[("plain", df)], collection_id="c")
+
+    mock_non_spatial.assert_called_once()
+    assert mock_non_spatial.call_args.args[0] == "plain"

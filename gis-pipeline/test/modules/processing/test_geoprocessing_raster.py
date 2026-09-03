@@ -3396,8 +3396,14 @@ def test_process_raster_to_cog_backup_restore_on_error(
                             overwrite_existing=False,
                         )
 
-                    # Verify restore was called
+                    # Verify restore was called with the COG file itself, not the
+                    # output directory -- unlink() on a directory raises
+                    # IsADirectoryError, which _restore_backup_file swallows, so
+                    # the backup would never actually be restored.
                     mock_restore.assert_called_once()
+                    restore_target = mock_restore.call_args.args[1]
+                    assert restore_target == existing_cog
+                    assert restore_target.suffix == ".tif"
 
 
 def test_process_raster_to_cog_name_harmonization(
