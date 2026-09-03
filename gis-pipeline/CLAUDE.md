@@ -36,7 +36,7 @@ Non-spatial CSVs (no lat/lon columns) are written directly to DuckDB Parquet and
 1. `convert_vector_files_to_gdf()` — open all vector files into GeoDataFrames
 2. `validate_vector_data()` — check CRS presence, geometry validity, geometry type consistency
 3. `harmonize_gdf()` — `_rename_gdf_columns()` → drop duplicates/nulls → cast types
-4. `clean_geometries_gdf()` — fix invalid geometries (`.buffer(0)`), detect overlaps, drop null geoms
+4. `clean_geometries_gdf()` — repair invalid geometries (`shapely.make_valid`), detect overlaps, drop null geoms
 5. `harmonize_crs_gdf()` — reproject to target EPSG (default 4326)
 6. `PostGISManager.insert_table_data()` — upsert to PostGIS
 7. `DuckDBManager.save_gdf_to_geoparquet()` — write GeoParquet
@@ -61,7 +61,10 @@ Non-spatial CSVs (no lat/lon columns) are written directly to DuckDB Parquet and
 ## CRS and Geometry Handling
 
 - All data is reprojected to `Config.GLOBAL_CRS` (default EPSG:4326) via `pyproj`.
-- Invalid geometries are repaired with `shapely.buffer(0)` before insertion.
+- Invalid geometries are repaired with `shapely.make_valid` before insertion. Only parts
+  matching the input dimension are kept, so a repaired polygon never becomes a
+  GeometryCollection carrying the dangling lines that caused the invalidity. A geometry
+  with no part of its own dimension left is dropped with a warning.
 - Overlapping geometries are detected and logged (not dropped).
 - Rasters are reprojected via `gdalwarp` with the same target CRS.
 
