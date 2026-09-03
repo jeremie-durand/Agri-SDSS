@@ -17,7 +17,7 @@ from shapely.ops import unary_union
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.exceptions import RasterProcessingError, VectorProcessingError
 from gis_pipeline.core.logging_setup import handle_error
-from gis_pipeline.core.utils import harmonize_name
+from gis_pipeline.core.utils import add_process_to_logger, harmonize_name
 from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
 from gis_pipeline.modules.db.materialize_trigger import trigger_materialize_and_notify
 from gis_pipeline.modules.db.pg_utils import PostGISManager
@@ -35,7 +35,6 @@ from gis_pipeline.services.mapping import (
     QGISInternalLayers,
     RasterTargetCRSOverrides,
 )
-from gis_pipeline.utils import add_process_to_logger
 
 logger = structlog.get_logger()
 
@@ -201,14 +200,8 @@ class GeoprocessingVector:
             df.columns = df.columns.str.lower()
 
             # Identify coordinate columns
-            x_col = set(
-                ColumnMappings.LONGITUDE.value.alias
-                + [ColumnMappings.LONGITUDE.value.canonical]
-            ).intersection(df.columns)
-            y_col = set(
-                ColumnMappings.LATITUDE.value.alias
-                + [ColumnMappings.LATITUDE.value.canonical]
-            ).intersection(df.columns)
+            x_col = ColumnMappings.LONGITUDE.value.all_names() & set(df.columns)
+            y_col = ColumnMappings.LATITUDE.value.all_names() & set(df.columns)
 
             # Determine CRS from registry (if defined)
             source_crs = (
@@ -721,10 +714,7 @@ def geoprocessing_vector_data(
                 collection_id=collection_id,
             )
 
-            geometry_cols = set(
-                ColumnMappings.GEOMETRY.value.alias
-                + [ColumnMappings.GEOMETRY.value.canonical]
-            ).intersection(gdf.columns)
+            geometry_cols = ColumnMappings.GEOMETRY.value.all_names() & set(gdf.columns)
 
             if geometry_cols:
                 logger.info(f"Table {table} is spatial. Processing geometry steps.")
@@ -1564,12 +1554,16 @@ def geoprocessing_raster_data(
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
         processing = GeoprocessingRaster(config=Config, raster_paths=rasters)
-        harmonized_cog_pairs = _create_cog_files(
-            rasters, output_dir, target_crs, processing
-        )
-        all_raster_metadata = _collect_cog_metadata(harmonized_cog_pairs, processing)
-        _publish_stac(all_raster_metadata, stac_collection_id, api_url)
-        processing.close_all_rasters()
+        try:
+            harmonized_cog_pairs = _create_cog_files(
+                rasters, output_dir, target_crs, processing
+            )
+            all_raster_metadata = _collect_cog_metadata(
+                harmonized_cog_pairs, processing
+            )
+            _publish_stac(all_raster_metadata, stac_collection_id, api_url)
+        finally:
+            processing.close_all_rasters()
     except RasterProcessingError:
         raise
     except Exception as e:
