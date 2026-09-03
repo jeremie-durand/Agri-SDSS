@@ -255,6 +255,9 @@ class DuckDBManager:
                 error_msg=error_msg,
                 exc_class=RuntimeError,
             )
+        except RuntimeError:
+            DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
+            raise
         except Exception as e:
             DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
             error_msg = f"Unexpected error saving DataFrame to Parquet: {e}"
@@ -610,6 +613,9 @@ class DuckDBManager:
             error_msg = f"File system error saving table '{table_name}' to Parquet: {e}"
             self._cleanup_temp_file(tmp_path)
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+        except RuntimeError:
+            self._cleanup_temp_file(tmp_path)
+            raise
         except Exception:
             error_msg = f"Unexpected error saving table '{table_name}' to Parquet"
             self._cleanup_temp_file(tmp_path)
