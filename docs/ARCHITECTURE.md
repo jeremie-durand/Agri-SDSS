@@ -26,7 +26,7 @@ flowchart LR
     RAST --> CHAT
     PYGE --> CHAT
 
-    SB --> HOME[home / caddy\n:8084 / :443]
+    SB --> HOME[home / caddy\n:8080 internal / :443 public]
     CHAT --> HOME
 ```
 
@@ -50,9 +50,30 @@ flowchart LR
 | `process-api` | 5000 | OGC Processes — climate, satellite, LiDAR (PyGeoAPI + OpenEO) |
 | `chatbot` | 8005 / 3001 | AI geospatial assistant (backend + React frontend) |
 | `stac-browser` | 8085 | STAC catalog explorer UI (served at `/stac/` via home) |
-| `home` | 8084 | Nginx reverse proxy + map page |
+| `home` | 8080 (internal only, no host port — reached via `caddy`) | Nginx reverse proxy + map page (also serves `/cog/<file>.tif` — static COG downloads from `./data/output/raster_cog`, the hrefs published in STAC asset metadata) |
 | `caddy` | 443 / 80 | TLS termination, HTTPS redirect, rate limiting |
 | `database` (PostGIS) | 5432 | pgSTAC schema + vector feature tables |
+
+### STAC asset hrefs
+
+A STAC asset href must be absolute and publicly resolvable, so every publisher
+builds them from `HOST_PROTOCOL://HOST_URL` rather than from the container-local
+path it wrote the file to. Each published raster carries three assets:
+
+| Asset | Route | What it is |
+| --- | --- | --- |
+| the product itself (`dtm`, `ndvi`, `data`, …) | `/cog/<file>.tif` | The COG, served statically by `home` with byte-range support — what GDAL `/vsicurl`, rasterio and QGIS open |
+| `preview` / `<product>_preview` | `/raster-api/cog/preview.png` | A PNG rendered on demand by TiTiler; no download |
+| `tilejson` / `<product>_tilejson` | `/raster-api/cog/WebMercatorQuad/tilejson.json` | XYZ tile endpoints for dynamic map display |
+
+A Sentinel-2 item holds several products, so its render assets are keyed per
+product; LiDAR and pipeline items hold one raster and use the bare keys.
+
+The render hrefs carry the query parameters TiTiler needs to produce a
+meaningful image: `bidx` when the COG has a band count TiTiler cannot encode
+whole (a 6-band soil COG answers 500 without it), and `rescale` with the band's
+own value range, without which a float band is cast straight to uint8 and
+renders flat.
 
 ## Technology choices
 
