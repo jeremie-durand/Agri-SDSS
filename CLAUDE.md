@@ -67,6 +67,22 @@ The `home` nginx is the single entry point for all frontends — proxy routes, n
 | --- | --- | --- |
 | `STAC_API_URL` | `http://stac-api:8081` | STAC API base URL (internal Docker service name), used by gis-pipeline to publish STAC items |
 
+### Public URLs
+
+STAC asset hrefs must be absolute and publicly resolvable, so process-api
+(`processes/asset_url_utils.py`) and gis-pipeline (`core/config.py`) both build
+them from the deployment's public origin rather than from container-local paths.
+
+| Variable | Example | Description |
+| --- | --- | --- |
+| `HOST_PROTOCOL` | `https` | Scheme of the public origin |
+| `HOST_URL` | `agri-sdss.duckdns.org` | Public domain — must be the real one before any STAC-publishing process runs; see the gate in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#2-environment-variables) |
+| `FORWARDED_ALLOW_IPS` | `*` | Uvicorn peers whose `X-Forwarded-Proto` is trusted (raster-api, vector-api); without it they advertise `http://` URLs behind the HTTPS proxy |
+
+The public COG route (`/cog/<file>.tif`, served statically by the home nginx)
+is duplicated across four files with no shared package;
+`make test-repo-consistency` guards them against drift.
+
 ### PostgreSQL / PostGIS
 
 Two credentials exist (least-privilege model — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#database-credential-model)):
@@ -97,11 +113,16 @@ Two credentials exist (least-privilege model — see [docs/DEPLOYMENT.md](docs/D
 | `RASTER_API_PORT` | `8082` | raster-api |
 | `VECTOR_API_PORT` | `8083` | vector-api |
 | `PROCESS_API_PORT` | `5000` | process-api |
-| `HOME_PORT` | `8084` | home frontend (unified entry point) |
 | `CHATBOT_BACKEND_PORT` | `8005` | chatbot-backend |
 | `CHATBOT_FRONTEND_PORT` | `3001` | chatbot-frontend (direct access) |
 | `STAC_BROWSER_PORT` | `8085` | stac-browser (direct access) |
 | `VECTOR_API_CORS_ORIGINS` | _(empty)_ | Comma-separated allowed CORS origins for vector-api; empty blocks all cross-origin requests |
+
+`home` has no port variable and no `ports:` mapping in `docker-compose.yml` —
+only `expose: "8080"`. It is reached through Caddy (`80`/`443`), the single
+public entry point that carries the rate-limit zones and security headers.
+For debugging, reach it directly from inside `eoapi-network`:
+`docker run --rm --network eoapi-network curlimages/curl:latest -sI http://home:8080/`.
 
 ### OpenEO / Copernicus
 
