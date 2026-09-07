@@ -18,6 +18,7 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import openeo
 import psycopg
 import rasterio
@@ -26,6 +27,7 @@ from openeo.rest import JobFailedException
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 from shapely.geometry import MultiPolygon, Polygon, shape
 
+from .asset_url_utils import cog_href, preview_href, tilejson_href
 from .config import ApiConfig, DatabaseConfig, FarmConfig
 from .eo_backend import vegetation_indices as veg_indices
 from .eo_sentinel_fetch_metadata import PROCESS_METADATA
@@ -34,17 +36,24 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_cog_stats(cog_path: str) -> Dict[int, Any]:
-    """Return per-band min/max/mean/std stats from a COG file."""
+    """Return per-band min/max/mean/std stats from a COG file.
+
+    NaN is not covered by the nodata mask, so non-finite pixels are dropped
+    first: a single one would otherwise make every statistic NaN, which is not
+    valid JSON and would poison both the published item and the rescale
+    derived from it.
+    """
     with rasterio.open(cog_path) as src:
         stats: Dict[int, Any] = {}
         for i in src.indexes:
-            band_data = src.read(i, masked=True)
-            if band_data.count() > 0:
+            values = src.read(i, masked=True).compressed()
+            values = values[np.isfinite(values)]
+            if values.size > 0:
                 stats[i] = {
-                    "min": float(band_data.min()),
-                    "max": float(band_data.max()),
-                    "mean": float(band_data.mean()),
-                    "std": float(band_data.std()),
+                    "min": float(values.min()),
+                    "max": float(values.max()),
+                    "mean": float(values.mean()),
+                    "std": float(values.std()),
                 }
             else:
                 stats[i] = {"min": None, "max": None, "mean": None, "std": None}
@@ -374,7 +383,7 @@ class SentinelFetchProcessor(BaseProcessor):
                         )
                         stats = _extract_cog_stats(cog_path)
                         assets[product] = {
-                            "href": cog_path,
+                            "href": cog_href(cog_path),
                             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
                             "roles": (
                                 ["data"] if product != "true_color" else ["visual"]
@@ -396,7 +405,7 @@ class SentinelFetchProcessor(BaseProcessor):
                     stats = _extract_cog_stats(cog_path)
 
                     assets[product] = {
-                        "href": cog_path,
+                        "href": cog_href(cog_path),
                         "type": "image/tiff; application=geotiff; profile=cloud-optimized",
                         "roles": ["data"] if product != "true_color" else ["visual"],
                         "title": self._get_product_title(product),
@@ -565,7 +574,7 @@ class SentinelFetchProcessor(BaseProcessor):
                 try:
                     stats = _extract_cog_stats(cog_path)
                     cached_assets[product] = {
-                        "href": cog_path,
+                        "href": cog_href(cog_path),
                         "type": "image/tiff; application=geotiff; profile=cloud-optimized",
                         "roles": ["data"] if product != "true_color" else ["visual"],
                         "title": self._get_product_title(product),
@@ -758,6 +767,75 @@ class SentinelFetchProcessor(BaseProcessor):
             ]
         return [{"nodata": self.DEFAULT_NODATA}]
 
+    @staticmethod
+    def _render_params(
+        asset: Dict[str, Any]
+    ) -> Tuple[Optional[int], Optional[str]]:
+        """Return the ``(bidx, rescale)`` TiTiler needs to render an asset.
+
+        Both come from the statistics already extracted for the asset rather
+        than a second read of the file. Band indices survive the JSON round
+        trip through the cache marker as strings, so the band is looked up
+        under either form.
+
+        TiTiler encodes a 1-band COG as greyscale and a 3-band one as RGB, but
+        can encode nothing else — a 6-band COG answers 500 — so any other band
+        count renders band 1 explicitly. It also casts a float band straight to
+        uint8 when given no rescale, which renders a vegetation index flat, so
+        a rendered band carries its own value range. ``true_color`` is the only
+        3-band product, an RGB composite already displayable as-is, and needs
+        neither.
+
+        The rescale is None whenever the range is unusable — absent,
+        non-finite, or constant, which would make rio-tiler divide by zero.
+        """
+        statistics = asset.get("statistics") or {}
+        if not statistics or len(statistics) == 3:
+            return None, None
+        bidx = None if len(statistics) == 1 else 1
+        band = statistics.get(1) or statistics.get("1") or {}
+        low, high = band.get("min"), band.get("max")
+        if low is None or high is None:
+            return bidx, None
+        low, high = float(low), float(high)
+        if not (math.isfinite(low) and math.isfinite(high)) or low == high:
+            return bidx, None
+        return bidx, f"{low},{high}"
+
+    def _render_assets(
+        self, assets: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return the raster-api renderings of each product COG.
+
+        The COG assets are byte-range downloads; these are the URLs that let a
+        client display the same pixels without downloading anything. An item
+        carries several products, unlike a LiDAR one, so each gets its own pair
+        keyed ``<product>_preview`` / ``<product>_tilejson`` beside it.
+
+        Args:
+            assets: Product assets, each holding the public href of its COG.
+        """
+        rendered: Dict[str, Dict[str, Any]] = {}
+        for product, asset in assets.items():
+            href = asset.get("href")
+            if not href:
+                continue
+            bidx, rescale = self._render_params(asset)
+            title = self._get_product_title(product)
+            rendered[f"{product}_preview"] = {
+                "href": preview_href(href, rescale=rescale, bidx=bidx),
+                "type": "image/png",
+                "roles": ["overview"],
+                "title": f"{title} — PNG preview",
+            }
+            rendered[f"{product}_tilejson"] = {
+                "href": tilejson_href(href, rescale=rescale, bidx=bidx),
+                "type": "application/json",
+                "roles": ["tiles"],
+                "title": f"{title} — TileJSON (XYZ tiles)",
+            }
+        return rendered
+
     def _create_stac_item(
         self,
         item_id: str,
@@ -781,6 +859,8 @@ class SentinelFetchProcessor(BaseProcessor):
                 Example: ["2024-06-01", "2024-08-31"]
             assets: Dictionary mapping product names to STAC asset metadata
                 Each asset must include: href, type, roles, title, raster:bands, statistics
+                Each also gains a raster-api preview and TileJSON sibling
+                (see _render_assets) so the item is viewable without a download
             cloud_cover_max: Maximum cloud cover percentage used for filtering (0-100)
                 Example: 20.0
             marker_path: Path to the cache marker written on a successful
@@ -830,7 +910,7 @@ class SentinelFetchProcessor(BaseProcessor):
                 "eo:cloud_cover": cloud_cover_max,
                 "proj:epsg": 4326,
             },
-            "assets": assets,
+            "assets": {**assets, **self._render_assets(assets)},
             "links": [],
         }
 
@@ -990,12 +1070,18 @@ class SentinelFetchProcessor(BaseProcessor):
             )
             return False
 
-    def _generate_preview_url(self, asset_href: str) -> str:
-        """Generate TiTiler preview URL for asset"""
-        filename: str = os.path.basename(asset_href)
-        raster_api_port: int = ApiConfig().RASTER_API_PORT
-        raster_api_url: str = f"http://raster-api:{raster_api_port}"
-        return f"{raster_api_url}/cog/preview.png?url=/data/{filename}&rescale=0,1"
+    def _generate_preview_url(self, asset: Dict[str, Any]) -> str:
+        """Return the public TiTiler preview URL for a product asset.
+
+        Rendered with the same band and value range as the item's own preview
+        asset, so the URL handed back in the process response and the one a
+        client finds in the catalog show the same image.
+
+        Args:
+            asset: Product asset holding the public href of its COG.
+        """
+        bidx, rescale = self._render_params(asset)
+        return preview_href(asset["href"], rescale=rescale, bidx=bidx)
 
     def execute(
         self, data: Dict[str, Any], outputs: Optional[Any] = None
@@ -1146,7 +1232,7 @@ class SentinelFetchProcessor(BaseProcessor):
                 or assets.get("true_color")
                 or list(assets.values())[0]
             )
-            preview_url: str = self._generate_preview_url(preview_asset["href"])
+            preview_url: str = self._generate_preview_url(preview_asset)
 
             result: Dict[str, Any] = {
                 "stac_item_id": stac_item_id,
