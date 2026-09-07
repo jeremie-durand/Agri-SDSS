@@ -3,16 +3,23 @@ import subprocess
 import time
 import unicodedata
 from pathlib import Path
+from typing import Optional
 
 import duckdb
 import fiona
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import rasterio
 import structlog
 from rasterio.coords import BoundingBox
 from rasterio.warp import transform_bounds
-from gis_pipeline.core.config import Config
+from gis_pipeline.core.config import (
+    Config,
+    public_cog_url,
+    public_preview_url,
+    public_tilejson_url,
+)
 from gis_pipeline.core.exceptions import RasterProcessingError, VectorProcessingError
 from gis_pipeline.core.logging_setup import handle_error
 from gis_pipeline.core.utils import harmonize_name
@@ -1117,6 +1124,50 @@ class GeoprocessingRaster:
             "data_type": "raster",
         }
 
+    @staticmethod
+    def _render_params(
+        src: rasterio.io.DatasetReader,
+    ) -> tuple[Optional[int], Optional[str]]:
+        """Return the ``(bidx, rescale)`` TiTiler needs to render a COG.
+
+        TiTiler encodes a 1-band COG as greyscale and a 3-band uint8 one as
+        RGB, but can encode nothing else — a 6-band soil COG answers 500 — so
+        any other shape renders band 1 explicitly. It also casts a float band
+        straight to uint8 when given no rescale, which renders a continuous
+        raster flat, so a rendered band carries its own value range, read
+        downsampled since only its extremes are needed.
+
+        NaN is not covered by the nodata mask — the soil COGs carry both — so
+        non-finite pixels are dropped before taking the extremes, or a single
+        NaN would publish ``rescale=nan,nan``. The rescale is None for an RGB
+        composite, already displayable as-is, and whenever nothing usable is
+        left: no real pixels, or a constant band, which would make rio-tiler
+        divide by zero — leaving the href unrescaled rather than failing the
+        whole metadata step.
+
+        Args:
+            src: Open rasterio dataset for the COG.
+        """
+        if src.count == 3 and set(src.dtypes) == {"uint8"}:
+            return None, None
+        bidx = None if src.count == 1 else 1
+        try:
+            step = max(1, max(src.height, src.width) // 1024)
+            band = src.read(
+                1, masked=True, out_shape=(src.height // step, src.width // step)
+            )
+        except (rasterio.errors.RasterioIOError, OSError) as exc:
+            logger.warning("Could not read %s for render rescale: %s", src.name, exc)
+            return bidx, None
+        values = band.compressed()
+        values = values[np.isfinite(values)]
+        if values.size == 0:
+            return bidx, None
+        low, high = float(values.min()), float(values.max())
+        if low == high:
+            return bidx, None
+        return bidx, f"{low},{high}"
+
     def prepare_cog_metadata_for_stac(
         self, original_raster_path: Path, cog_file_path: Path
     ) -> dict:
@@ -1179,14 +1230,28 @@ class GeoprocessingRaster:
                 dt_val = dt_val.isoformat()
 
             # Return a plain dict (compatible with other gis_pipeline code / tests)
+            cog_url = public_cog_url(cog_file_path)
+            bidx, rescale = self._render_params(src)
             assets = {
                 "cog": {
-                    "href": f"file://{cog_file_path.absolute()}",
+                    "href": cog_url,
                     "type": "image/tiff; application=geotiff; profile=cloud-optimized",
                     "roles": ["data"],
                     "title": cog_file_path.name,
                     "raster_bands": raster_bands,
-                }
+                },
+                "preview": {
+                    "href": public_preview_url(cog_file_path, rescale=rescale, bidx=bidx),
+                    "type": "image/png",
+                    "roles": ["overview"],
+                    "title": "PNG preview",
+                },
+                "tilejson": {
+                    "href": public_tilejson_url(cog_file_path, rescale=rescale, bidx=bidx),
+                    "type": "application/json",
+                    "roles": ["tiles"],
+                    "title": "TileJSON (XYZ tiles)",
+                },
             }
 
             return {
@@ -1222,7 +1287,8 @@ class GeoprocessingRaster:
                     "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
                     "https://stac-extensions.github.io/projection/v1.1.0/schema.json",
                 ],
-                "file_url": f"file://{cog_file_path.absolute()}",
+                "file_url": str(cog_file_path.absolute()),
+                "href": cog_url,
             }
 
     def _process_single_raster_to_cog(
