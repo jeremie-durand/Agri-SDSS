@@ -1,12 +1,15 @@
-"""Integration tests for Caddy rate limiting on PyGeoAPI routes.
+"""Integration tests for Caddy rate limiting on PyGeoAPI, chatbot, and COG routes.
 
-Two zones are tested:
-- pygeoapi_exec : POST /process-api/processes/*/execution  (heavy compute)
+Zones under test include:
+- pygeoapi_exec  : POST /process-api/processes/*/execution (heavy compute)
 - pygeoapi_browse: GET  /process-api/*                     (lightweight reads)
+- chatbot_llm, chatbot_search, chatbot_browse
+- cog_download   : GET  /cog/*                              (public COG files)
 
 Run the stack with short windows before executing these tests:
     RATE_LIMIT_PYGEOAPI_EXEC_EVENTS=3   RATE_LIMIT_PYGEOAPI_EXEC_WINDOW=5s
     RATE_LIMIT_PYGEOAPI_BROWSE_EVENTS=5 RATE_LIMIT_PYGEOAPI_BROWSE_WINDOW=5s
+    RATE_LIMIT_COG_DOWNLOAD_EVENTS=4    RATE_LIMIT_COG_DOWNLOAD_WINDOW=5s
 """
 
 import os
@@ -261,3 +264,75 @@ def test_llm_zone_does_not_bleed_into_pygeoapi_zone(caddy_session):
     assert (
         r.status_code != 429
     ), "PyGeoAPI exec zone was incorrectly blocked by chatbot LLM exhaustion"
+
+
+# ---------------------------------------------------------------------------
+# Public COG downloads — GET /cog/*. Files here run up to 2.49 GB, so these
+# tests ask for the first kilobyte only: the zone matches on method and path,
+# and a ranged GET is both a real GET and the shape a genuine client sends —
+# GDAL /vsicurl reads a COG as a series of small byte ranges. A HEAD would not
+# do: the zone matches "method GET", so HEAD never enters it and every
+# assertion below would pass vacuously.
+# ---------------------------------------------------------------------------
+
+COG_URL = f"{CADDY_BASE_URL}/cog/corg_fr_siigsol_cog.tif"
+
+COG_LIMIT = int(os.getenv("RATE_LIMIT_COG_DOWNLOAD_EVENTS", "4"))
+
+
+def _cog_get(session):
+    """Send one rate-limited COG GET, transferring a kilobyte at most."""
+    return session.get(COG_URL, headers={"Range": "bytes=0-1023"})
+
+
+@pytest.mark.integration
+def test_cog_download_within_limit_not_blocked(caddy_session):
+    """Every request up to the limit must return a non-429 status."""
+    time.sleep(WINDOW_SECONDS)
+    for i in range(COG_LIMIT):
+        r = _cog_get(caddy_session)
+        assert (
+            r.status_code != 429
+        ), f"COG request {i + 1}/{COG_LIMIT} was blocked before reaching the limit"
+
+
+@pytest.mark.integration
+def test_cog_download_over_limit_returns_429(caddy_session):
+    """The (limit + 1)th request must be rejected with 429."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(COG_LIMIT):
+        _cog_get(caddy_session)
+    r = _cog_get(caddy_session)
+    assert r.status_code == 429
+
+
+@pytest.mark.integration
+def test_cog_download_429_has_retry_after_header(caddy_session):
+    """A 429 on the COG zone must carry Retry-After so clients can back off."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(COG_LIMIT + 1):
+        r = _cog_get(caddy_session)
+    assert r.status_code == 429
+    assert "retry-after" in r.headers, "429 missing Retry-After header"
+    assert int(r.headers["retry-after"]) > 0
+
+
+@pytest.mark.integration
+def test_cog_head_is_not_rate_limited(caddy_session):
+    """HEAD carries no body, so it is deliberately outside the GET-only zone."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(COG_LIMIT + 2):
+        r = caddy_session.head(COG_URL)
+    assert r.status_code != 429
+
+
+@pytest.mark.integration
+def test_cog_zone_does_not_bleed_into_pygeoapi_zone(caddy_session):
+    """Exhausting the COG quota must not block unrelated PyGeoAPI reads."""
+    time.sleep(WINDOW_SECONDS)
+    for _ in range(COG_LIMIT + 1):
+        _cog_get(caddy_session)
+    r = caddy_session.get(BROWSE_URL)
+    assert (
+        r.status_code != 429
+    ), "PyGeoAPI browse zone was incorrectly blocked by COG zone exhaustion"
