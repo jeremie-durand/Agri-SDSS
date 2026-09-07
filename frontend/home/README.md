@@ -11,6 +11,7 @@ The unified entry point for Agri-SDSS. A static nginx frontend that serves the L
 - **Interactive map**: Leaflet-based map with vector parcels, raster overlays, SOM analysis, and STAC item visualization
 - **Unified navigation**: A shared nav bar injected into every sub-application (STAC Browser, Chatbot) via nginx `sub_filter`
 - **Reverse proxy**: Routes `/stac/`, `/chatbot/`, `/stac-api/`, `/vector-api/`, `/raster-api/`, `/process-api/` to the appropriate services — no CORS issues for the browser
+- **COG downloads**: `/cog/<file>.tif` serves the raster files referenced by STAC asset hrefs directly as static files, with byte-range support
 - **Chatbot bridge**: `chatbot-bridge.js` injected into the chatbot iframe to relay map context and tile commands between the chatbot and the Leaflet map via `postMessage`
 - **Bilingual interface**: EN / FR language toggle across all pages
 
@@ -27,7 +28,7 @@ The unified entry point for Agri-SDSS. A static nginx frontend that serves the L
 
 ```mermaid
 graph TD
-    User --> Home[Home nginx<br/>Port 8084]
+    User -->|:443, :80→443| Caddy[Caddy] -->|:8080, internal| Home[Home nginx]
 
     Home -->|/| Map[map.html<br/>Leaflet map]
     Home -->|/services| Services[index.html<br/>Services overview]
@@ -47,7 +48,7 @@ graph TD
 
 **Request flow:**
 
-1. **User opens** `http://<host>:8084` → nginx serves `map.html`
+1. **User opens** `https://<host>` (Caddy, the public entry point on :443) → proxied to `home:8080` → nginx serves `map.html`
 2. **Map loads** → fetches vector collections from `/vector-api/`, STAC items from `/stac-api/`, tiles from `/raster-api/`
 3. **User navigates to `/stac/`** → nginx proxies to stac-browser and injects the shared nav bar
 4. **User opens `/chatbot/`** → nginx proxies to chatbot frontend and injects both `chatbot-bridge.js` and the nav bar
@@ -65,13 +66,24 @@ docker compose up -d
 docker compose up -d home
 ```
 
-Once running, access:
+`home` publishes no host port — it is reachable only via Caddy (`expose: "8080"` in
+`docker-compose.yml`, no `ports:` mapping). This is deliberate: Caddy carries the
+rate-limit zones and security headers, and is the intended single entry point.
+There is no `HOME_PORT` variable to change this.
 
-- **Map**: `http://<host>:8084`
-- **Services**: `http://<host>:8084/services`
-- **Data catalog**: `http://<host>:8084/data`
-- **STAC Browser**: `http://<host>:8084/stac/`
-- **AI Assistant**: `http://<host>:8084/chatbot/`
+Once running, access (through Caddy):
+
+- **Map**: `https://<host>`
+- **Services**: `https://<host>/services`
+- **Data catalog**: `https://<host>/data`
+- **STAC Browser**: `https://<host>/stac/`
+- **AI Assistant**: `https://<host>/chatbot/`
+
+For debugging, reach `home` directly from inside `eoapi-network`, bypassing Caddy:
+
+```bash
+docker run --rm --network eoapi-network curlimages/curl:latest -sI http://home:8080/
+```
 
 ---
 
@@ -82,7 +94,6 @@ The nginx config is generated at container startup by `scripts/entrypoint.sh`. B
 **Environment Variables:**
 
 ```bash
-HOME_PORT=8084               # Host-side port for the home frontend
 STAC_BROWSER_PORT=8085       # stac-browser container port
 STAC_API_PORT=8081           # stac-api container port
 RASTER_API_PORT=8082         # raster-api container port
@@ -90,6 +101,11 @@ VECTOR_API_PORT=8083         # vector-api container port
 PROCESS_API_PORT=5000       # process-api container port
 CHATBOT_BACKEND_PORT=8005    # chatbot-backend container port
 ```
+
+These are all container-internal ports used to build the proxy targets in the
+generated nginx config — none of them is a host-side port for `home` itself.
+`home` has no `HOME_PORT`; see [Quick Start](#quick-start) for how it is
+actually reached.
 
 ### Customization
 
@@ -153,6 +169,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 | `/raster-api/` | `raster-api` | Used for tile overlays |
 | `/process-api/` | `process-api:5000` | 630s read timeout for long-running processes |
 | `/aac-identify/` | `agriculture.canada.ca` | CORS proxy for AAC imagery service |
+| `/cog/<file>.tif` | static file, `./data/output/raster_cog` | STAC asset hrefs published by process-api and gis-pipeline. Raster extensions only (`.tif`/`.tiff`) — the same directory holds `*.stac.json` publish markers, which the regex excludes. Byte-range capable (native nginx `Range` handling, so GDAL `/vsicurl` reads only the tiles it needs); `Cache-Control: public, max-age=0, must-revalidate` |
 
 ---
 
@@ -191,15 +208,15 @@ docker compose exec home cat /etc/nginx/conf.d/default.conf
 
 ```bash
 # Verify sub_filter is working — check that nav injection is in the served HTML
-curl -s http://<host>:8084/stac/ | grep sdss-nav.js
+curl -s https://<host>/stac/ | grep sdss-nav.js
 ```
 
 ### Chatbot bridge not relaying map commands
 
-Open the browser console on the map page (`http://<host>:8084`) and check for `postMessage` events. Confirm `chatbot-bridge.js` is loaded inside the chatbot iframe:
+Open the browser console on the map page (`https://<host>`) and check for `postMessage` events. Confirm `chatbot-bridge.js` is loaded inside the chatbot iframe:
 
 ```bash
-curl -s http://<host>:8084/chatbot/ | grep chatbot-bridge.js
+curl -s https://<host>/chatbot/ | grep chatbot-bridge.js
 ```
 
 ### Environment variable not applied
