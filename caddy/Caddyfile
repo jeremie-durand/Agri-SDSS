@@ -100,6 +100,31 @@
 	}
 	# ─────────────────────────────────────────────────────────────────────────
 
+	# ── Rate limiting public COG downloads ───────────────────────────────────
+	# GET /cog/<file>.tif serves whatever sits in the mounted raster directory
+	# directly, with Access-Control-Allow-Origin: *, no auth. Files there run
+	# up to 2.49 GB (corg_fr_siigsol_cog.tif). The normal client is GDAL's
+	# /vsicurl, which reads a COG through many small byte-range requests —
+	# cheap per request, so 30/min is generous for it. What this zone actually
+	# bounds is request volume, NOT bytes: 30 full pulls of a 2.5 GB file is
+	# still 74 GB/min, so this zone alone is no egress protection. The byte
+	# cap lives in the home nginx location block (limit_rate 6m after a
+	# 16 MB allowance, which leaves /vsicurl range reads untouched); this
+	# zone bounds request churn on top of it. To adjust: modify
+	# window/events here, then "docker compose restart caddy"
+	rate_limit {
+		zone cog_download {
+			match {
+				method GET
+				path /cog/*
+			}
+			key    {remote_host}
+			window 1m
+			events 30
+		}
+	}
+	# ─────────────────────────────────────────────────────────────────────────
+
 	# Security headers
 	header {
 		X-Content-Type-Options    "nosniff"
