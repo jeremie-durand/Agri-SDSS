@@ -20,6 +20,10 @@ docker compose up -d caddy
   searches, 60 req/min on `GET /api/*`. These zones are the chatbot's only working
   per-IP limit — the backend's own limiter keys on `request.client.host`, which behind
   this proxy is always the `home` container IP, so it degrades to one shared bucket
+- Rate-limits public COG downloads: 30 req/min per IP on `GET /cog/*`, which serves
+  raster files (up to 2.49 GB) with no auth. Ranged reads from GDAL's `/vsicurl`
+  stay well under that; the zone exists to bound a client that pulls whole
+  multi-gigabyte files in a loop
 - Sets security headers: HSTS, `X-Frame-Options`, `X-Content-Type-Options`, CSP
 
 ## Configuration
