@@ -780,7 +780,11 @@ def test_execute_skips_stac_publish_when_all_products_cached_and_assets_match(
     farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
     stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
     marker_path = processor_instance._stac_marker_path(stac_item_id)
-    seeded_item = {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+    # Seeded in the shape a publish actually leaves behind: the product asset
+    # plus the raster-api siblings built for it.
+    seeded_assets = _make_assets(("ndvi",))
+    seeded_assets.update(processor_instance._render_assets(seeded_assets))
+    seeded_item = {"id": stac_item_id, "assets": seeded_assets}
     processor_instance._write_stac_marker(marker_path, seeded_item)
 
     with (
@@ -3031,3 +3035,45 @@ def test_response_preview_url_matches_the_published_preview_asset(
     assert processor_instance._generate_preview_url(assets["ndvi"]) == (
         rendered["ndvi_preview"]["href"]
     )
+
+
+@pytest.mark.mocked
+def test_execute_republishes_when_marker_predates_the_render_assets(
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
+):
+    """A marker written before the raster-api assets existed carries only the
+    product keys — and the broken hrefs of that era. Trusting it would leave
+    the item unfixed forever, so it must not count as a cache hit."""
+    processor_instance.output_dir = str(tmp_path)
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+    }
+
+    geom_shape = shape(sample_farm_geometry_small)
+    bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
+    stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
+    marker_path = processor_instance._stac_marker_path(stac_item_id)
+    # Pre-fix marker: products only, no preview/tilejson siblings.
+    processor_instance._write_stac_marker(
+        marker_path, {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+    )
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi",)), True),
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=True
+        ) as mock_post,
+    ):
+        _, envelope = processor_instance.execute(data)
+
+    mock_post.assert_called_once()
+    published = mock_post.call_args[0][0]
+    assert "ndvi_preview" in published["assets"]
+    assert "ndvi_tilejson" in published["assets"]
