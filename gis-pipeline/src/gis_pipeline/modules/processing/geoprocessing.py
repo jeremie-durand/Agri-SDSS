@@ -14,6 +14,8 @@ import rasterio
 import structlog
 from rasterio.coords import BoundingBox
 from rasterio.warp import transform_bounds
+from shapely import get_dimensions, get_parts, make_valid
+from shapely.ops import unary_union
 from gis_pipeline.core.config import (
     Config,
     public_cog_url,
