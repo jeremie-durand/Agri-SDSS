@@ -74,6 +74,10 @@ class LidarFetchProcessor(BaseProcessor):
     # STAC settings
     STAC_COLLECTION_ID: str = "lidar_quebec"
     STAC_VERSION: str = "1.0.0"
+
+    # Keys of the raster-api renderings published beside each product asset.
+    PREVIEW_ASSET_KEY: str = "preview"
+    TILEJSON_ASSET_KEY: str = "tilejson"
     # Quebec bounding box (west, south, east, north)
     STAC_SPATIAL_EXTENT_BBOX: List[float] = [-79.75, 41.75, -56.0, 63.0]
     # Approximate acquisition start; MRNF campaigns began ~2015
@@ -603,7 +607,10 @@ class LidarFetchProcessor(BaseProcessor):
 
         marker_path = self._stac_marker_path(cog_path)
         cached_item = self._load_cached_stac_item(marker_path)
-        if cached_item is not None:
+        expected_assets = {product, self.PREVIEW_ASSET_KEY, self.TILEJSON_ASSET_KEY}
+        if cached_item is not None and (
+            set(cached_item.get("assets", {})) == expected_assets
+        ):
             logger.info(
                 "STAC cache hit: '%s' already published as %s",
                 product,
@@ -698,13 +705,13 @@ class LidarFetchProcessor(BaseProcessor):
             },
             "assets": {
                 product: asset,
-                "preview": {
+                self.PREVIEW_ASSET_KEY: {
                     "href": preview_href(cog_path, rescale=rescale),
                     "type": "image/png",
                     "roles": ["overview"],
                     "title": "PNG preview",
                 },
-                "tilejson": {
+                self.TILEJSON_ASSET_KEY: {
                     "href": tilejson_href(cog_path, rescale=rescale),
                     "type": "application/json",
                     "roles": ["tiles"],
