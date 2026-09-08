@@ -1195,10 +1195,13 @@ class SentinelFetchProcessor(BaseProcessor):
 
             # Create (or reuse) the STAC item. The cache marker is only
             # trusted when every requested product was itself served from
-            # the on-disk cache AND its asset set exactly matches what was
-            # last published — a call requesting a different product mix
-            # for the same farm/dates must still (re)publish, since the
-            # published item's `assets` need to reflect that mix.
+            # the on-disk cache AND the marker holds exactly the assets this
+            # call would publish. Two things fall out of that: a call
+            # requesting a different product mix for the same farm/dates
+            # republishes, since the item's `assets` must reflect that mix;
+            # and a marker written before the raster-api render assets
+            # existed no longer matches, so the item it points at is
+            # republished with corrected hrefs instead of staying broken.
             stac_item_id: str = (
                 f"sentinel2_{farm_identifier}_{temporal_extent[0]}_{temporal_extent[1]}"
             )
@@ -1206,10 +1209,12 @@ class SentinelFetchProcessor(BaseProcessor):
             cached_item: Optional[Dict[str, Any]] = (
                 self._load_cached_stac_item(marker_path) if all_cached else None
             )
+            expected_assets: set = set(assets) | set(self._render_assets(assets))
             stac_result: Dict[str, Any]
-            if cached_item is not None and set(
-                cached_item.get("assets", {})
-            ) == set(assets):
+            if (
+                cached_item is not None
+                and set(cached_item.get("assets", {})) == expected_assets
+            ):
                 logger.info(
                     "STAC cache hit: '%s' already published with matching assets",
                     stac_item_id,
