@@ -1280,3 +1280,81 @@ def test_preview_rescale_ignores_unmasked_nan(tmp_path):
     )
 
     assert LidarFetchProcessor._preview_rescale(str(cog_path)) == "20.0,30.0"
+
+
+@pytest.mark.unit
+def test_stale_marker_without_render_assets_is_republished(tmp_path, monkeypatch):
+    """A marker written before the raster-api assets existed carries only the
+    product key — and the broken href of that era. Trusting it would leave the
+    item unfixed forever, so it must not count as a cache hit."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[10.0, 20.0], [30.0, 40.0]])
+    marker_path = str(cog_path) + ".stac.json"
+    with open(marker_path, "w") as f:
+        json.dump(
+            {"id": "lidar_dtm_geom_abc123", "assets": {"dtm": {"href": "/data/x.tif"}}},
+            f,
+        )
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+    assets: dict = {}
+    stac_items: list = []
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=True):
+        processor._add_product_asset(
+            assets=assets,
+            stac_items=stac_items,
+            product="dtm",
+            cog_path=str(cog_path),
+            geometry_geojson={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-72.0, 46.0], [-71.9, 46.0], [-71.9, 45.9], [-72.0, 46.0]]
+                ],
+            },
+            bbox=(-72.0, 45.9, -71.9, 46.0),
+            farm_identifier="geom_abc123",
+        )
+
+    assert set(stac_items[0]["assets"]) == {"dtm", "preview", "tilejson"}
+    assert stac_items[0]["assets"]["dtm"]["href"].startswith("https://")
+
+
+@pytest.mark.unit
+def test_current_marker_is_a_cache_hit(tmp_path, monkeypatch):
+    """A marker holding exactly what a publish leaves behind is still trusted."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[10.0, 20.0], [30.0, 40.0]])
+    marker_path = str(cog_path) + ".stac.json"
+    cached = {
+        "id": "lidar_dtm_geom_abc123",
+        "assets": {"dtm": {}, "preview": {}, "tilejson": {}},
+    }
+    with open(marker_path, "w") as f:
+        json.dump(cached, f)
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+    stac_items: list = []
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api") as mock_post:
+        processor._add_product_asset(
+            assets={},
+            stac_items=stac_items,
+            product="dtm",
+            cog_path=str(cog_path),
+            geometry_geojson={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-72.0, 46.0], [-71.9, 46.0], [-71.9, 45.9], [-72.0, 46.0]]
+                ],
+            },
+            bbox=(-72.0, 45.9, -71.9, 46.0),
+            farm_identifier="geom_abc123",
+        )
+
+    mock_post.assert_not_called()
+    assert stac_items == [cached]
