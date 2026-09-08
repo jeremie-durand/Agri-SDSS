@@ -11,6 +11,7 @@ from gis_pipeline.core.utils import harmonize_name
 from gis_pipeline.modules.processing.geoprocessing import (
     GeoprocessingVector,
     _process_spatial_table,
+    geoprocessing_vector_data,
 )
 from gis_pipeline.services.mapping import NamingPatterns
 from shapely.geometry import MultiPolygon, Point, Polygon
@@ -800,6 +801,25 @@ def test_validate_vector_data_crs_no_epsg():
     )
 
     with patch.object(geoprocessing_vector.gdf.crs, "to_epsg", return_value=None):
+        with pytest.raises(
+            ValueError, match="GeoDataFrame CRS is invalid or not EPSG compatible"
+        ):
+            geoprocessing_vector.validate_vector_data()
+
+
+def test_validate_vector_data_crs_unreadable():
+    """Validation fails when the CRS cannot be read at all."""
+    gdf = gpd.GeoDataFrame({"attr": [1, 2]}, geometry=[Point(0, 0), Point(1, 1)])
+    gdf.crs = "EPSG:4326"
+    geoprocessing_vector = GeoprocessingVector(
+        gdf=gdf,
+        target_crs=Config.GLOBAL_CRS,
+        collection_id=Config.STAC_COLLECTION_ID,
+    )
+
+    with patch.object(
+        geoprocessing_vector.gdf.crs, "to_epsg", side_effect=RuntimeError("boom")
+    ):
         with pytest.raises(
             ValueError, match="GeoDataFrame CRS is invalid or unreadable"
         ):
@@ -1655,3 +1675,160 @@ def test_process_spatial_table_writes_final_path_and_triggers_when_not_chunked(
 
         assert (tmp_path / "my_table.parquet").exists()
         mock_trigger.assert_called_once_with("my_table")
+
+
+# ------------------------------------------
+# Test cases for geoprocessing_vector_data()
+# ------------------------------------------
+
+
+def _point_gdf() -> gpd.GeoDataFrame:
+    return gpd.GeoDataFrame(
+        {"attr": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"
+    )
+
+
+@pytest.mark.unit
+def test_geoprocessing_vector_data_processes_every_table():
+    """Every entry in gdf_list is processed, not just the last one."""
+    gdf_list = [(f"table{i}", _point_gdf()) for i in (1, 2, 3)]
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing._process_spatial_table"
+    ) as mock_spatial:
+        geoprocessing_vector_data(gdf_list=gdf_list, collection_id="c")
+
+    processed = [call.args[0] for call in mock_spatial.call_args_list]
+    assert processed == ["table1", "table2", "table3"]
+
+
+@pytest.mark.unit
+def test_geoprocessing_vector_data_empty_table_does_not_abort_the_rest():
+    """An empty result for one table must not stop the tables after it.
+
+    _process_spatial_table returns None when a GeoDataFrame is empty, which is a
+    skip, not a failure.
+    """
+    gdf_list = [(f"table{i}", _point_gdf()) for i in (1, 2, 3)]
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing._process_spatial_table",
+        side_effect=[None, None, None],
+    ) as mock_spatial:
+        geoprocessing_vector_data(gdf_list=gdf_list, collection_id="c")
+
+    assert mock_spatial.call_count == 3
+
+
+@pytest.mark.unit
+def test_geoprocessing_vector_data_routes_non_spatial_tables():
+    """A table without a geometry column goes to the non-spatial path."""
+    df = gpd.GeoDataFrame(pd.DataFrame({"attr": [1, 2]}))
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing._process_non_spatial_table"
+    ) as mock_non_spatial:
+        geoprocessing_vector_data(gdf_list=[("plain", df)], collection_id="c")
+
+    mock_non_spatial.assert_called_once()
+    assert mock_non_spatial.call_args.args[0] == "plain"
+
+
+# ------------------------------------------
+# Test cases for invalid-geometry repair
+# ------------------------------------------
+
+
+def _bowtie() -> Polygon:
+    """Self-intersecting polygon; buffer(0) keeps only half its area."""
+    return Polygon([(0, 0), (1, 1), (1, 0), (0, 1), (0, 0)])
+
+
+def _spiked_square() -> Polygon:
+    """Invalid square with a dangling spike -> make_valid gives a collection."""
+    return Polygon([(0, 0), (4, 0), (4, 4), (0, 4), (0, 0), (2, 2), (6, 2), (2, 2)])
+
+
+def _collapsed() -> Polygon:
+    """Degenerate polygon whose points are colinear -> no polygonal part left."""
+    return Polygon([(0, 0), (1, 0), (2, 0), (0, 0)])
+
+
+def _vector(gdf: gpd.GeoDataFrame) -> GeoprocessingVector:
+    return GeoprocessingVector(
+        gdf=gdf, target_crs=Config.GLOBAL_CRS, collection_id=Config.STAC_COLLECTION_ID
+    )
+
+
+@pytest.mark.unit
+def test_clean_geometries_repairs_self_intersection():
+    """An invalid bowtie becomes valid and keeps its full area."""
+    gdf = gpd.GeoDataFrame({"a": [1]}, geometry=[_bowtie()], crs="EPSG:4326")
+    assert not gdf.geometry.iloc[0].is_valid
+
+    processor = _vector(gdf)
+    processor.clean_geometries_gdf()
+
+    assert processor.gdf.geometry.iloc[0].is_valid
+
+
+@pytest.mark.unit
+def test_clean_geometries_preserves_area_unlike_buffer_zero():
+    """Repair keeps both lobes of the bowtie; buffer(0) would keep one."""
+    geom = _bowtie()
+    processor = _vector(gpd.GeoDataFrame({"a": [1]}, geometry=[geom], crs="EPSG:4326"))
+    processor.clean_geometries_gdf()
+
+    assert processor.gdf.geometry.iloc[0].area == pytest.approx(0.5)
+    assert geom.buffer(0).area == pytest.approx(0.25)
+
+
+@pytest.mark.unit
+def test_clean_geometries_drops_non_polygonal_parts():
+    """A repaired polygon must not come back as a GeometryCollection."""
+    processor = _vector(
+        gpd.GeoDataFrame({"a": [1]}, geometry=[_spiked_square()], crs="EPSG:4326")
+    )
+    processor.clean_geometries_gdf()
+
+    result = processor.gdf.geometry.iloc[0]
+    assert result.geom_type in ("Polygon", "MultiPolygon")
+    assert result.is_valid
+
+
+@pytest.mark.unit
+def test_clean_geometries_drops_unrepairable_rows():
+    """A geometry with no polygonal part left is removed, not silently degraded."""
+    gdf = gpd.GeoDataFrame(
+        {"a": [1, 2]},
+        geometry=[_collapsed(), Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])],
+        crs="EPSG:4326",
+    )
+    processor = _vector(gdf)
+    processor.clean_geometries_gdf()
+
+    assert len(processor.gdf) == 1
+    assert processor.gdf["a"].tolist() == [2]
+
+
+@pytest.mark.unit
+def test_clean_geometries_leaves_valid_geometries_untouched():
+    """Valid input is returned unchanged."""
+    square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+    processor = _vector(
+        gpd.GeoDataFrame({"a": [1]}, geometry=[square], crs="EPSG:4326")
+    )
+    processor.clean_geometries_gdf()
+
+    assert processor.gdf.geometry.iloc[0].equals(square)
+
+
+@pytest.mark.unit
+def test_clean_geometries_can_be_disabled():
+    """is_fix_invalid=False leaves an invalid geometry in place."""
+    processor = _vector(
+        gpd.GeoDataFrame({"a": [1]}, geometry=[_bowtie()], crs="EPSG:4326")
+    )
+    processor.clean_geometries_gdf(is_fix_invalid=False)
+
+    assert not processor.gdf.geometry.iloc[0].is_valid

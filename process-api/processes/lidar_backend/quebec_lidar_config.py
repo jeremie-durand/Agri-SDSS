@@ -1,5 +1,14 @@
 """
 Configuration constants for the Quebec MRNF LiDAR tile index.
+
+Deliberately constants rather than environment variables. PRODUCT_COLUMN,
+DERIVED_PRODUCTS and VALID_PRODUCTS are a schema contract with the MRNF
+GeoJSON and are coupled to code paths, so a wrong value fails silently: an
+unmatched column name yields no tiles rather than an error. TILE_INDEX_URL
+and DOWNLOAD_TIMEOUT_SECONDS have a single upstream and no per-deployment
+variance. CACHE_TTL_SECONDS and DEFAULT_CACHE_PATH are already injectable
+through LidarTileIndex(cache_path=..., cache_ttl=...), which is the seam
+callers and tests use.
 """
 
 TILE_INDEX_URL: str = (

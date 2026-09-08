@@ -1,6 +1,5 @@
 import re
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
 
 import duckdb
 import geopandas as gpd
@@ -9,7 +8,6 @@ import structlog
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.logging_setup import handle_error
 from gis_pipeline.services.mapping import (
-    AttributeNullValues,
     ColumnMappings,
     NamingPatterns,
 )
@@ -64,36 +62,6 @@ class DuckDBManager:
         DuckDBManager._load_spatial_extension(self.conn)
 
     @staticmethod
-    def _normalize_parquet_value(x: object) -> object:
-        """Helper function to normalize values for Parquet compatibility.
-
-        Args:
-            x: The value to normalize. Expected common types:
-               - dict: metadata-like objects (empty dict -> {"NA": None})
-               - str: attribute keys looked up in AttributeNullValues mapping
-               - tuple/list: sequences (lists are unhashable; function will try tuple fallback)
-               - other scalar types
-
-        Returns:
-            The normalized value. If the mapping does not contain the key, returns None.
-        """
-        if isinstance(x, dict):
-            return {"NA": None} if len(x) == 0 else x
-
-        mapping: dict = {m.value: None for m in AttributeNullValues}
-
-        try:
-            # Try direct lookup
-            return mapping.get(x, None)
-        except TypeError:
-            try:
-                # Try tuple fallback for unhashable types (e.g., lists)
-                return mapping.get(tuple(x), None)
-            except TypeError:
-                logger.exception(f"Failed to normalize value: {x}")
-                return None
-
-    @staticmethod
     def _cleanup_temp_file(tmp_path: Path) -> None:
         """Helper function to clean up temporary file if it exists.
 
@@ -107,72 +75,6 @@ class DuckDBManager:
         except duckdb.Error as cleanup_error:
             error_msg = f"Failed to clean up temporary file {tmp_path}: {cleanup_error}"
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
-    def _check_geometry_column(self, table: str) -> None:
-        """Helper function to check if the specified table has a 'geometry' column.
-
-        Args:
-            table: Name of the DuckDB table to check.
-        """
-        try:
-            columns_result = self.conn.execute(f"DESCRIBE {table}").fetchall()
-            column_names = [row[0] for row in columns_result]
-            if "geometry" not in column_names:
-                error_msg = f"Table '{table}' does not have a 'geometry' column"
-                handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-        except duckdb.Error as e:
-            error_msg = (
-                f"Error describing table '{table}', cannot check geometry column: {e}"
-            )
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
-    def _compute_and_save_centroid(self, table: str) -> tuple[str, list, str]:
-        """Compute centroid table for a single table, save it to Parquet file.
-
-        Args:
-            table: Name of the DuckDB table to process.
-
-        Returns:
-            A tuple containing:
-                - The name of the centroid table created.
-                - A list of centroid geometries as WKT strings.
-                - The path to the saved Parquet file.
-        """
-        if not re.match(NamingPatterns.PATTERN_DUCKDB_NAME.value, table):
-            error_msg = f"Invalid table name: {table}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
-        centroid_table = f"{table}_centroids"
-        logger.info(f"Creating centroid table: {centroid_table}")
-
-        existing_tables = self.check_data()
-        if table not in existing_tables:
-            error_msg = f"Table '{table}' does not exist in the database."
-            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
-        # Properly escape table names
-        escaped_table = self.escape_duckdb(table)
-        centroid_table_escaped = self.escape_duckdb(centroid_table)
-
-        # Check if geometry column exists
-        self._check_geometry_column(escaped_table)
-
-        # Create centroid table
-        self.conn.execute(f"""
-            CREATE OR REPLACE TABLE {centroid_table_escaped} AS
-            SELECT ST_AsText(ST_Centroid(geometry)) AS centroid_wkt
-            FROM {escaped_table}
-            """)
-
-        # Read results and save
-        result = self.conn.execute(f"SELECT * FROM {centroid_table_escaped}").fetchall()
-
-        output_path = self.save_table_to_geoparquet(table_name=centroid_table)
-        logger.info(
-            f"Computed and stored {len(result)} centroids in table: {output_path}"
-        )
-
-        return centroid_table, result, output_path
 
     @staticmethod
     def escape_duckdb(name: str) -> str:
@@ -255,6 +157,9 @@ class DuckDBManager:
                 error_msg=error_msg,
                 exc_class=RuntimeError,
             )
+        except RuntimeError:
+            DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
+            raise
         except Exception as e:
             DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
             error_msg = f"Unexpected error saving DataFrame to Parquet: {e}"
@@ -353,22 +258,6 @@ class DuckDBManager:
                 if col == gdf_copy.geometry.name:
                     continue
                 gdf_copy = DuckDBManager._resolve_column_alias_gdf(gdf_copy, col)
-
-            for col in gdf.columns:
-                # Skip geometry column (keep original geometry)
-                if col == gdf.geometry.name:
-                    continue
-
-                # Only handle object-dtype columns for normalization
-                if gdf[col].dtype == "object":
-                    # Create a normalized column and keep the original column untouched
-                    norm_col = f"{col}_normalized"
-                    gdf[norm_col] = gdf[col].apply(
-                        DuckDBManager._normalize_parquet_value
-                    )
-                    logger.warning(
-                        f"Created normalized column '{norm_col}' from '{col}' for Parquet compatibility."
-                    )
 
             # Ensure output directory exists
             Path(Config.DUCKDB_DATA_DIR).mkdir(parents=True, exist_ok=True)
@@ -610,91 +499,10 @@ class DuckDBManager:
             error_msg = f"File system error saving table '{table_name}' to Parquet: {e}"
             self._cleanup_temp_file(tmp_path)
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+        except RuntimeError:
+            self._cleanup_temp_file(tmp_path)
+            raise
         except Exception:
             error_msg = f"Unexpected error saving table '{table_name}' to Parquet"
             self._cleanup_temp_file(tmp_path)
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
-    def check_data(self) -> list[str]:
-        """Check all data in DuckDB and return a list of all table names.
-
-        Returns:
-            A list of all table names in the DuckDB database.
-        """
-        try:
-            result = self.conn.execute("SHOW TABLES;").fetchall()
-            table_names = [row[0] for row in result]
-            logger.debug(f"Found {len(table_names)} tables in database")
-            return table_names
-        except duckdb.ConnectionException as e:
-            error_msg = f"Database connection error while checking data: {e}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-        except duckdb.Error as e:
-            error_msg = f"DuckDB error while checking data: {e}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-        except Exception:
-            error_msg = "Unexpected error while checking data"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-
-    def get_centroids(self, tables: Union[List[str], str]) -> Dict[str, list[Tuple]]:
-        """Compute centroids of polygon geometries in DuckDB tables,
-
-        Args:
-            tables: List of table names or a single table name to process.
-
-        Returns:
-            A dictionary mapping centroid table names to their centroid geometries.
-
-        Notes:
-            Create new tables named '{table}_centroids' to store them,
-            and save the centroid tables to Parquet files.
-        """
-        if tables is None:
-            error_msg = "No tables provided for centroid computation"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
-        tables = [tables] if isinstance(tables, str) else tables
-        centroids: Dict[str, list[Tuple]] = {}
-
-        try:
-            for table in tables:
-                centroid_table, centroid_data, output_path = (
-                    self._compute_and_save_centroid(table=table)
-                )
-                centroids[centroid_table] = centroid_data
-                logger.info(f"Centroids for table '{table}' saved to '{output_path}'")
-
-            return centroids
-
-        except ValueError:
-            error_msg = f"ValueError computing centroids for tables {tables}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
-
-        except duckdb.BinderException as e:
-            # Intercepte l'absence de spatial extension ou de fonction ST_Centroid
-            if "ST_Centroid" in str(e) or "function matches the given name" in str(e):
-                error_msg = f"Failed to load spatial extension in DuckDB: {e}"
-                handle_error(
-                    logger=logger,
-                    error_msg=error_msg,
-                    exc_class=DuckDBSpatialExtensionError,
-                )
-            else:
-                error_msg = (
-                    f"SQL binding error computing centroids for tables {tables}: {e}"
-                )
-                handle_error(logger=logger, error_msg=error_msg, exc_class=duckdb.Error)
-
-        except duckdb.ConnectionException as e:
-            error_msg = f"Database connection error computing centroids for tables {tables}: {e}"
-            handle_error(
-                logger=logger, error_msg=error_msg, exc_class=duckdb.ConnectionException
-            )
-
-        except duckdb.Error as e:
-            error_msg = f"DuckDB error computing centroids for tables {tables}: {e}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=duckdb.Error)
-
-        except Exception:
-            error_msg = f"Unexpected error computing centroids for tables {tables}"
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)

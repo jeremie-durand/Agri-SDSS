@@ -277,7 +277,9 @@ def test_init_connection_failure(mock_create_engine):
 
 def test_init_no_postgis_extension(mock_engine_no_postgis):
     """Test PostGISManager initialization when PostGIS extension is missing."""
-    with pytest.raises(RuntimeError, match="Error checking PostGIS extension"):
+    with pytest.raises(
+        RuntimeError, match="PostGIS extension is not enabled in the database"
+    ):
         PostGISManager(engine=mock_engine_no_postgis)
 
 
@@ -301,7 +303,9 @@ def test_init_postgis_check_variables_error():
 
     # Mock Config.POSTGRES_MAX_NAME_LENGTH to an invalid value
     with patch("gis_pipeline.modules.db.pg_utils.Config.POSTGRES_MAX_NAME_LENGTH", 5):
-        with pytest.raises(RuntimeError, match="Error checking PostGIS variables"):
+        with pytest.raises(
+            ValueError, match="POSTGRES_MAX_NAME_LENGTH must be greater than or equal"
+        ):
             PostGISManager(engine=mock_engine)
 
 
@@ -919,6 +923,27 @@ def test_ensure_cog_table_checks_existence_in_public_schema(
     mock_create.assert_not_called()
 
 
+def test_insert_cog_metadata_validation_error_is_not_rewritten(postgis_manager):
+    """A missing required field surfaces as its own ValueError, not a generic wrap.
+
+    The other missing-field tests below fail earlier, inside _ensure_cog_table on
+    the mocked engine, so they never reach validation. Stubbing it out is what
+    exercises _validate_cog_metadata.
+    """
+    with patch.object(postgis_manager, "_ensure_cog_table", return_value=None):
+        with pytest.raises(ValueError, match="Missing required field 'bbox'"):
+            postgis_manager.insert_cog_metadata(
+                metadata={"id": 1, "file_url": "http://example.com/a.tif"},
+                table_name="cogs",
+            )
+
+
+def test_insert_table_data_rejects_non_dataframe(postgis_manager):
+    """A non-DataFrame input raises ValueError rather than a generic RuntimeError."""
+    with pytest.raises(ValueError, match="Input must be a GeoDataFrame or DataFrame"):
+        postgis_manager.insert_table_data(gdf="not a dataframe", table_name="t")
+
+
 def test_insert_cog_metadata_missing_id(postgis_manager, cog_metadata_missing_id):
     """Test COG metadata insertion with missing id field."""
     table_name = "test_table"
@@ -1120,53 +1145,7 @@ def test_insert_cog_metadata_edge_case_values(postgis_manager):
 
 
 # ------------------------------------------
-# Test cases for read_data()
 # ------------------------------------------
-def test_read_data_success(postgis_manager, mock_gdf):
-    """Test successful data reading."""
-    table_name = "test_table"
-
-    with patch("sqlalchemy.MetaData"):
-        with patch("sqlalchemy.Table"):
-            with patch("sqlalchemy.select"):
-                with patch("geopandas.read_postgis", return_value=mock_gdf):
-                    result = postgis_manager.read_data(table_name=table_name)
-
-                    assert isinstance(result, gpd.GeoDataFrame)
-                    assert len(result) == 2
-
-
-def test_read_data_nonexistent_table(postgis_manager):
-    """Test reading data from nonexistent table."""
-    table_name = "nonexistent_table"
-
-    with patch("sqlalchemy.MetaData"):
-        with patch("sqlalchemy.Table"):
-            with patch("sqlalchemy.select"):
-                with patch(
-                    "geopandas.read_postgis", side_effect=Exception("Table not found")
-                ):
-                    with pytest.raises(
-                        RuntimeError,
-                        match="Error reading data from PostGIS",
-                    ):
-                        postgis_manager.read_data(table_name=table_name)
-
-
-def test_read_data_with_limit(postgis_manager, mock_gdf):
-    """Test reading data with limit."""
-    table_name = "test_table"
-
-    with patch("sqlalchemy.MetaData"):
-        with patch("sqlalchemy.Table"):
-            with patch("sqlalchemy.select"):
-                with patch("geopandas.read_postgis", return_value=mock_gdf.head(1)):
-                    result = postgis_manager.read_data(table_name=table_name)
-
-                    assert isinstance(result, gpd.GeoDataFrame)
-                    assert len(result) == 1
-
-
 # ------------------------------------------
 # Test cases for GID column handling
 # ------------------------------------------
@@ -1769,19 +1748,31 @@ def test_add_fk_constraints_skips_unique_violation(postgis_manager):
 
 @pytest.mark.unit
 class TestStampGeeFlags:
-    def test_three_sql_statements_when_ids_provided(self, postgis_manager, mock_engine):
-        """ADD COLUMN + reset FALSE + set TRUE = 3 execute() calls."""
+    def test_add_column_then_one_combined_update(self, postgis_manager, mock_engine):
+        """ADD COLUMN + a single UPDATE that both sets and clears the flag."""
         mock_conn = mock_engine.begin.return_value
         mock_conn.execute.reset_mock()
         postgis_manager.stamp_gee_flags("som_field_boundaries", {1, 42})
-        assert mock_conn.execute.call_count == 3
 
-    def test_two_sql_statements_when_ids_empty(self, postgis_manager, mock_engine):
-        """ADD COLUMN + reset FALSE only (no TRUE update) when set is empty."""
+        assert mock_conn.execute.call_count == 2
+        statements = [str(call.args[0]) for call in mock_conn.execute.call_args_list]
+        assert "ADD COLUMN IF NOT EXISTS has_gee_data" in statements[0]
+        assert "SET has_gee_data = (gid = ANY(:ids))" in statements[1]
+
+    def test_empty_id_set_still_clears_every_row(self, postgis_manager, mock_engine):
+        """An empty set must still run the UPDATE, so stale TRUE flags are cleared.
+
+        ANY('{}') is FALSE for every row, so the combined statement covers the
+        empty case without a separate reset pass.
+        """
         mock_conn = mock_engine.begin.return_value
         mock_conn.execute.reset_mock()
         postgis_manager.stamp_gee_flags("som_field_boundaries", set())
+
         assert mock_conn.execute.call_count == 2
+        update = mock_conn.execute.call_args_list[-1]
+        assert "SET has_gee_data = (gid = ANY(:ids))" in str(update.args[0])
+        assert update.args[1] == {"ids": []}
 
     def test_db_error_raises_runtime_error(self, postgis_manager, mock_engine):
         """A PostGIS error must surface as RuntimeError so the pipeline notices."""
