@@ -1287,6 +1287,7 @@ def test_stale_marker_without_render_assets_is_republished(tmp_path, monkeypatch
     """A marker written before the raster-api assets existed carries only the
     product key — and the broken href of that era. Trusting it would leave the
     item unfixed forever, so it must not count as a cache hit."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
     monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
 
     cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
@@ -1319,7 +1320,9 @@ def test_stale_marker_without_render_assets_is_republished(tmp_path, monkeypatch
         )
 
     assert set(stac_items[0]["assets"]) == {"dtm", "preview", "tilejson"}
-    assert stac_items[0]["assets"]["dtm"]["href"].startswith("https://")
+    assert stac_items[0]["assets"]["dtm"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog/lidar_dtm_geom_abc123.tif"
+    )
 
 
 @pytest.mark.unit
