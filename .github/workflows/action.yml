@@ -56,5 +56,8 @@ jobs:
       - name: Start database
         run: docker compose up -d database
 
+      - name: Smoke-test service entrypoints
+        run: make smoke-entrypoints
+
       - name: Run all tests
         run: make test-all
