@@ -1,5 +1,5 @@
 | Service ou API | Standard utilisé | Stockage des données | Exemples de requêtes | Types de données renvoyées |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **STAC API** | STAC API | PostGIS | `GET /collections/farms/items/farm-x`<br>`GET /collections/estrie/items/estrie-ph`<br>`POST /search` | GeoJSON avec métadonnées STAC |
 | **Raster API** | OGC API – Tiles / Maps | COG en local avec PostGIS pour métadonnées | `GET /cog/tiles/{z}{x}{y}.png?url=data/raster-x.tif`<br>`GET /cog/info?url=data/raster-x.tif` | Tuile raster PNG |
 | **Vector API** | OGC API - Features | PostGIS | `GET /collections/farms/items/farm-x` | GeoJSON |

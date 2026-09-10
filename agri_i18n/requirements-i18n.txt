@@ -1,0 +1,3 @@
+# Catalog compilation toolchain. Build-stage only - never installed at runtime,
+# where agri_i18n uses the stdlib gettext module.
+Babel==2.18.0

@@ -13,7 +13,7 @@ The Vector API provides access to vector geospatial data through a RESTful inter
 - **Full container stack**: `docker compose up --build`
 - **Vector API only**: `docker compose up vector-api --build`
 
-Once running, the Vector API is available at: http://localhost:8083
+Once running, the Vector API is available at: <http://localhost:8083>
 
 ### Configuration
 
@@ -31,27 +31,34 @@ The system includes two demo collections for testing and demonstration purposes:
 ### Query Overview
 
 #### Get All Collections
+
 ```http
 GET /collections
 ```
+
 Returns a list of all available vector collections.
 
 Example:
+
 ```bash
 curl http://localhost:8083/collections
 ```
+
 Response: List of collections
 
 #### Get Collection Information
+
 ```http
 GET /collections/{collectionId}
 ```
+
 Returns detailed information about a specific collection.
 
 Parameters:
 collectionId (string): The identifier of the collection
 
 Examples:
+
 ```bash
 # Get Southern Quebec collection info
 curl http://localhost:8083/collections/public.sud_du_quebec_4326
@@ -61,14 +68,17 @@ curl http://localhost:8083/collections/public.bdppad_2024_4326_sample_stac
 ```
 
 Response:
+
 ```json
 {"id":"public.sud_du_quebec_4326","title":"public.sud_du_quebec_4326","links":[{"href":"http://localhost:8083/collections/public.sud_du_quebec_4326","rel":"self","type":"application/json"},{"href":"http://localhost:8083/collections/public.sud_du_quebec_4326/items","rel":"items","type":"application/geo+json","title":"Items"},{"href":"http://localhost:8083/collections/public.sud_du_quebec_4326/items?f=csv","rel":"alternate","type":"text/csv","title":"Items (CSV)"},{"href":"http://localhost:8083/collections/public.sud_du_quebec_4326/items?f=geojsonseq","rel":"alternate","type":"application/geo+json-seq","title":"Items (GeoJSONSeq)"},{"href":"http://localhost:8083/collections/public.sud_du_quebec_4326/queryables","rel":"queryables","type":"application/schema+json","title":"Queryables"}],"extent":{"spatial":{"bbox":[[-74.66980081171282,44.99135832579372,-69.62529737300314,47.4119438131845]],"crs":"http://www.opengis.net/def/crs/OGC/1.3/CRS84"},"temporal":{"interval":[["2024-01-01T00:00:00+00:00","2024-12-31T00:00:00+00:00"],["2024-12-31T00:00:00+00:00","2024-12-31T00:00:00+00:00"],["2024-01-01T00:00:00+00:00","2024-01-01T00:00:00+00:00"]],"trs":"http://www.opengis.net/def/uom/ISO-8601/0/Gregorian"}},"itemType":"feature","crs":["http://www.opengis.net/def/crs/OGC/1.3/CRS84"]}
 ```
 
 #### Get All Features from Collection
+
 ```http
 GET /collections/{collectionId}/items
 ```
+
 Returns all features from the specified collection.
 
 Parameters:
@@ -80,6 +90,7 @@ offset (integer): Number of features to skip
 bbox (array): Bounding box filter [minx,miny,maxx,maxy]
 
 Examples:
+
 ```bash
 # Get Southern Quebec features with spatial filter
 curl "http://localhost:8083/collections/public.sud_du_quebec_4326/items?limit=5&bbox=-75,45,-74,46"
@@ -91,9 +102,11 @@ curl "http://localhost:8083/collections/public.bdppad_2024_4326_sample_stac/item
 Response: GeoJSON FeatureCollection
 
 #### Get Specific Feature
+
 ```http
 GET /collections/{collectionId}/items/{featureId}
 ```
+
 Returns a specific feature by its identifier.
 
 Parameters:
@@ -109,6 +122,7 @@ curl http://localhost:8083/collections/public.bdppad_2024_4326_sample_stac/items
 ```
 
 Response:
+
 ```json
 {
   "type": "Feature",
@@ -132,15 +146,19 @@ Response:
 ```
 
 ## Data Storage
+
 PostGIS Integration
 Vector data is stored in PostGIS tables with the following requirements:
+
 - Geometry Column: Must be properly indexed for spatial queries
 - Primary Key: Required for feature identification
 - SRID: Spatial reference system identifier must be set (4326 for demo collections)
 
 ## Standards Compliance
+
 OGC API - Features
 This implementation follows the OGC API - Features specification, providing:
+
 - RESTful API design
 - JSON and GeoJSON responses
 - Standard query parameters
@@ -148,10 +166,12 @@ This implementation follows the OGC API - Features specification, providing:
 - Spatial filtering capabilities
 
 Coordinate Reference Systems
+
 - Default CRS: WGS84 (EPSG:4326)
 - Demo Collections CRS: All demo collections use EPSG:4326
 
-# Development Notes
+## Development Notes
+
 - All responses follow GeoJSON specification for spatial data
 - Spatial indexes are automatically used for bbox queries
 - Feature properties are dynamically generated from PostGIS table columns
