@@ -239,8 +239,11 @@ def main():
 
     import structlog
     from gis_pipeline.core.logging_setup import setup_logging
+    from gis_pipeline.core.utils import (
+        add_section_to_logger,
+        generate_processing_report,
+    )
     from gis_pipeline.modules.io_tools.input_data import discover_geodata
-    from gis_pipeline.utils import add_section_to_logger, generate_processing_report
 
     setup_logging()
     structlog.contextvars.bind_contextvars(run_id=str(uuid.uuid4())[:8])
