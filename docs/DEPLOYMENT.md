@@ -65,6 +65,23 @@ Edit `.env` and set every value marked below. Leave others at their defaults unl
 | `HOST_PROTOCOL` | `https` (once Caddy + TLS is configured) |
 | `OPENEO_REFRESH_TOKEN` | OIDC refresh token for Copernicus Data Space — see the [OpenEO setup guide](../process-api/docs/OPENEO_SETUP.md) |
 
+> **Gate: `HOST_URL` must be the real public domain before you publish anything.**
+> process-api and gis-pipeline both build STAC asset hrefs from
+> `HOST_PROTOCOL://HOST_URL` — the URL a client will later fetch the COG from. The
+> repo's own `.env.example` ships `HOST_PROTOCOL=https` with `HOST_URL=localhost`,
+> which is fine for a local demo but produces `https://localhost/cog/x.tif` if it
+> is still set that way when `lidar-fetch`, `sentinel-fetch`, or the gis-pipeline
+> COG step runs. That URL is syntactically valid and resolves for nobody, and it
+> gets written permanently into the public STAC catalog — arguably worse than a
+> container-local path, which at least looks obviously broken to a client.
+>
+> **Before running any STAC-publishing process:** set `HOST_URL` to the domain
+> or IP the deployment is actually reachable at, and confirm with
+> `echo "$HOST_PROTOCOL://$HOST_URL"` (or check the running containers'
+> environment) rather than trusting `.env` was edited. Items already published
+> with a wrong value are not fixed by changing `.env` after the fact — they need
+> the [republication sweep](#republishing-stac-items-after-an-href-change) below.
+
 ### Generate secrets
 
 ```bash
@@ -197,6 +214,7 @@ docker build --target runtime -f gis-pipeline/Dockerfile.gis-pipeline .
 
 ## 6. Security checklist
 
+- [ ] `HOST_URL` set to the real public domain/IP, not the `localhost` default — see the [gate above](#2-environment-variables) before running any STAC-publishing process
 - [ ] `POSTGRES_PASS` set to a strong random value (never leave blank)
 - [ ] `DB_PASS` set to a different strong random value (never leave blank)
 - [ ] `API_KEY` generated with `openssl rand -hex 32`
@@ -259,6 +277,34 @@ docker compose exec database psql -U postgres -d agri_sdss \
 docker compose up -d
 ```
 
+### Republishing STAC items after an href change
+
+Items already in pgSTAC keep the hrefs they were published with. process-api
+skips republishing while a `<cog>.tif.stac.json` marker sits next to the COG,
+so the markers must be removed before the next run:
+
+```bash
+find ./data/output/raster_cog -name '*.stac.json' -delete
+```
+
+The next `lidar-fetch` or `sentinel-fetch` execution for a given geometry then
+republishes that item with corrected hrefs. Items whose process is never re-run
+keep the old hrefs; to force the whole catalog, re-run the fetch processes for
+each published geometry.
+
+**gis-pipeline (`demo_collection`) needs its own pass.** Those items come from a
+different codebase with no marker cache, so the sweep above does not touch them.
+Re-run the pipeline's COG step to republish them. Rows already in the metadata
+table also keep the old `file://` form in `file_url` — the `ON CONFLICT DO
+UPDATE` at `pg_utils.py:1220` only rewrites rows that are re-inserted. Nothing
+parses that column (`pg_utils.py:953` selects it into a GeoDataFrame untouched),
+so this is cosmetic, but a one-off
+`UPDATE <table> SET file_url = replace(file_url, 'file://', '')` cleans it.
+
+This is also the fix for items published while `HOST_URL` was wrong (see the
+[gate above](#2-environment-variables)): correct `.env` first, then run this
+sweep so the next publish uses the right value.
+
 ---
 
 ## Domain migration summary
@@ -269,6 +315,11 @@ All changes needed when moving from self-signed to a real domain:
 | --- | --- |
 | `Caddyfile` | Replace `localhost, agri-sdss.local {` + `tls internal` with `ton-domaine.ca {` |
 | `.env` | `HOST_URL=ton-domaine.ca`, `HOST_PROTOCOL=https` |
+
+Any STAC items published before the domain change carry hrefs built from the
+old `HOST_URL` — run the
+[republication sweep](#republishing-stac-items-after-an-href-change) afterward
+to correct them.
 
 ---
 

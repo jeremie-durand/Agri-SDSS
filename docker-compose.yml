@@ -42,6 +42,7 @@ services:
       - ./frontend/home/html/data.html:/usr/share/nginx/html/data.html:ro
       - ./frontend/home/html/report-bug.html:/usr/share/nginx/html/report-bug.html:ro
       - ./frontend/home/html/about.html:/usr/share/nginx/html/about.html:ro
+      - ./data/output/raster_cog:/usr/share/nginx/cog:ro
     environment:
       - HOST_PROTOCOL=${HOST_PROTOCOL:-http}
       - HOST_URL=${HOST_URL:-localhost}
@@ -122,6 +123,8 @@ services:
       - STAC_API_URL=${STAC_API_URL}
       - VECTOR_API_URL=${VECTOR_API_URL}
       - STAC_API_PORT=${STAC_API_PORT}
+      - HOST_PROTOCOL=${HOST_PROTOCOL:-http}
+      - HOST_URL=${HOST_URL:-localhost}
     working_dir: /app
     volumes:
       - ./data:/data
@@ -221,6 +224,7 @@ services:
       - WEB_CONCURRENCY=2
       - GDAL_CACHEMAX=200
       - RASTER_COG_DIR=/data
+      - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-*}
     working_dir: /app
     volumes:
       - ./data/output/raster_cog:/data
@@ -258,6 +262,7 @@ services:
       - POSTGRES_PORT=${POSTGRES_PORT}
       - VECTOR_API_PORT=${VECTOR_API_PORT}
       - APP_ROOT_PATH=/vector-api
+      - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-*}
       - TIPG_FALLBACK_KEY_NAMES=["gid"]
       - TIPG_DB_SPATIAL_EXTENT=false
       - DUCKDB_DATA_DIR=/data/duckdb

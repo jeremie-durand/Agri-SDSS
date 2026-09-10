@@ -2,12 +2,16 @@ build:
 	mkdir -p data/input data/duckdb/duckdb_extensions data/output/raster_cog
 	docker compose build || docker compose build
 
-test-all: test-i18n test-gis-pipeline test-stac-api test-vector-api test-raster-api test-process-api test-chatbot
+test-all: test-i18n test-gis-pipeline test-stac-api test-vector-api test-raster-api test-process-api test-repo-consistency test-chatbot
 	docker compose up -d --force-recreate --wait vector-api raster-api process-api
 	docker compose restart home
 
 test-gis-pipeline:
 	docker compose run --build --rm gis-pipeline pytest gis_pipeline/test/ -v
+
+test-repo-consistency:
+	docker compose run --rm --no-deps -T -v $(CURDIR):/repo -w /repo \
+		process-api pytest process-api/test/test_cog_route_consistency.py -v
 
 generate-args:
 	docker compose run --build --rm --no-deps \
@@ -57,7 +61,7 @@ i18n-check:
 	$(I18N_RUN) python -m agri_i18n.check
 
 test-caddy:
-	@echo "Hot-reloading Caddy with test config (pygeoapi 3+5/5s, chatbot 2+3+4/5s)..."
+	@echo "Hot-reloading Caddy with test config (pygeoapi 3+5/5s, chatbot 2+3+4/5s, cog 4/5s)..."
 	docker cp caddy/Caddyfile.test $$(docker compose ps -q caddy):/tmp/Caddyfile.test
 	docker compose exec caddy caddy reload --config /tmp/Caddyfile.test --adapter caddyfile
 	@echo "Running rate limiting integration tests..."
@@ -70,6 +74,7 @@ test-caddy:
 		-e RATE_LIMIT_CHATBOT_LLM_EVENTS=2 \
 		-e RATE_LIMIT_CHATBOT_SEARCH_EVENTS=3 \
 		-e RATE_LIMIT_CHATBOT_BROWSE_EVENTS=4 \
+		-e RATE_LIMIT_COG_DOWNLOAD_EVENTS=4 \
 		python:3.11-slim \
 		sh -c "pip install pytest requests urllib3 -q && pytest /test/ -v -m integration -p no:cacheprovider"
 	@echo "Restoring production Caddyfile..."

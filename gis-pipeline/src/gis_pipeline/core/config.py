@@ -2,6 +2,7 @@ from datetime import datetime as dt
 from datetime import timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 import yaml
 from gis_pipeline.core.exceptions import ConfigurationError
@@ -52,6 +53,8 @@ class _ApiSettings(BaseSettings):
     VECTOR_API_PORT: int = 8083
     PROCESS_API_PORT: int = 5000
     FRONTEND_PORT: int = 8085
+    HOST_PROTOCOL: str = "http"
+    HOST_URL: str = "localhost"
 
 
 class _StorageSettings(BaseSettings):
@@ -64,6 +67,86 @@ class _StorageSettings(BaseSettings):
 _db = _DatabaseSettings()
 _api = _ApiSettings()
 _storage = _StorageSettings()
+
+# Public route serving COG files (home nginx, static, byte-range capable).
+COG_ROUTE = "/cog"
+
+# Public route proxying TiTiler, which renders the same COGs on demand.
+RASTER_API_ROUTE = "/raster-api"
+
+# Path the COG directory is mounted at inside the raster-api container; this is
+# what TiTiler expects in its ``url`` query parameter.
+RASTER_API_DATA_DIR = "/data"
+
+# Tile grid identifier TiTiler 2.x requires in the TileJSON path.
+TILE_MATRIX_SET = "WebMercatorQuad"
+
+
+def public_base_url() -> str:
+    """Return the deployment's public origin, without a trailing slash."""
+    api = _ApiSettings()
+    return f"{api.HOST_PROTOCOL}://{api.HOST_URL}".rstrip("/")
+
+
+def public_cog_url(cog_path: str | Path) -> str:
+    """Return the public, absolute URL of a COG file.
+
+    Accepts local paths only and is deliberately not idempotent over URLs it
+    has already built, unlike the process-api builders: not unquoting keeps
+    filenames containing a literal ``%`` intact.
+
+    Args:
+        cog_path: Local path to the COG; only its basename is used.
+    """
+    return f"{public_base_url()}{COG_ROUTE}/{quote(Path(cog_path).name)}"
+
+
+def _raster_api_url(cog_path: str | Path) -> str:
+    """Return the ``url`` query value TiTiler resolves a COG against."""
+    return f"{RASTER_API_DATA_DIR}/{quote(Path(cog_path).name)}"
+
+
+def _render_query(rescale: str | None, bidx: int | None) -> str:
+    """Return the query suffix telling TiTiler how to render a COG."""
+    suffix = f"&bidx={bidx}" if bidx else ""
+    return f"{suffix}&rescale={rescale}" if rescale else suffix
+
+
+def public_preview_url(
+    cog_path: str | Path, rescale: str | None = None, bidx: int | None = None
+) -> str:
+    """Return the public TiTiler PNG preview URL of a COG.
+
+    Args:
+        cog_path: Local path to the COG; only its basename is used.
+        rescale: Optional ``min,max`` pair for a raster whose values are not
+            already in a displayable range.
+        bidx: Optional 1-based band to render, required for a COG TiTiler
+            cannot encode whole (see ``GeoprocessingRaster._render_params``).
+    """
+    return (
+        f"{public_base_url()}{RASTER_API_ROUTE}/cog/preview.png"
+        f"?url={_raster_api_url(cog_path)}{_render_query(rescale, bidx)}"
+    )
+
+
+def public_tilejson_url(
+    cog_path: str | Path, rescale: str | None = None, bidx: int | None = None
+) -> str:
+    """Return the public TiTiler TileJSON URL of a COG.
+
+    Args:
+        cog_path: Local path to the COG; only its basename is used.
+        rescale: Optional ``min,max`` pair, carried into the tile URLs the
+            TileJSON advertises so tiles match the preview.
+        bidx: Optional 1-based band, carried into the tile URLs for the same
+            reason, so tiles and preview show the same band.
+    """
+    return (
+        f"{public_base_url()}{RASTER_API_ROUTE}/cog/{TILE_MATRIX_SET}"
+        f"/tilejson.json?url={_raster_api_url(cog_path)}"
+        f"{_render_query(rescale, bidx)}"
+    )
 
 
 class Config:

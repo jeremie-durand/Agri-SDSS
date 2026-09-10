@@ -347,19 +347,49 @@ def _create_stac_item_from_raster(
         stac_extensions=template.get("stac_extensions", []),
     )
 
-    # Add main asset
-    file_url = raster_dict.get("file_url")
-    if file_url:
+    # Add main asset. `href` is the public URL; `file_url` is the local path
+    # kept for older callers that never set one.
+    asset_href = raster_dict.get("href") or raster_dict.get("file_url")
+    if asset_href:
         item.add_asset(
             asset_key,
             Asset(
-                href=file_url,
+                href=asset_href,
                 media_type="image/tiff; application=geotiff",
                 roles=["data"],
             ),
         )
 
+    _add_render_assets(item, raster_dict)
+
     return item
+
+
+def _add_render_assets(item: Item, raster_dict: dict) -> None:
+    """Attach the raster-api renderings of the COG to the item.
+
+    The main asset is the COG itself, a download; these are the URLs that let a
+    client display the same pixels without fetching the file. The ``cog`` entry
+    is skipped because it is the same file already published under
+    ``asset_key``.
+
+    Args:
+        item: STAC Item to attach the assets to.
+        raster_dict: Raster metadata, whose ``assets`` key holds the
+            renderings built by ``prepare_cog_metadata_for_stac``.
+    """
+    for key, asset in (raster_dict.get("assets") or {}).items():
+        if key == "cog" or not asset.get("href"):
+            continue
+        item.add_asset(
+            key,
+            Asset(
+                href=asset["href"],
+                media_type=asset.get("type"),
+                roles=asset.get("roles"),
+                title=asset.get("title"),
+            ),
+        )
 
 
 def _build_single_stac_item(raster_dict: dict, idx: int, source_name: str) -> Item:

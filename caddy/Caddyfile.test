@@ -66,6 +66,18 @@ localhost, agri-sdss.local, caddy {
 		}
 	}
 
+	rate_limit {
+		zone cog_download {
+			match {
+				method GET
+				path /cog/*
+			}
+			key    {remote_host}
+			window 5s
+			events 4
+		}
+	}
+
 	reverse_proxy home:8080
 }
 

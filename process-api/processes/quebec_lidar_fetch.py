@@ -26,12 +26,32 @@ from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 from rasterio.features import geometry_mask
 from shapely.geometry import shape
 
+from .asset_url_utils import cog_href, preview_href, tilejson_href
 from .config import ApiConfig, DatabaseConfig, FarmConfig, StorageConfig
 from .lidar_backend.quebec_lidar_config import VALID_PRODUCTS
 from .lidar_backend.quebec_lidar_tile_index import LidarTileIndex
 from .quebec_lidar_fetch_metadata import PROCESS_METADATA
 
 logger = logging.getLogger(__name__)
+
+
+def _finite_range(band: "np.ma.MaskedArray") -> Optional[str]:
+    """Return the ``min,max`` of a band's real pixels, or None if unusable.
+
+    NaN is not covered by the nodata mask, so a single NaN pixel would make a
+    plain ``min()``/``max()`` return NaN and put ``rescale=nan,nan`` in a
+    published href. Non-finite values are dropped first. None is returned when
+    nothing is left, or when the range is constant — rio-tiler divides by the
+    span, so an equal min and max is a division by zero.
+    """
+    values = band.compressed()
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return None
+    low, high = float(values.min()), float(values.max())
+    if low == high:
+        return None
+    return f"{low},{high}"
 
 
 class LidarFetchProcessor(BaseProcessor):
@@ -54,6 +74,10 @@ class LidarFetchProcessor(BaseProcessor):
     # STAC settings
     STAC_COLLECTION_ID: str = "lidar_quebec"
     STAC_VERSION: str = "1.0.0"
+
+    # Keys of the raster-api renderings published beside each product asset.
+    PREVIEW_ASSET_KEY: str = "preview"
+    TILEJSON_ASSET_KEY: str = "tilejson"
     # Quebec bounding box (west, south, east, north)
     STAC_SPATIAL_EXTENT_BBOX: List[float] = [-79.75, 41.75, -56.0, 63.0]
     # Approximate acquisition start; MRNF campaigns began ~2015
@@ -567,7 +591,7 @@ class LidarFetchProcessor(BaseProcessor):
             statistics = {"mean": mean_val}
 
         assets[product] = {
-            "href": cog_path,
+            "href": cog_href(cog_path),
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
             "roles": ["data"],
             "title": self._get_product_title(product),
@@ -583,7 +607,10 @@ class LidarFetchProcessor(BaseProcessor):
 
         marker_path = self._stac_marker_path(cog_path)
         cached_item = self._load_cached_stac_item(marker_path)
-        if cached_item is not None:
+        expected_assets = {product, self.PREVIEW_ASSET_KEY, self.TILEJSON_ASSET_KEY}
+        if cached_item is not None and (
+            set(cached_item.get("assets", {})) == expected_assets
+        ):
             logger.info(
                 "STAC cache hit: '%s' already published as %s",
                 product,
@@ -598,9 +625,33 @@ class LidarFetchProcessor(BaseProcessor):
             bbox=tuple(bbox),
             product=product,
             asset=assets[product],
+            cog_path=cog_path,
             marker_path=marker_path,
         )
         stac_items.append(stac_item)
+
+    @staticmethod
+    def _preview_rescale(cog_path: str) -> Optional[str]:
+        """Return the ``min,max`` rescale for a COG's rendered assets, or None.
+
+        TiTiler casts a float band straight to uint8 when no rescale is given,
+        which renders every LiDAR product except hillshade as a flat image, so
+        the preview and TileJSON hrefs carry the raster's own value range.
+        Returns None when the file cannot be read or has no usable range,
+        leaving those hrefs unrescaled rather than failing the publish.
+        """
+        try:
+            with rasterio.open(cog_path) as src:
+                step = max(1, max(src.height, src.width) // 1024)
+                band = src.read(
+                    1,
+                    masked=True,
+                    out_shape=(src.height // step, src.width // step),
+                )
+                return _finite_range(band)
+        except (rasterio.errors.RasterioIOError, OSError) as exc:
+            logger.warning("Could not read %s for preview rescale: %s", cog_path, exc)
+            return None
 
     def _create_stac_item(
         self,
@@ -609,6 +660,7 @@ class LidarFetchProcessor(BaseProcessor):
         bbox: Tuple[float, float, float, float],
         product: str,
         asset: Dict[str, Any],
+        cog_path: str,
         marker_path: str,
     ) -> Dict[str, Any]:
         """
@@ -616,7 +668,18 @@ class LidarFetchProcessor(BaseProcessor):
         cache marker is written next to the COG so subsequent calls can
         skip re-publishing; a failed publish leaves no marker, so the next
         call retries it instead of the item staying unpublished forever.
+
+        Args:
+            item_id: STAC item identifier.
+            geometry: Item geometry (GeoJSON).
+            bbox: Item bounding box.
+            product: LiDAR product key (dtm, chm, hillshade, slope, aspect).
+            asset: Pre-built data asset dict for this product.
+            cog_path: Local path to the COG, used to build the public preview
+                and TileJSON URLs.
+            marker_path: Path to the cache marker for this COG.
         """
+        rescale = self._preview_rescale(cog_path)
         stac_item: Dict[str, Any] = {
             "type": "Feature",
             "stac_version": self.STAC_VERSION,
@@ -640,7 +703,21 @@ class LidarFetchProcessor(BaseProcessor):
                 "lidar:source": "MRNF Quebec open data",
                 "proj:epsg": 4326,
             },
-            "assets": {product: asset},
+            "assets": {
+                product: asset,
+                self.PREVIEW_ASSET_KEY: {
+                    "href": preview_href(cog_path, rescale=rescale),
+                    "type": "image/png",
+                    "roles": ["overview"],
+                    "title": "PNG preview",
+                },
+                self.TILEJSON_ASSET_KEY: {
+                    "href": tilejson_href(cog_path, rescale=rescale),
+                    "type": "application/json",
+                    "roles": ["tiles"],
+                    "title": "TileJSON (XYZ tiles)",
+                },
+            },
             "links": [],
         }
 
@@ -796,13 +873,6 @@ class LidarFetchProcessor(BaseProcessor):
                 "Unexpected error posting STAC item %s: %s", item_id, exc, exc_info=True
             )
             return False
-
-    def _generate_preview_url(self, asset_href: str) -> str:
-        """Generate TiTiler preview URL for an asset."""
-        filename: str = os.path.basename(asset_href)
-        raster_api_port: int = ApiConfig().RASTER_API_PORT
-        raster_api_url: str = f"http://raster-api:{raster_api_port}"
-        return f"{raster_api_url}/cog/preview.png?url=/data/{filename}"
 
     # ------------------------------------------------------------------
     # Product metadata helpers

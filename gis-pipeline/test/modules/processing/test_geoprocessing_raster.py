@@ -2661,11 +2661,14 @@ def test_prepare_cog_metadata_for_stac_transform_precision(
 
 
 def test_prepare_cog_metadata_for_stac_file_url_format(
-    tmp_raster_valid_fixture: Path, tmp_path: Path
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """
-    Test that file_url is correctly formatted.
+    Test that file_url stays a local path and href carries the public URL.
     """
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
     processing_raster = GeoprocessingRaster(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
     )
@@ -2693,10 +2696,13 @@ def test_prepare_cog_metadata_for_stac_file_url_format(
     )
     metadata = _to_mapping(metadata_model)
 
-    # Verify file_url is correctly formatted
-    expected_url = f"file://{cog_file.absolute()}"
-    assert metadata["file_url"] == expected_url
-    assert metadata["assets"]["cog"]["href"] == expected_url
+    # file_url stays a plain local path (used for aux.xml lookup and the
+    # metadata table); the asset href is the public URL clients resolve.
+    assert metadata["file_url"] == str(cog_file.absolute())
+    assert metadata["assets"]["cog"]["href"] == (
+        f"https://agri-sdss.duckdns.org/cog/{cog_file.name}"
+    )
+    assert metadata["href"] == metadata["assets"]["cog"]["href"]
 
 
 def test_prepare_cog_metadata_for_stac_complex_crs(
@@ -4153,3 +4159,170 @@ def test_close_all_rasters_memory_cleanup_verification(tmp_raster_valid_fixture:
 
     # After closing, the raster should be closed
     assert initial_raster.closed
+
+
+def _write_cog_fixture(path: Path, values: np.ndarray) -> None:
+    """Write a small single-band GeoTIFF for the render-asset tests."""
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=values.shape[0],
+        width=values.shape[1],
+        count=1,
+        dtype=values.dtype,
+        crs="EPSG:4326",
+        transform=from_origin(0, 10, 1, 1),
+    ) as dst:
+        dst.write(values, 1)
+
+
+def test_prepare_cog_metadata_publishes_render_assets(
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The COG must be viewable through raster-api, not only downloadable."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    cog_file = tmp_path / "render_cog.tif"
+    _write_cog_fixture(
+        cog_file, np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
+    )
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+    assets = metadata["assets"]
+
+    assert assets["preview"]["href"] == (
+        "https://agri-sdss.duckdns.org/raster-api/cog/preview.png"
+        "?url=/data/render_cog.tif&rescale=1.0,4.0"
+    )
+    assert assets["preview"]["type"] == "image/png"
+    assert assets["preview"]["roles"] == ["overview"]
+    assert assets["tilejson"]["href"] == (
+        "https://agri-sdss.duckdns.org/raster-api/cog/WebMercatorQuad"
+        "/tilejson.json?url=/data/render_cog.tif&rescale=1.0,4.0"
+    )
+    assert assets["tilejson"]["type"] == "application/json"
+    assert assets["tilejson"]["roles"] == ["tiles"]
+
+
+def test_prepare_cog_metadata_skips_rescale_on_a_flat_raster(
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A constant band has no usable range; rio-tiler would divide by zero."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    cog_file = tmp_path / "flat_cog.tif"
+    _write_cog_fixture(
+        cog_file, np.array([[7.0, 7.0], [7.0, 7.0]], dtype="float32")
+    )
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+
+    assert "rescale" not in metadata["assets"]["preview"]["href"]
+    assert "rescale" not in metadata["assets"]["tilejson"]["href"]
+
+
+def _write_multiband_cog(path: Path, band_count: int, dtype: str) -> None:
+    """Write a small multi-band GeoTIFF with a distinct range per band."""
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=2,
+        width=2,
+        count=band_count,
+        dtype=dtype,
+        crs="EPSG:4326",
+        transform=from_origin(0, 10, 1, 1),
+    ) as dst:
+        for band in range(1, band_count + 1):
+            dst.write(
+                np.full((2, 2), band, dtype=dtype) * np.array([[1, 2], [3, 4]], dtype=dtype),
+                band,
+            )
+
+
+def test_prepare_cog_metadata_selects_a_band_on_a_multiband_cog(
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """TiTiler answers 500 on a 6-band COG unless one band is selected."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    cog_file = tmp_path / "soil_cog.tif"
+    _write_multiband_cog(cog_file, band_count=6, dtype="float32")
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+
+    for key in ("preview", "tilejson"):
+        href = metadata["assets"][key]["href"]
+        assert "&bidx=1" in href, href
+        assert "&rescale=1.0,4.0" in href, href
+
+
+def test_prepare_cog_metadata_leaves_an_rgb_composite_alone(
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A 3-band uint8 raster is already an RGB image TiTiler renders as-is."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    cog_file = tmp_path / "rgb_cog.tif"
+    _write_multiband_cog(cog_file, band_count=3, dtype="uint8")
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+
+    href = metadata["assets"]["preview"]["href"]
+    assert "bidx=" not in href
+    assert "rescale=" not in href
+
+
+def test_prepare_cog_metadata_rescale_ignores_unmasked_nan(
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The soil COGs carry NaN outside their nodata value; ignore it."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    cog_file = tmp_path / "nan_cog.tif"
+    _write_cog_fixture(
+        cog_file,
+        np.array([[float("nan"), 2.0], [8.0, float("nan")]], dtype="float32"),
+    )
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+
+    assert "&rescale=2.0,8.0" in metadata["assets"]["preview"]["href"]

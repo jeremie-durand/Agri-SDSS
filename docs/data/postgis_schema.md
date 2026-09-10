@@ -88,7 +88,9 @@ Columns:
 - datetime: TIMESTAMP WITH TIME ZONE
 - bbox: FLOAT[]  -- [minx, miny, maxx, maxy]
 - geometry: geometry(Polygon, 4326)
-- file_url: TEXT
+- file_url: TEXT -- producing host's absolute local path to the COG (e.g.
+  `/data/output/raster_cog/x.tif`), not a URL. The public href a client fetches
+  the asset from lives in the STAC item, not this column.
 - metadata: JSONB
 
 Example DDL:

@@ -54,6 +54,20 @@ class ApiConfig(BaseSettings):
     RASTER_API_PORT: int = 8082
 
 
+class PublicUrlConfig(BaseSettings):
+    """Externally reachable origin of this deployment."""
+
+    model_config = SettingsConfigDict(env_prefix="")
+
+    HOST_PROTOCOL: str = "http"
+    HOST_URL: str = "localhost"
+
+    @property
+    def base_url(self) -> str:
+        """Return the public origin, without a trailing slash."""
+        return f"{self.HOST_PROTOCOL}://{self.HOST_URL}".rstrip("/")
+
+
 class StorageConfig(BaseSettings):
     """File-system paths for mounted data volumes."""
 

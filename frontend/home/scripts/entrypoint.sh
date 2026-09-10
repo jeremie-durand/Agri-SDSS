@@ -8,6 +8,13 @@ cp /usr/share/nginx/html/index.html.template /usr/share/nginx/html/index.html
 cat > /etc/nginx/conf.d/default.conf << 'NGINX_EOF'
 limit_conn_zone $server_name zone=chatbot_conn:1m;
 
+# Original request scheme: the value Caddy forwarded, or this server's own
+# scheme when the request arrived directly.
+map $http_x_forwarded_proto $forwarded_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+
 server {
     listen 8080;
     listen [::]:8080;
@@ -145,12 +152,14 @@ server {
         proxy_pass http://stac-api:8080/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
         add_header Access-Control-Allow-Origin *;
     }
     location /vector-api/ {
         proxy_pass http://vector-api:8080/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
         proxy_set_header Accept-Encoding "";
         add_header Access-Control-Allow-Origin *;
         proxy_read_timeout 120s;
@@ -162,12 +171,14 @@ server {
         proxy_pass http://raster-api:8080/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
         add_header Access-Control-Allow-Origin *;
     }
     location /process-api/ {
         proxy_pass http://process-api:5000/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
         add_header Access-Control-Allow-Origin *;
         proxy_read_timeout 630s;
     }
@@ -184,6 +195,16 @@ server {
     location = /sdss-nav.js {
         alias /usr/share/nginx/html/js/nav-inject.js;
         add_header Cache-Control "no-cache, must-revalidate";
+    }
+
+    # ── COG downloads ─────────────────────────────────────────────────────────
+    # Serves the raster files referenced by STAC asset hrefs
+    location ~ ^/cog/[^/]+\.tiff?$ {
+        root /usr/share/nginx;
+        add_header Access-Control-Allow-Origin *;
+        add_header Cache-Control "public, max-age=0, must-revalidate";
+        limit_rate_after 16m;
+        limit_rate       6m;
     }
 
     location / { try_files $uri $uri/ =404; }

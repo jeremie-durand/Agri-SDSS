@@ -600,11 +600,15 @@ def test_execute_default_products_excludes_aspect(
     mock_band = MagicMock()
     mock_band.count.return_value = 100
     mock_band.mean.return_value = 1.5
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
 
     with (
@@ -659,12 +663,16 @@ def test_execute_success_with_geometry(
     mock_band = MagicMock()
     mock_band.count.return_value = 100
     mock_band.mean.return_value = 1.5
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.bounds = MagicMock(left=-71.5, bottom=45.5, right=-71.4, top=45.6)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
 
     with (
@@ -699,11 +707,19 @@ def test_execute_success_with_farm_id(processor_instance, mock_db_connection, tm
 
     tile_urls = {"slope": ["https://example.com/Pentes_31H05NE.tif"]}
 
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
+
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.bounds = MagicMock(left=-71.5, bottom=45.5, right=-71.4, top=45.6)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
+    mock_rasterio_ds.read.return_value = mock_band
 
     with (
         patch(
@@ -749,10 +765,18 @@ def test_execute_aspect_only_fetches_dtm_as_dependency(
 
     tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
 
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
+
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
+    mock_rasterio_ds.read.return_value = mock_band
 
     with (
         patch(
@@ -804,9 +828,13 @@ def test_execute_dtm_and_aspect_both_explicitly_requested(
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
     mock_band = MagicMock()
     mock_band.count.return_value = 100
     mock_band.mean.return_value = 312.4
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
     mock_rasterio_ds.read.return_value = mock_band
 
     with (
@@ -897,11 +925,15 @@ def test_execute_second_call_skips_stac_publish_on_warm_cache(
     mock_band = MagicMock()
     mock_band.count.return_value = 100
     mock_band.mean.return_value = 1.5
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
 
     with (
@@ -948,11 +980,15 @@ def test_execute_retries_stac_publish_after_previous_failure(
     mock_band = MagicMock()
     mock_band.count.return_value = 100
     mock_band.mean.return_value = 1.5
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
 
     with (
@@ -1060,6 +1096,7 @@ def test_create_stac_item_writes_marker_only_on_publish_success(
             bbox=(0, 0, 1, 1),
             product="dtm",
             asset={"href": "x"},
+            cog_path="x.tif",
             marker_path=marker_path,
         )
 
@@ -1079,6 +1116,7 @@ def test_create_stac_item_no_marker_on_publish_failure(processor_instance, tmp_p
             bbox=(0, 0, 1, 1),
             product="dtm",
             asset={"href": "x"},
+            cog_path="x.tif",
             marker_path=marker_path,
         )
 
@@ -1095,3 +1133,231 @@ def test_product_title_and_description_defined_for_aspect():
     """aspect has the same title/description coverage as the other products."""
     assert LidarFetchProcessor._get_product_title("aspect") != "ASPECT"
     assert "DTM" in LidarFetchProcessor._get_product_description("aspect")
+
+
+# ---------------------------------------------------------------------------
+# Public asset href tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_create_stac_item_publishes_absolute_hrefs(monkeypatch):
+    """Every asset href in a published item must be an absolute public URL."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+    asset = {
+        "href": "https://agri-sdss.duckdns.org/cog/lidar_dtm_geom_abc123.tif",
+        "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+        "roles": ["data"],
+        "title": "Digital Terrain Model (DTM)",
+        "statistics": {"mean": 147.3},
+        "raster:bands": [],
+    }
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=False):
+        item = processor._create_stac_item(
+            item_id="lidar_dtm_geom_abc123",
+            geometry={
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+            },
+            bbox=(0.0, 0.0, 1.0, 1.0),
+            product="dtm",
+            asset=asset,
+            cog_path="/data/lidar_dtm_geom_abc123.tif",
+            marker_path="/data/lidar_dtm_geom_abc123.tif.stac.json",
+        )
+
+    assert set(item["assets"]) == {"dtm", "preview", "tilejson"}
+    for key, published in item["assets"].items():
+        assert published["href"].startswith("https://agri-sdss.duckdns.org/"), key
+    assert item["assets"]["preview"]["roles"] == ["overview"]
+    assert item["assets"]["tilejson"]["roles"] == ["tiles"]
+    assert "/cog/preview.png?url=" in item["assets"]["preview"]["href"]
+    assert "/tilejson.json?url=" in item["assets"]["tilejson"]["href"]
+    assert item["assets"]["preview"]["type"] == "image/png"
+    assert item["assets"]["tilejson"]["type"] == "application/json"
+    assert "rescale" not in item["assets"]["preview"]["href"]
+
+
+@pytest.mark.unit
+def test_add_product_asset_href_is_public(tmp_path, monkeypatch):
+    """The data asset href is the public COG URL, not the container path."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[1.0, 2.0], [3.0, 4.0]])
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+    assets: dict = {}
+    stac_items: list = []
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=False):
+        processor._add_product_asset(
+            assets=assets,
+            stac_items=stac_items,
+            product="dtm",
+            cog_path=str(cog_path),
+            geometry_geojson={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-72.0, 46.0], [-71.9, 46.0], [-71.9, 45.9], [-72.0, 46.0]]
+                ],
+            },
+            bbox=(-72.0, 45.9, -71.9, 46.0),
+            farm_identifier="geom_abc123",
+        )
+
+    assert assets["dtm"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog/lidar_dtm_geom_abc123.tif"
+    )
+
+
+@pytest.mark.unit
+def test_preview_asset_carries_the_raster_value_range(tmp_path, monkeypatch):
+    """A float product's preview must be rescaled, or it renders blank."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[10.0, 20.0], [30.0, 40.0]])
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=False):
+        item = processor._create_stac_item(
+            item_id="lidar_dtm_geom_abc123",
+            geometry={
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+            },
+            bbox=(0.0, 0.0, 1.0, 1.0),
+            product="dtm",
+            asset={"href": "x"},
+            cog_path=str(cog_path),
+            marker_path=str(cog_path) + ".stac.json",
+        )
+
+    assert "&rescale=10.0,40.0" in item["assets"]["preview"]["href"]
+    assert "&rescale=10.0,40.0" in item["assets"]["tilejson"]["href"]
+
+
+@pytest.mark.unit
+def test_preview_rescale_is_none_for_an_unreadable_file():
+    """A missing COG must not break publishing; the preview goes unrescaled."""
+    assert LidarFetchProcessor._preview_rescale("/nonexistent/x.tif") is None
+
+
+@pytest.mark.unit
+def test_preview_rescale_is_none_for_a_flat_raster(tmp_path):
+    """A constant band gives no usable range; rio-tiler would divide by zero."""
+    cog_path = tmp_path / "flat.tif"
+    _write_test_raster(str(cog_path), [[5.0, 5.0], [5.0, 5.0]])
+
+    assert LidarFetchProcessor._preview_rescale(str(cog_path)) is None
+
+
+@pytest.mark.unit
+def test_preview_rescale_is_none_when_values_are_not_finite(tmp_path):
+    """Unmasked NaN must not reach the href as rescale=nan,nan."""
+    cog_path = tmp_path / "nan.tif"
+    _write_test_raster(
+        str(cog_path), [[float("nan"), float("nan")], [float("nan"), float("nan")]]
+    )
+
+    assert LidarFetchProcessor._preview_rescale(str(cog_path)) is None
+
+
+@pytest.mark.unit
+def test_preview_rescale_ignores_unmasked_nan(tmp_path):
+    """NaN sits outside the nodata mask; the range must come from real pixels."""
+    cog_path = tmp_path / "partial_nan.tif"
+    _write_test_raster(
+        str(cog_path), [[float("nan"), 20.0], [30.0, float("nan")]]
+    )
+
+    assert LidarFetchProcessor._preview_rescale(str(cog_path)) == "20.0,30.0"
+
+
+@pytest.mark.unit
+def test_stale_marker_without_render_assets_is_republished(tmp_path, monkeypatch):
+    """A marker written before the raster-api assets existed carries only the
+    product key — and the broken href of that era. Trusting it would leave the
+    item unfixed forever, so it must not count as a cache hit."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[10.0, 20.0], [30.0, 40.0]])
+    marker_path = str(cog_path) + ".stac.json"
+    with open(marker_path, "w") as f:
+        json.dump(
+            {"id": "lidar_dtm_geom_abc123", "assets": {"dtm": {"href": "/data/x.tif"}}},
+            f,
+        )
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+    assets: dict = {}
+    stac_items: list = []
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=True):
+        processor._add_product_asset(
+            assets=assets,
+            stac_items=stac_items,
+            product="dtm",
+            cog_path=str(cog_path),
+            geometry_geojson={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-72.0, 46.0], [-71.9, 46.0], [-71.9, 45.9], [-72.0, 46.0]]
+                ],
+            },
+            bbox=(-72.0, 45.9, -71.9, 46.0),
+            farm_identifier="geom_abc123",
+        )
+
+    assert set(stac_items[0]["assets"]) == {"dtm", "preview", "tilejson"}
+    assert stac_items[0]["assets"]["dtm"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog/lidar_dtm_geom_abc123.tif"
+    )
+
+
+@pytest.mark.unit
+def test_current_marker_is_a_cache_hit(tmp_path, monkeypatch):
+    """A marker holding exactly what a publish leaves behind is still trusted."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[10.0, 20.0], [30.0, 40.0]])
+    marker_path = str(cog_path) + ".stac.json"
+    cached = {
+        "id": "lidar_dtm_geom_abc123",
+        "assets": {"dtm": {}, "preview": {}, "tilejson": {}},
+    }
+    with open(marker_path, "w") as f:
+        json.dump(cached, f)
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+    stac_items: list = []
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api") as mock_post:
+        processor._add_product_asset(
+            assets={},
+            stac_items=stac_items,
+            product="dtm",
+            cog_path=str(cog_path),
+            geometry_geojson={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-72.0, 46.0], [-71.9, 46.0], [-71.9, 45.9], [-72.0, 46.0]]
+                ],
+            },
+            bbox=(-72.0, 45.9, -71.9, 46.0),
+            farm_identifier="geom_abc123",
+        )
+
+    mock_post.assert_not_called()
+    assert stac_items == [cached]

@@ -7,20 +7,59 @@ import hashlib
 import os
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import psycopg
 import pytest
+import rasterio
 import requests
 import requests.exceptions
+from processes.asset_url_utils import cog_href
 from processes.eo_sentinel_fetch import PROCESS_METADATA, SentinelFetchProcessor
 from pygeoapi.process.base import ProcessorExecuteError
+from rasterio.transform import from_origin
 from shapely.geometry import shape
 
 pytestmark = pytest.mark.unit
 
 
+def _write_sentinel_test_raster(path: str) -> None:
+    """Write a small single-band float32 GeoTIFF readable by ``_extract_cog_stats``."""
+    array = np.asarray([[0.1, 0.2], [0.3, 0.4]], dtype="float32")
+    transform = from_origin(-73.5, 45.6, 0.1, 0.1)
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=array.shape[0],
+        width=array.shape[1],
+        count=1,
+        dtype=array.dtype,
+        crs="EPSG:4326",
+        transform=transform,
+    ) as dst:
+        dst.write(array, 1)
+
+
 # ------------------------------------------
 # Fixtures
 # ------------------------------------------
+@pytest.fixture(autouse=True)
+def block_live_stac_writes():
+    """Keep the unit tests from writing into a live STAC API.
+
+    Publishing runs over the network, so any test that reaches
+    ``_create_stac_item`` with nothing patched creates a junk item in whatever
+    catalog ``STAC_API_URL`` points at — the real one under ``make test-all``.
+    Only the writes are intercepted, and a test that needs a specific response
+    installs its own ``requests`` patch, which takes precedence over this one.
+    """
+    with (
+        patch("requests.post", return_value=MagicMock(status_code=201, text="")),
+        patch("requests.put", return_value=MagicMock(status_code=200, text="")),
+    ):
+        yield
+
+
 @pytest.fixture
 def sample_farm_geometry():
     """Sample farm polygon geometry (GeoJSON)."""
@@ -741,7 +780,11 @@ def test_execute_skips_stac_publish_when_all_products_cached_and_assets_match(
     farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
     stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
     marker_path = processor_instance._stac_marker_path(stac_item_id)
-    seeded_item = {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+    # Seeded in the shape a publish actually leaves behind: the product asset
+    # plus the raster-api siblings built for it.
+    seeded_assets = _make_assets(("ndvi",))
+    seeded_assets.update(processor_instance._render_assets(seeded_assets))
+    seeded_item = {"id": stac_item_id, "assets": seeded_assets}
     processor_instance._write_stac_marker(marker_path, seeded_item)
 
     with (
@@ -802,15 +845,17 @@ def test_execute_republishes_when_marker_asset_set_differs(
 # ------------------------------------------
 def test_generate_preview_url(processor_instance):
     """Test preview URL generation for TiTiler."""
-    asset_href = "/data/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31_abc123.tif"
+    asset = {
+        "href": "/data/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31_abc123.tif",
+        "statistics": {1: {"min": 0.1, "max": 0.9}},
+    }
 
-    with patch.dict(os.environ, {"RASTER_API_PORT": "8082"}):
-        preview_url = processor_instance._generate_preview_url(asset_href)
+    preview_url = processor_instance._generate_preview_url(asset)
 
-        assert "raster-api:8082" in preview_url
-        assert "/cog/preview.png" in preview_url
-        assert "sentinel2_farm_4_ndvi" in preview_url
-        assert "rescale=" in preview_url
+    assert "raster-api:" not in preview_url
+    assert "/raster-api/cog/preview.png" in preview_url
+    assert "sentinel2_farm_4_ndvi" in preview_url
+    assert "rescale=0.1,0.9" in preview_url
 
 
 # ------------------------------------------
@@ -1755,18 +1800,19 @@ def test_stac_item_with_multiple_assets(
         marker_path=str(tmp_path / "test_item.stac.json"),
     )
 
-    assert len(item["assets"]) == 2
+    # Each product, plus the raster-api preview/TileJSON pair built for it.
+    assert len(item["assets"]) == 6
     assert "ndvi" in item["assets"]
     assert "evi" in item["assets"]
 
 
 def test_preview_url_without_env_var(processor_instance):
-    """Test preview URL generation without RASTER_API_PORT env var."""
-    asset_href = "/data/test.tif"
+    """Test preview URL generation with no HOST_PROTOCOL/HOST_URL env vars."""
+    asset = {"href": "/data/test.tif"}
 
     # Clear environment variable
     with patch.dict(os.environ, {}, clear=True):
-        preview_url = processor_instance._generate_preview_url(asset_href)
+        preview_url = processor_instance._generate_preview_url(asset)
         # Should use default or handle gracefully
         assert "preview.png" in preview_url
 
@@ -2493,7 +2539,9 @@ _COLLECTION_ID = SentinelFetchProcessor.STAC_COLLECTION_ID
 def _make_assets(products: tuple) -> dict:
     return {
         p: {
-            "href": f"/data/sentinel2_farm_test_{p}_2024-06-01_2024-08-31_abcd1234.tif",
+            "href": cog_href(
+                f"/data/sentinel2_farm_test_{p}_2024-06-01_2024-08-31_abcd1234.tif"
+            ),
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
             "roles": ["data"],
             "title": p.upper(),
@@ -2638,3 +2686,394 @@ def test_execute_full_flow_multiple_products(
     assert "true_color" in result["assets"]
     assert isinstance(result["stac_item_id"], str)
     assert len(result["stac_item_id"]) > 0
+
+
+def test_generate_preview_url_is_public(monkeypatch):
+    """The preview URL must not reference the internal Docker hostname."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processor = SentinelFetchProcessor.__new__(SentinelFetchProcessor)
+    url = processor._generate_preview_url(
+        {
+            "href": "/data/sentinel2_farm_4_ndvi.tif",
+            "statistics": {1: {"min": 0.0, "max": 1.0}},
+        }
+    )
+
+    assert url.startswith("https://agri-sdss.duckdns.org/raster-api/cog/preview.png")
+    assert "raster-api:" not in url
+    assert url.endswith("&rescale=0.0,1.0")
+
+
+def test_cached_product_publishes_a_public_href(
+    processor_instance, tmp_path, monkeypatch
+):
+    """The early-exit cache branch must emit a public URL, not a local path."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+    monkeypatch.setattr(
+        "processes.eo_sentinel_fetch.openeo.connect",
+        lambda *a, **k: pytest.fail("cache miss — the COG filename format changed"),
+    )
+
+    processor_instance.output_dir = str(tmp_path)
+
+    cog_name = "sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"
+    _write_sentinel_test_raster(str(tmp_path / cog_name))
+
+    assets, all_cached = processor_instance._process_sentinel_data(
+        bbox=(-73.5, 45.4, -73.3, 45.6),
+        geometry={
+            "type": "Polygon",
+            "coordinates": [
+                [[-73.5, 45.4], [-73.3, 45.4], [-73.3, 45.6], [-73.5, 45.4]]
+            ],
+        },
+        temporal_extent=["2024-06-01", "2024-08-31"],
+        output_products=["ndvi"],
+        aggregation_method="mean",
+        cloud_cover_max=20.0,
+        farm_identifier="farm_4",
+    )
+
+    assert all_cached is True
+    assert assets["ndvi"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog"
+        "/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"
+    )
+
+
+def test_generate_assets_cache_hit_publishes_a_public_href(
+    processor_instance, tmp_path, monkeypatch
+):
+    """The cache-hit branch inside _generate_assets emits a public URL."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+    processor_instance.output_dir = str(tmp_path)
+
+    cog_name = "sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"
+    _write_sentinel_test_raster(str(tmp_path / cog_name))
+
+    assets = processor_instance._generate_assets(
+        MagicMock(),
+        {"type": "Polygon", "coordinates": [[[0, 0], [0, 1], [1, 1], [0, 0]]]},
+        ["ndvi"],
+        "mean",
+        ["2024-06-01", "2024-08-31"],
+        "farm_4",
+    )
+
+    assert assets["ndvi"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog"
+        "/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"
+    )
+
+
+def test_generate_assets_fresh_download_publishes_a_public_href(
+    processor_instance, tmp_path, monkeypatch
+):
+    """The fresh-download branch inside _generate_assets emits a public URL."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+    processor_instance.output_dir = str(tmp_path)
+
+    with patch.object(
+        SentinelFetchProcessor,
+        "_convert_to_cog",
+        side_effect=lambda src, dst: _write_sentinel_test_raster(dst),
+    ):
+        assets = processor_instance._generate_assets(
+            MagicMock(),
+            {"type": "Polygon", "coordinates": [[[0, 0], [0, 1], [1, 1], [0, 0]]]},
+            ["ndvi"],
+            "mean",
+            ["2024-06-01", "2024-08-31"],
+            "farm_4",
+        )
+
+    assert assets["ndvi"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog"
+        "/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"
+    )
+
+
+# ------------------------------------------
+# Test raster-api render assets (preview / TileJSON)
+# ------------------------------------------
+def _render_assets_item(processor, assets, tmp_path):
+    """Build a STAC item without publishing, and return its assets."""
+    with patch.object(
+        SentinelFetchProcessor, "_post_to_stac_api", return_value=False
+    ):
+        item = processor._create_stac_item(
+            item_id="sentinel2_render_test",
+            geometry={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-71.5, 45.5], [-71.4, 45.5], [-71.4, 45.6], [-71.5, 45.5]]
+                ],
+            },
+            bbox=(-71.5, 45.5, -71.4, 45.6),
+            temporal_extent=["2024-06-01", "2024-08-31"],
+            assets=assets,
+            cloud_cover_max=20.0,
+            marker_path=str(tmp_path / "unused.stac.json"),
+        )
+    return item["assets"]
+
+
+@pytest.mark.unit
+def test_each_product_gets_its_own_preview_and_tilejson(
+    processor_instance, tmp_path, monkeypatch
+):
+    """An item holds several products, so each needs its own render pair."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _render_assets_item(
+        processor_instance, _make_assets(("ndvi", "evi")), tmp_path
+    )
+
+    for product in ("ndvi", "evi"):
+        assert product in assets
+        assert assets[f"{product}_preview"]["href"].startswith(
+            "https://agri-sdss.duckdns.org/raster-api/cog/preview.png"
+        )
+        assert product in assets[f"{product}_preview"]["href"]
+        assert assets[f"{product}_tilejson"]["href"].startswith(
+            "https://agri-sdss.duckdns.org/raster-api/cog/WebMercatorQuad"
+            "/tilejson.json"
+        )
+        assert product in assets[f"{product}_tilejson"]["href"]
+
+
+@pytest.mark.unit
+def test_render_assets_carry_roles_and_media_types(
+    processor_instance, tmp_path, monkeypatch
+):
+    """STAC clients pick a rendering by role and media type, not by key."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _render_assets_item(processor_instance, _make_assets(("ndvi",)), tmp_path)
+
+    assert assets["ndvi_preview"]["type"] == "image/png"
+    assert assets["ndvi_preview"]["roles"] == ["overview"]
+    assert assets["ndvi_tilejson"]["type"] == "application/json"
+    assert assets["ndvi_tilejson"]["roles"] == ["tiles"]
+
+
+@pytest.mark.unit
+def test_render_assets_rescale_comes_from_the_asset_statistics(
+    processor_instance, tmp_path, monkeypatch
+):
+    """A float index renders flat unless TiTiler is given its value range."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("ndvi",))
+    assets["ndvi"]["statistics"] = {
+        1: {"min": -0.2, "max": 0.9, "mean": 0.4, "std": 0.1}
+    }
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "&rescale=-0.2,0.9" in rendered["ndvi_preview"]["href"]
+    assert "&rescale=-0.2,0.9" in rendered["ndvi_tilejson"]["href"]
+
+
+@pytest.mark.unit
+def test_render_assets_of_a_visual_product_are_not_rescaled(
+    processor_instance, tmp_path, monkeypatch
+):
+    """true_color is a 3-band RGB composite TiTiler already renders as-is."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("true_color",))
+    assets["true_color"]["statistics"] = {
+        1: {"min": 0.0, "max": 255.0, "mean": 100.0, "std": 10.0},
+        2: {"min": 0.0, "max": 255.0, "mean": 100.0, "std": 10.0},
+        3: {"min": 0.0, "max": 255.0, "mean": 100.0, "std": 10.0},
+    }
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "rescale=" not in rendered["true_color_preview"]["href"]
+    assert "rescale=" not in rendered["true_color_tilejson"]["href"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "statistics",
+    [
+        {},
+        {1: {"min": None, "max": None, "mean": None, "std": None}},
+        {1: {"min": 0.5, "max": 0.5, "mean": 0.5, "std": 0.0}},
+        {1: {"min": float("nan"), "max": float("nan"), "mean": 0.0, "std": 0.0}},
+    ],
+    ids=["missing", "empty-band", "constant", "not-finite"],
+)
+def test_render_assets_skip_an_unusable_rescale(
+    processor_instance, tmp_path, monkeypatch, statistics
+):
+    """An unusable range must leave the href unrescaled, never publish junk."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("ndvi",))
+    assets["ndvi"]["statistics"] = statistics
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "rescale=" not in rendered["ndvi_preview"]["href"]
+    assert "rescale=" not in rendered["ndvi_tilejson"]["href"]
+
+
+@pytest.mark.unit
+def test_render_assets_survive_statistics_read_back_from_json(
+    processor_instance, tmp_path, monkeypatch
+):
+    """A cached marker round-trips band indices to strings; rescale must hold."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("ndvi",))
+    assets["ndvi"]["statistics"] = {
+        "1": {"min": 0.1, "max": 0.8, "mean": 0.4, "std": 0.1}
+    }
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "&rescale=0.1,0.8" in rendered["ndvi_preview"]["href"]
+
+
+@pytest.mark.unit
+def test_render_assets_are_skipped_for_a_product_without_an_href(
+    processor_instance, tmp_path, monkeypatch
+):
+    """A product that never produced a COG must not publish a dangling URL."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("ndvi",))
+    assets["ndvi"].pop("href")
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "ndvi_preview" not in rendered
+    assert "ndvi_tilejson" not in rendered
+
+
+@pytest.mark.unit
+def test_render_assets_select_a_band_on_a_multiband_product(
+    processor_instance, tmp_path, monkeypatch
+):
+    """TiTiler answers 500 on a 6-band COG unless one band is selected."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("raw_bands",))
+    assets["raw_bands"]["statistics"] = {
+        band: {"min": float(band), "max": float(band) * 10, "mean": 1.0, "std": 0.1}
+        for band in range(1, 7)
+    }
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "&bidx=1" in rendered["raw_bands_preview"]["href"]
+    assert "&rescale=1.0,10.0" in rendered["raw_bands_preview"]["href"]
+    assert "&bidx=1" in rendered["raw_bands_tilejson"]["href"]
+
+
+@pytest.mark.unit
+def test_render_assets_of_a_single_band_product_select_no_band(
+    processor_instance, tmp_path, monkeypatch
+):
+    """A greyscale render needs no band selection; only the value range."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    rendered = _render_assets_item(processor_instance, _make_assets(("ndvi",)), tmp_path)
+
+    assert "bidx=" not in rendered["ndvi_preview"]["href"]
+    assert "rescale=" in rendered["ndvi_preview"]["href"]
+
+
+@pytest.mark.unit
+def test_extract_cog_stats_ignores_unmasked_nan(tmp_path):
+    """A single NaN pixel must not turn every statistic into NaN, which is
+    not valid JSON and would poison the published item."""
+    from processes.eo_sentinel_fetch import _extract_cog_stats
+
+    cog_path = tmp_path / "partial_nan.tif"
+    array = np.asarray([[float("nan"), 0.2], [0.4, 0.6]], dtype="float32")
+    with rasterio.open(
+        cog_path,
+        "w",
+        driver="GTiff",
+        height=2,
+        width=2,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_origin(-73.5, 45.6, 0.1, 0.1),
+    ) as dst:
+        dst.write(array, 1)
+
+    stats = _extract_cog_stats(str(cog_path))
+
+    assert stats[1]["min"] == pytest.approx(0.2)
+    assert stats[1]["max"] == pytest.approx(0.6)
+
+
+@pytest.mark.unit
+def test_response_preview_url_matches_the_published_preview_asset(
+    processor_instance, tmp_path, monkeypatch
+):
+    """The URL in the process response and the catalog's must be the same image."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("ndvi",))
+    assets["ndvi"]["statistics"] = {1: {"min": -0.3, "max": 0.85}}
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert processor_instance._generate_preview_url(assets["ndvi"]) == (
+        rendered["ndvi_preview"]["href"]
+    )
+
+
+@pytest.mark.mocked
+def test_execute_republishes_when_marker_predates_the_render_assets(
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
+):
+    """A marker written before the raster-api assets existed carries only the
+    product keys — and the broken hrefs of that era. Trusting it would leave
+    the item unfixed forever, so it must not count as a cache hit."""
+    processor_instance.output_dir = str(tmp_path)
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+    }
+
+    geom_shape = shape(sample_farm_geometry_small)
+    bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
+    stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
+    marker_path = processor_instance._stac_marker_path(stac_item_id)
+    # Pre-fix marker: products only, no preview/tilejson siblings.
+    processor_instance._write_stac_marker(
+        marker_path, {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+    )
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi",)), True),
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=True
+        ) as mock_post,
+    ):
+        _, envelope = processor_instance.execute(data)
+
+    mock_post.assert_called_once()
+    published = mock_post.call_args[0][0]
+    assert "ndvi_preview" in published["assets"]
+    assert "ndvi_tilejson" in published["assets"]
