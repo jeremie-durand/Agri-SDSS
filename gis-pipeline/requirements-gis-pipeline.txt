@@ -34,7 +34,7 @@ shapely==2.0.7
 six==1.17.0
 snuggs==1.4.7
 structlog==26.1.0
-SQLAlchemy==2.0.51
+SQLAlchemy==2.0.52
 stac-pydantic==3.3.0
 typing_extensions==4.13.2
 tzdata==2025.2
