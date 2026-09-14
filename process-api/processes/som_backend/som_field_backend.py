@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Hamed Etezadi
+# SPDX-FileCopyrightText: 2026 Jérémie Durand
 """SOM field-level aggregation backend.
 
 Wraps the field-level aggregation logic (originally field_level_analysis.py

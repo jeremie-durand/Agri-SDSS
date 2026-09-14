@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Hamed Etezadi
+# SPDX-FileCopyrightText: 2026 Jérémie Durand
 """SOM image-level ML backend.
 
 Wraps the RandomForest SOM prediction pipeline (originally machine_learning_image_level.py
