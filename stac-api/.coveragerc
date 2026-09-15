@@ -1,0 +1,7 @@
+[run]
+source = stac_api
+omit =
+    */test/*
+
+[report]
+show_missing = True

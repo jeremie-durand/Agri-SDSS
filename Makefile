@@ -19,13 +19,15 @@ generate-args:
 		gis-pipeline python3 -m gis_pipeline.generate_args_md
 
 test-stac-api:
-	docker compose run --build --rm stac-api pytest stac_api/test/ -v
+	docker compose run --build --rm -v $(CURDIR)/stac-api/.coveragerc:/app/.coveragerc \
+		stac-api pytest stac_api/test/ -v --cov --cov-report=term-missing
 
 test-vector-api:
 	docker compose run --build --rm vector-api pytest vector_api/test/ -v
 
 test-raster-api:
-	docker compose run --build --rm raster-api pytest raster_api/test/ -v
+	docker compose run --build --rm -v $(CURDIR)/raster-api/.coveragerc:/app/.coveragerc \
+		raster-api pytest raster_api/test/ -v --cov --cov-report=term-missing
 
 test-process-api:
 	docker compose run --build --rm process-api pytest process_api/test/ -v
