@@ -28,6 +28,13 @@ from .som_ml_backend import BARESAIL_GLOB, SOMMLBackend
 logger = logging.getLogger(__name__)
 
 
+# Bumped whenever a change makes previously cached bundles wrong to serve
+# rather than merely stale. v2 introduced out-of-bag predictions and an
+# out-of-bag smearing factor; a v1 bundle carries in-sample values and a
+# smearing factor pinned near 1.0, so it must be retrained rather than reused.
+BUNDLE_FORMAT_VERSION = 2
+
+
 @dataclass
 class SOMModelBundle:
     """A trained, ready-to-serve model for one scenario."""
@@ -41,10 +48,15 @@ class SOMModelBundle:
     log_som_bounds: tuple[float, float]
     rf_production: RandomForestRegressor
     smearing_factor: float
+    # (FIELD_ID, Image_ID) -> out-of-bag prediction, for rows the model was
+    # trained on. Serving these instead of rf_production.predict() keeps a
+    # prediction out-of-sample even when the field was part of training.
+    oob_predictions: dict[tuple[int, str], float]
     global_metrics: dict[str, Any]
     fingerprint: str
     trained_at: str
     sklearn_version: str
+    format_version: int = 1
 
 
 def compute_fingerprint(data_dir: Path) -> str:
@@ -100,7 +112,16 @@ class SOMModelStore:
         if bundle_path.exists():
             try:
                 bundle: SOMModelBundle = joblib.load(bundle_path)
-                if bundle.fingerprint == fingerprint:
+                cached_version = getattr(bundle, "format_version", 1)
+                if cached_version != BUNDLE_FORMAT_VERSION:
+                    logger.info(
+                        "Cached model for scenario '%s' is format v%s but v%s "
+                        "is required — retraining.",
+                        scenario,
+                        cached_version,
+                        BUNDLE_FORMAT_VERSION,
+                    )
+                elif bundle.fingerprint == fingerprint:
                     if bundle.sklearn_version != sklearn.__version__:
                         logger.warning(
                             "Cached model for scenario '%s' was trained under "
@@ -169,6 +190,13 @@ class SOMModelStore:
             "r2_source": "val" if r2_undefined else "test",
         }
 
+        # The metrics above describe rf_final on its held-out split. The served
+        # predictions come from rf_production, so its out-of-bag metrics are
+        # reported alongside rather than silently standing in for each other.
+        production_metrics = artifacts.get("production_metrics")
+        if production_metrics:
+            global_metrics["production_oob"] = production_metrics
+
         return SOMModelBundle(
             scenario=scenario,
             scaler=artifacts["scaler"],
@@ -179,10 +207,12 @@ class SOMModelStore:
             log_som_bounds=result["log_som_bounds"],
             rf_production=artifacts["rf_production"],
             smearing_factor=artifacts["smearing_factor"],
+            oob_predictions=artifacts["oob_predictions"],
             global_metrics=global_metrics,
             fingerprint=fingerprint,
             trained_at=datetime.now(timezone.utc).isoformat(),
             sklearn_version=sklearn.__version__,
+            format_version=BUNDLE_FORMAT_VERSION,
         )
 
     @staticmethod
@@ -216,6 +246,26 @@ class SOMModelStore:
             data[bundle.col_means.index].fillna(bundle.col_means).values
         )[:, bundle.feat_idx]
         y_pred_log = bundle.rf_production.predict(X)
+
+        # A requested field is usually part of the production model's training
+        # set, where predict() returns a near-memorised value. Swap in that
+        # row's out-of-bag prediction where one exists, so the served number is
+        # out-of-sample; rows genuinely unseen keep the ordinary prediction.
+        oob_map = getattr(bundle, "oob_predictions", None) or {}
+        oob_hits = 0
+        for i, (_idx, row) in enumerate(data.iterrows()):
+            key = (int(row["FIELD_ID"]), str(row["Image_ID"]))
+            if key in oob_map:
+                y_pred_log[i] = oob_map[key]
+                oob_hits += 1
+        logger.info(
+            "Served %d of %d predictions from out-of-bag estimates for "
+            "scenario '%s'.",
+            oob_hits,
+            len(data),
+            bundle.scenario,
+        )
+
         y_pred_lin = (10.0**y_pred_log) * bundle.smearing_factor
 
         preds: list[dict[str, Any]] = []

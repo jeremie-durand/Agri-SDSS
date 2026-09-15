@@ -505,13 +505,54 @@ class SOMMLBackend:
         y_production = production_data["log_SOM"].values
 
         rf_production = RandomForestRegressor(
-            n_estimators=200, random_state=RANDOM_STATE, n_jobs=1
+            n_estimators=200, random_state=RANDOM_STATE, n_jobs=1, oob_score=True
         )
         rf_production.fit(X_production, y_production)
-        y_production_pred = rf_production.predict(X_production)
+
+        # A row bootstrapped into every tree has no OOB estimate. With 200 trees
+        # that is rare, but it yields NaN rather than an error, so fall back to
+        # the in-sample value for those rows only.
+        oob_pred = np.asarray(rf_production.oob_prediction_, dtype=float)
+        in_sample_pred = rf_production.predict(X_production)
+        missing_oob = np.isnan(oob_pred)
+        if missing_oob.any():
+            logger.warning(
+                "%d of %d production rows had no out-of-bag estimate; "
+                "falling back to in-sample predictions for those rows.",
+                int(missing_oob.sum()),
+                oob_pred.size,
+            )
+            oob_pred[missing_oob] = in_sample_pred[missing_oob]
+
         production_smearing_factor = float(
-            np.mean(10.0 ** (y_production - y_production_pred))
+            np.mean(10.0 ** (y_production - oob_pred))
         )
+
+        # Compute metrics for the production model's out-of-bag predictions, which are
+        # the only honest evaluation we can do without leaking test_data into the
+        # training set.
+        y_production_lin = 10.0**y_production
+        oob_pred_lin = (10.0**oob_pred) * production_smearing_factor
+        production_metrics = {
+            "MAE_log": float(mean_absolute_error(y_production, oob_pred)),
+            "RMSE_log": float(root_mean_squared_error(y_production, oob_pred)),
+            "R2_log": float(r2_score(y_production, oob_pred)),
+            "MAE_lin": float(mean_absolute_error(y_production_lin, oob_pred_lin)),
+            "RMSE_lin": float(
+                root_mean_squared_error(y_production_lin, oob_pred_lin)
+            ),
+            "R2_lin": float(r2_score(y_production_lin, oob_pred_lin)),
+            "n_rows": int(y_production.size),
+            "estimate": "out_of_bag",
+        }
+
+        # Keyed by the row identity the serving path can reconstruct, so a
+        # request for a field the model trained on is answered with that row's
+        # out-of-bag prediction instead of its memorised one.
+        oob_predictions = {
+            (int(row["FIELD_ID"]), str(row["Image_ID"])): float(oob_pred[i])
+            for i, (_idx, row) in enumerate(production_data.iterrows())
+        }
 
         artifacts = {
             "scaler": scaler,
@@ -520,7 +561,11 @@ class SOMMLBackend:
             "col_means": col_means,
             "rf_production": rf_production,
             "smearing_factor": production_smearing_factor,
+            "oob_predictions": oob_predictions,
+            "production_metrics": production_metrics,
             "n_test_fields": int(test_data["FIELD_ID"].nunique()),
+            "_x_production": X_production,
+            "_y_production": y_production,
         }
 
         return summary, preds, artifacts
