@@ -4,13 +4,16 @@ Uses FastAPI TestClient against the real stac-fastapi app backed by pgstac.
 All tests are automatically skipped when PostgreSQL is unavailable.
 
 Test strategy: session-scoped fixtures create a collection and item once,
-run all read/search assertions against them, then clean up via DELETE.
+run all read/search assertions against them, then clean up: items via the
+API, the collection out-of-band as the pgstac admin (see db_utils).
 This avoids polluting the shared database between test runs.
 """
 
+import re
+
 import pytest
 
-from stac_api.test.conftest import _admin_delete_collection
+from stac_api.test.db_utils import admin_delete_collection
 
 # ------------------------------------------
 # Session-scoped fixtures — create once, clean up after
@@ -30,7 +33,7 @@ def _created_collection(stac_integration_client, sample_stac_collection):
     try:
         yield collection_id
     finally:
-        _admin_delete_collection(collection_id)
+        admin_delete_collection(collection_id)
 
 
 @pytest.fixture(scope="session")
@@ -188,12 +191,8 @@ def test_stac_search_bbox_filters_item(
     assert len(data["features"]) >= 1
 
 
-@pytest.mark.integration
-def test_created_collection_id_is_unique_per_run(_created_collection):
-    """The fixture must not reuse a fixed id.
-
-    A fixed id turns one leftover row into a permanent 409, which skips
-    the whole integration suite on every subsequent run.
-    """
-    assert _created_collection != "test-integration-collection"
-    assert _created_collection.startswith("test-integration-collection-")
+@pytest.mark.unit
+def test_collection_id_carries_random_suffix(sample_stac_collection):
+    """A fixed id turns one leftover row into a permanent 409."""
+    suffix = sample_stac_collection["id"].rsplit("-", 1)[-1]
+    assert re.fullmatch(r"[0-9a-f]{8}", suffix)
