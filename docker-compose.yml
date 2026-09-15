@@ -51,6 +51,10 @@ services:
       - RASTER_API_PORT=${RASTER_API_PORT}
       - VECTOR_API_PORT=${VECTOR_API_PORT}
       - PROCESS_API_PORT=${PROCESS_API_PORT}
+      - PRIMARY_COLLECTION_PREFIX=${PRIMARY_COLLECTION_PREFIX:-bdppad}
+      - MAP_CENTER_LAT=${MAP_CENTER_LAT:-46.8139}
+      - MAP_CENTER_LON=${MAP_CENTER_LON:--71.2080}
+      - MAP_ZOOM=${MAP_ZOOM:-6}
     depends_on:
       - stac-browser
       - chatbot-frontend
