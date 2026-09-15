@@ -1,13 +1,6 @@
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 from stac_fastapi.pgstac.app import app as stac_app
-
-
-@pytest.fixture(scope="session")
-def stac_api_url_fixture():
-    return os.getenv("STAC_API_URL", "http://localhost:8081")
 
 
 @pytest.fixture(scope="session")

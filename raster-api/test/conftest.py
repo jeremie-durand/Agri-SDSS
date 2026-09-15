@@ -1,14 +1,7 @@
-import os
-
 import numpy as np
 import pytest
 import rasterio
 from rasterio.transform import from_origin
-
-
-@pytest.fixture(scope="session")
-def raster_api_url_fixture():
-    return os.getenv("RASTER_API_URL", "http://localhost:8082")
 
 
 @pytest.fixture(scope="session")
