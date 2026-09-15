@@ -107,6 +107,33 @@ generated nginx config — none of them is a host-side port for `home` itself.
 `home` has no `HOME_PORT`; see [Quick Start](#quick-start) for how it is
 actually reached.
 
+### Dataset identity
+
+The map's dataset identity is runtime configuration, not source code. Set these in `.env`:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `PRIMARY_COLLECTION_PREFIX` | `bdppad` | Collection id prefix treated as the primary vector dataset; other collections are listed separately |
+| `MAP_CENTER_LAT` | `46.8139` | Initial map latitude |
+| `MAP_CENTER_LON` | `-71.2080` | Initial map longitude |
+| `MAP_ZOOM` | `6` | Initial zoom level |
+
+`scripts/entrypoint.sh` writes these into `/runtime-config.js` at container start, and
+`js/config.js` merges them over its defaults.
+
+Changing a value needs only a recreate:
+
+```bash
+docker compose up -d --force-recreate home
+```
+
+`entrypoint.sh` itself is baked into the image rather than mounted, so a change to the
+script — as opposed to the variables — needs `docker compose up -d --build home`.
+
+The SOM raster panels read their COG basenames from `somRasterBasenames` in `js/config.js`.
+Those are still edited in source: they are tied to the SIIGSOL soil dataset the SOM analysis
+expects, so changing them only makes sense alongside replacing that analysis.
+
 ### Customization
 
 To change a proxy route or add a new one:
