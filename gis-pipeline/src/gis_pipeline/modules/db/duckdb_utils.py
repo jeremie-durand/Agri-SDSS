@@ -4,6 +4,8 @@ from pathlib import Path
 import duckdb
 import geopandas as gpd
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import structlog
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.logging_setup import handle_error
@@ -323,21 +325,17 @@ class DuckDBManager:
 
         parquet_path = Path(Config.DUCKDB_DATA_DIR) / f"{table}.parquet"
         tmp_path = parquet_path.with_suffix(".tmp")
-        chunk_glob = str(staging_dir / "*.parquet")
 
-        conn = duckdb.connect()
         try:
-            DuckDBManager._load_spatial_extension(conn)
-            conn.execute(
-                f"COPY (SELECT * FROM read_parquet('{chunk_glob}')) "
-                f"TO '{tmp_path}' (FORMAT 'parquet')"
-            )
-        except duckdb.Error as e:
+            schema = pq.ParquetFile(chunk_files[0]).schema_arrow
+            with pq.ParquetWriter(tmp_path, schema) as writer:
+                for chunk_file in chunk_files:
+                    for batch in pq.ParquetFile(chunk_file).iter_batches():
+                        writer.write_batch(batch)
+        except (pa.ArrowInvalid, OSError, ValueError) as e:
             error_msg = f"Failed to combine chunked GeoParquet for table '{table}': {e}"
             DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
-        finally:
-            conn.close()
 
         tmp_path.replace(parquet_path)
 
