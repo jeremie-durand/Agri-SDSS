@@ -2,6 +2,7 @@ import { map, vectorState, vectorSelectionLayer, somContext } from './state.js';
 import { normalizeUrl, getColorForCollection, apiFetch } from './utils.js';
 import { openSomModal } from './som.js';
 import { showHoverHint, hideHoverHint } from './hover-hint.js';
+import { config } from './config.js';
 
 function _tL() { return (window.T && window.T[window.lang]) || {}; }
 // import { sendFeatureContext } from './chat.js'; // disabled: farm context auto-population
@@ -368,7 +369,9 @@ export async function loadBdppadCollections() {
 
     if (bdppads && bdppads.length) {
         vectorState.collectionsEndpoint = '/vector-api/parquet/collections';
-        const others = vectorState.collections.filter(function(c) { return !c.id.startsWith('bdppad'); });
+        const others = vectorState.collections.filter(function(c) {
+            return !c.id.startsWith(config.primaryCollectionPrefix);
+        });
         vectorState.collections = others.concat(bdppads);
         _renderBdppadList(bdppads);
         if (bdppadStatusEl) bdppadStatusEl.textContent =
@@ -409,7 +412,9 @@ async function _refreshBdppadList() {
     try { sessionStorage.setItem(_BDPPAD_CACHE_KEY, JSON.stringify(bdppads)); } catch(_) {}
 
     vectorState.collectionsEndpoint = '/vector-api/parquet/collections';
-    const others = vectorState.collections.filter(function(c) { return !c.id.startsWith('bdppad'); });
+    const others = vectorState.collections.filter(function(c) {
+        return !c.id.startsWith(config.primaryCollectionPrefix);
+    });
     vectorState.collections = others.concat(bdppads);
 
     const prevActiveId = _bdppadActiveId;

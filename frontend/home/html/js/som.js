@@ -1,5 +1,6 @@
 import { somContext, somChartInstance, setSomChartInstance, vectorState, layers } from './state.js';
 import { bboxAreaHa, apiFetch } from './utils.js';
+import { somRasterUrl } from './config.js';
 
 function _tL() { return (window.T && window.T[window.lang]) || {}; }
 
@@ -888,7 +889,7 @@ export async function somAutoGenCorg() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await apiFetch('/raster-api/cog/statistics?url=file:///data/corg_fr_siigsol_cog.tif&nodata=nan&bidx=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('corg')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -917,7 +918,7 @@ export async function somAutoGenPh() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await apiFetch('/raster-api/cog/statistics?url=file:///data/ph_fr_siigsol_cog.tif&nodata=nan&bidx=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('ph')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -946,7 +947,7 @@ export async function somAutoGenSable() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await apiFetch('/raster-api/cog/statistics?url=file:///data/sable_fr_siigsol_cog.tif&nodata=nan&bidx=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('sable')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -975,7 +976,7 @@ export async function somAutoGenLimon() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await apiFetch('/raster-api/cog/statistics?url=file:///data/limon_fr_siigsol_cog.tif&nodata=nan&bidx=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('limon')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -1004,7 +1005,7 @@ export async function somAutoGenArgile() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await apiFetch('/raster-api/cog/statistics?url=file:///data/argile_fr_siigsol_cog.tif&nodata=nan&bidx=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('argile')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -1033,7 +1034,7 @@ export async function somAutoGenCec() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await apiFetch('/raster-api/cog/statistics?url=file:///data/cec_fr_siigsol_cog.tif&nodata=nan&bidx=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('cec')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
