@@ -360,6 +360,9 @@ class TypeMapper:
         # Create initial mapping
         mapping = {col.name.lower(): col.value for col in VectorPostGISColumns}
 
+        srid = gdf.crs.to_epsg() if gdf.crs else Config.GLOBAL_CRS
+        mapping["geometry"] = f"geometry(Geometry, {srid})"
+
         # Normalize incoming column names
         gdf_cols_normalized = {col.lower(): col for col in gdf.columns}
 
@@ -415,10 +418,6 @@ class TypeMapper:
 
             # Skip other existing defaults
             if norm_col in mapping:
-                continue
-
-            if norm_col == "geometry":
-                mapping[norm_col] = PostgresDataTypes.GEOMETRY_4326.value
                 continue
 
             # Infer other data types
