@@ -1,6 +1,47 @@
+import os
+import uuid
+
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from stac_fastapi.pgstac.app import app as stac_app
+
+
+def _admin_delete_collection(collection_id: str) -> None:
+    """Remove a test collection as the pgstac admin.
+
+    The app role holds only DML grants, and pgstac's collection delete trigger
+    drops a partition table, which requires ownership -- so the API's DELETE
+    returns InsufficientPrivilegeError. Tests clean up out-of-band instead.
+
+    If a future change unsets PGSTAC_ADMIN_PASS in the stac-api container
+    (a hardening step recommended elsewhere), this becomes a no-op and test
+    collections will start accumulating. Adjust it then rather than silently
+    losing cleanup.
+    """
+    admin_user = os.getenv("PGSTAC_ADMIN_USER")
+    admin_pass = os.getenv("PGSTAC_ADMIN_PASS")
+    if not (admin_user and admin_pass):
+        return
+
+    dsn = (
+        f"host={os.getenv('PGHOST', 'database')} "
+        f"dbname={os.getenv('PGDATABASE', 'agri_sdss')} "
+        f"user={admin_user} password={admin_pass}"
+    )
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(
+            "DELETE FROM pgstac.items WHERE collection = %s", (collection_id,)
+        )
+        conn.execute(
+            "DELETE FROM pgstac.collections WHERE id = %s", (collection_id,)
+        )
+
+
+@pytest.fixture(scope="session")
+def unique_suffix() -> str:
+    """Short random suffix so concurrent or repeated runs never collide."""
+    return uuid.uuid4().hex[:8]
 
 
 @pytest.fixture(scope="session")
@@ -20,11 +61,11 @@ def stac_integration_client():
 
 
 @pytest.fixture(scope="session")
-def sample_stac_collection():
+def sample_stac_collection(unique_suffix):
     """Minimal valid STAC Collection for integration tests."""
     return {
         "type": "Collection",
-        "id": "test-integration-collection",
+        "id": f"test-integration-collection-{unique_suffix}",
         "stac_version": "1.0.0",
         "description": "Integration test collection — created and deleted by test suite",
         "links": [],
@@ -38,13 +79,13 @@ def sample_stac_collection():
 
 
 @pytest.fixture(scope="session")
-def sample_stac_item():
+def sample_stac_item(unique_suffix):
     """Minimal valid STAC Item for integration tests (polygon near Montreal)."""
     return {
         "type": "Feature",
         "stac_version": "1.0.0",
         "stac_extensions": [],
-        "id": "test-integration-item-001",
+        "id": f"test-integration-item-{unique_suffix}",
         "geometry": {
             "type": "Polygon",
             "coordinates": [
