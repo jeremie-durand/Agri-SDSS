@@ -16,13 +16,14 @@ def unique_suffix() -> str:
 def stac_integration_client():
     """Session-scoped TestClient against real stac-fastapi/pgstac.
 
-    Skips automatically if PostgreSQL or pgstac schema is unavailable
-    (e.g. unit-test runs without Docker Compose). Safe to run in CI.
+    Skips only when the database is unreachable. Any other failure — a broken
+    migration, a bad credential, an app-startup bug — propagates, because a
+    reachable-but-failing stack is a bug rather than an absent environment.
     """
     try:
         with TestClient(stac_app, raise_server_exceptions=False) as client:
             yield client
-    except Exception as exc:
+    except OSError as exc:
         pytest.skip(
             f"pgstac database unavailable — skipping STAC integration tests: {exc}"
         )
