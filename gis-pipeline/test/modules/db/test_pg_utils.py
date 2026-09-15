@@ -24,6 +24,7 @@ def mock_config():
         "POSTGRES_PORT": 5432,
         "POSTGRES_DB": "postgres",
         "POSTGRES_MAX_NAME_LENGTH": 50,
+        "GLOBAL_CRS": 4326,
     }
 
     with patch("gis_pipeline.modules.db.pg_utils.Config") as mock_config:
@@ -489,6 +490,34 @@ def test_build_column_mapping_infers_common_types(postgis_manager):
     assert mapping["val"] == PostgresDataTypes.TEXT.value
     assert mapping["meta"] == PostgresDataTypes.JSONB.value
     assert mapping["name"] == PostgresDataTypes.TEXT.value
+
+
+def test_build_column_mapping_geometry_srid_follows_gdf_crs(postgis_manager):
+    """The geometry column must be declared with the GeoDataFrame's own SRID.
+
+    Reprojecting with --crs and then declaring the column 4326 leaves PostGIS
+    asserting a reference system the coordinates are not in.
+    """
+    gdf = gpd.GeoDataFrame(
+        pd.DataFrame({"geometry": [Point(0, 0)]}),
+        geometry="geometry",
+        crs="EPSG:32198",
+    )
+
+    mapping = postgis_manager._build_column_mapping_from_gdf(gdf)
+
+    assert mapping["geometry"] == "geometry(Geometry, 32198)"
+
+
+def test_build_column_mapping_geometry_srid_defaults_without_crs(postgis_manager):
+    """A GeoDataFrame with no CRS falls back to the configured global CRS."""
+    gdf = gpd.GeoDataFrame(
+        pd.DataFrame({"geometry": [Point(0, 0)]}), geometry="geometry"
+    )
+
+    mapping = postgis_manager._build_column_mapping_from_gdf(gdf)
+
+    assert mapping["geometry"] == "geometry(Geometry, 4326)"
 
 
 def test_build_column_mapping_object_mixed_fallback(postgis_manager):
