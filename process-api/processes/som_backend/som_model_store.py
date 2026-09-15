@@ -48,9 +48,6 @@ class SOMModelBundle:
     log_som_bounds: tuple[float, float]
     rf_production: RandomForestRegressor
     smearing_factor: float
-    # (FIELD_ID, Image_ID) -> out-of-bag prediction, for rows the model was
-    # trained on. Serving these instead of rf_production.predict() keeps a
-    # prediction out-of-sample even when the field was part of training.
     oob_predictions: dict[tuple[int, str], float]
     global_metrics: dict[str, Any]
     fingerprint: str
@@ -190,9 +187,6 @@ class SOMModelStore:
             "r2_source": "val" if r2_undefined else "test",
         }
 
-        # The metrics above describe rf_final on its held-out split. The served
-        # predictions come from rf_production, so its out-of-bag metrics are
-        # reported alongside rather than silently standing in for each other.
         production_metrics = artifacts.get("production_metrics")
         if production_metrics:
             global_metrics["production_oob"] = production_metrics
