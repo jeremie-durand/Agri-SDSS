@@ -4,6 +4,14 @@ set -e
 # Substitute environment variables into the HTML template
 cp /usr/share/nginx/html/index.html.template /usr/share/nginx/html/index.html
 
+cat > /usr/share/nginx/html/runtime-config.js <<RUNTIME_EOF
+window.AGRI_CONFIG = {
+    primaryCollectionPrefix: "${PRIMARY_COLLECTION_PREFIX:-bdppad}",
+    mapCenter: [${MAP_CENTER_LAT:-46.8139}, ${MAP_CENTER_LON:--71.2080}],
+    mapZoom: ${MAP_ZOOM:-6}
+};
+RUNTIME_EOF
+
 # Generate full nginx server block (single-quoted heredoc prevents shell expansion of $host etc.)
 cat > /etc/nginx/conf.d/default.conf << 'NGINX_EOF'
 limit_conn_zone $server_name zone=chatbot_conn:1m;
