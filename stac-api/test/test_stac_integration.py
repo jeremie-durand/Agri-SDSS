@@ -10,6 +10,8 @@ This avoids polluting the shared database between test runs.
 
 import pytest
 
+from stac_api.test.conftest import _admin_delete_collection
+
 # ------------------------------------------
 # Session-scoped fixtures — create once, clean up after
 # ------------------------------------------
@@ -18,30 +20,38 @@ import pytest
 @pytest.fixture(scope="session")
 def _created_collection(stac_integration_client, sample_stac_collection):
     """Create test collection; yield its ID; delete it after the session."""
+    collection_id = sample_stac_collection["id"]
     resp = stac_integration_client.post("/collections", json=sample_stac_collection)
     if resp.status_code not in (200, 201):
-        pytest.skip(
-            f"Cannot create test collection (status {resp.status_code}): {resp.text}"
+        pytest.fail(
+            f"Could not create test collection {collection_id!r} "
+            f"(status {resp.status_code}): {resp.text}"
         )
-    collection_id = sample_stac_collection["id"]
-    yield collection_id
-    stac_integration_client.delete(f"/collections/{collection_id}")
+    try:
+        yield collection_id
+    finally:
+        _admin_delete_collection(collection_id)
 
 
 @pytest.fixture(scope="session")
 def _created_item(stac_integration_client, _created_collection, sample_stac_item):
     """Create test item inside the test collection; yield its ID; delete after session."""
+    item_id = sample_stac_item["id"]
     resp = stac_integration_client.post(
         f"/collections/{_created_collection}/items",
         json=sample_stac_item,
     )
     if resp.status_code not in (200, 201):
-        pytest.skip(f"Cannot create test item (status {resp.status_code}): {resp.text}")
-    item_id = sample_stac_item["id"]
-    yield item_id
-    stac_integration_client.delete(
-        f"/collections/{_created_collection}/items/{item_id}"
-    )
+        pytest.fail(
+            f"Could not create test item {item_id!r} "
+            f"(status {resp.status_code}): {resp.text}"
+        )
+    try:
+        yield item_id
+    finally:
+        stac_integration_client.delete(
+            f"/collections/{_created_collection}/items/{item_id}"
+        )
 
 
 # ------------------------------------------
@@ -176,3 +186,14 @@ def test_stac_search_bbox_filters_item(
     data = resp.json()
     assert data["type"] == "FeatureCollection"
     assert len(data["features"]) >= 1
+
+
+@pytest.mark.integration
+def test_created_collection_id_is_unique_per_run(_created_collection):
+    """The fixture must not reuse a fixed id.
+
+    A fixed id turns one leftover row into a permanent 409, which skips
+    the whole integration suite on every subsequent run.
+    """
+    assert _created_collection != "test-integration-collection"
+    assert _created_collection.startswith("test-integration-collection-")
