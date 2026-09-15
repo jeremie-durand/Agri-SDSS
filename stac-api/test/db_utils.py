@@ -6,6 +6,11 @@ import warnings
 import psycopg
 
 
+def admin_credentials_available() -> bool:
+    """Whether out-of-band cleanup can run."""
+    return bool(os.getenv("PGSTAC_ADMIN_USER") and os.getenv("PGSTAC_ADMIN_PASS"))
+
+
 def admin_delete_collection(collection_id: str) -> None:
     """Remove a test collection as the pgstac admin.
 
@@ -13,9 +18,7 @@ def admin_delete_collection(collection_id: str) -> None:
     drops a partition table, which requires ownership -- so the API's DELETE
     returns InsufficientPrivilegeError. Tests clean up out-of-band instead.
     """
-    admin_user = os.getenv("PGSTAC_ADMIN_USER")
-    admin_pass = os.getenv("PGSTAC_ADMIN_PASS")
-    if not (admin_user and admin_pass):
+    if not admin_credentials_available():
         warnings.warn(
             f"PGSTAC admin credentials unset; leaking test collection "
             f"{collection_id!r}. Clean up manually or restore cleanup.",
@@ -27,8 +30,8 @@ def admin_delete_collection(collection_id: str) -> None:
         host=os.getenv("PGHOST", "database"),
         port=os.getenv("PGPORT", "5432"),
         dbname=os.getenv("PGDATABASE", "agri_sdss"),
-        user=admin_user,
-        password=admin_pass,
+        user=os.getenv("PGSTAC_ADMIN_USER"),
+        password=os.getenv("PGSTAC_ADMIN_PASS"),
         connect_timeout=10,
     ) as conn:
         conn.execute(
