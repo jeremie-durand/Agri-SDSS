@@ -47,8 +47,19 @@ By default all three scenarios run; pass a subset to run fewer.
 | `field_ids` | array of integers | yes | — | ≥ 1 ID; must match `gid` values in `som_field_boundaries` |
 | `scenarios` | array of strings | no | all three | values from the scenarios table |
 
-The selected `field_ids` become the ML test set; all other fields in the GEE
-feature data are used for training.
+### How predictions are produced
+
+The model for a scenario is trained once on **all** labelled fields in the GEE
+feature data and cached, keyed on the scenario and a fingerprint of the source
+Parquet files. Requested `field_ids` select which fields to *report*, not which
+to hold out — so a requested field is normally part of the training set.
+
+To keep the served numbers out-of-sample anyway, the RandomForest is fitted with
+`oob_score=True` and each field is answered with its **out-of-bag** prediction:
+the estimate from only those trees that did not see that row during fitting.
+The Duan smearing factor applied on the log → linear retransformation is derived from the same out-of-bag residuals.
+
+Rows the model has genuinely never seen fall back to an ordinary prediction.
 
 ---
 
@@ -117,7 +128,8 @@ curl -s -X POST http://<host>:5000/processes/som-predict-soil/execution \
 
 | Item | Detail |
 | --- | --- |
-| Synchronous only | The process runs sync-execute; large `field_ids` lists take longer (model training runs per request). |
+| Synchronous only | The process runs sync-execute. The first request for a scenario trains and caches the model; later requests reuse it unless the source data changes. |
+| Out-of-bag estimates | Reported values are out-of-bag, not held-out-set, predictions. They are out-of-sample per row but come from a model fitted on the full labelled dataset. |
 | NaN handling | All NaN/Inf values in the response are converted to JSON `null`. |
 | No plots | Matplotlib runs with the `Agg` backend — the process never writes plot files. |
 | Data coverage | Only fields present in the GEE feature Parquet files can be predicted — requesting unknown IDs raises an error listing them. |
