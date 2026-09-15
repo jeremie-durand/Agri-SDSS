@@ -27,6 +27,9 @@ from gis_pipeline.core.logging_setup import handle_error
 from gis_pipeline.core.utils import add_process_to_logger, harmonize_name
 from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
 from gis_pipeline.modules.db.materialize_trigger import trigger_materialize_and_notify
+from pyproj import CRS
+from pyproj.exceptions import CRSError
+
 from gis_pipeline.modules.db.pg_utils import PostGISManager
 from gis_pipeline.modules.io_tools.input_data import read_csv_file
 from gis_pipeline.modules.processing.processing_stac import (
@@ -44,6 +47,9 @@ from gis_pipeline.services.mapping import (
 )
 
 logger = structlog.get_logger()
+
+# Assumed when a coordinate CSV declares no CRS by any other means.
+DEFAULT_CSV_CRS = "EPSG:4326"
 
 
 class GeoprocessingVector:
@@ -184,7 +190,42 @@ class GeoprocessingVector:
         self.gdf = self.gdf.replace(mapping)
 
     @staticmethod
-    def _read_csv_as_gdf(vector_file: Path) -> gpd.GeoDataFrame:
+    def _resolve_csv_source_crs(
+        vector_file: Path, source_crs: str | None
+    ) -> tuple[str, bool]:
+        """Resolve the source CRS of a coordinate CSV.
+
+        A CSV carries no projection of its own, so the CRS is resolved in
+        descending order of reliability: an explicit argument, the dataset
+        registry, a sidecar .prj, and finally an assumption.
+
+        Args:
+            vector_file: Path to the CSV file.
+            source_crs: Explicit CRS supplied by the caller, if any.
+
+        Returns:
+            The resolved CRS and whether it had to be assumed.
+        """
+        if source_crs:
+            return source_crs, False
+
+        stem = vector_file.stem.lower()
+        if stem in CSVDataRegistryForSourceCRS.__members__:
+            return CSVDataRegistryForSourceCRS[stem].value[1], False
+
+        prj_path = vector_file.with_suffix(".prj")
+        if prj_path.is_file():
+            try:
+                return CRS.from_wkt(prj_path.read_text().strip()).to_string(), False
+            except (CRSError, OSError) as exc:
+                logger.warning("Unreadable sidecar .prj for %s: %s", vector_file, exc)
+
+        return DEFAULT_CSV_CRS, True
+
+    @staticmethod
+    def _read_csv_as_gdf(
+        vector_file: Path, source_crs: str | None = None
+    ) -> gpd.GeoDataFrame:
         """
         Read a spatial CSV file and return a GeoDataFrame.
 
@@ -210,12 +251,18 @@ class GeoprocessingVector:
             x_col = ColumnMappings.LONGITUDE.value.all_names() & set(df.columns)
             y_col = ColumnMappings.LATITUDE.value.all_names() & set(df.columns)
 
-            # Determine CRS from registry (if defined)
-            source_crs = (
-                CSVDataRegistryForSourceCRS[vector_file.stem.lower()].value[1]
-                if vector_file.stem.lower() in CSVDataRegistryForSourceCRS.__members__
-                else None
+            # Determine the source CRS: explicit > registry > sidecar .prj > assumed
+            resolved_crs, was_assumed = GeoprocessingVector._resolve_csv_source_crs(
+                vector_file, source_crs
             )
+            if was_assumed:
+                logger.warning(
+                    "No source CRS for %s; assuming %s. Coordinates in any other "
+                    "reference system will be silently misplaced. Supply a sidecar "
+                    ".prj or register the dataset to remove this assumption.",
+                    vector_file.name,
+                    resolved_crs,
+                )
 
             # Validate geometry columns
             if not x_col or not y_col:
@@ -227,7 +274,7 @@ class GeoprocessingVector:
             gdf = gpd.GeoDataFrame(
                 df,
                 geometry=gpd.points_from_xy(df[list(x_col)[0]], df[list(y_col)[0]]),
-                crs=source_crs if source_crs else "EPSG:4326",
+                crs=resolved_crs,
             )
             return gdf
 
