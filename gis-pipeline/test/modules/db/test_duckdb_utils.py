@@ -951,6 +951,31 @@ def test_finalize_chunked_geoparquet_combines_chunks(tmp_path, monkeypatch):
     assert sorted(combined["gid"].tolist()) == [1, 2, 3, 4]
 
 
+def test_finalize_chunked_geoparquet_preserves_projected_crs(tmp_path, monkeypatch):
+    """Combining chunks must not drop the CRS.
+
+    Uses a projected CRS because the 4326 case is indistinguishable from the
+    OGC:CRS84 that a CRS-less GeoParquet reads back as.
+    """
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+
+    staging_dir = tmp_path / ".chunks" / "proj_table"
+    staging_dir.mkdir(parents=True)
+    for i, xy in enumerate([([0.0], [0.0]), ([100.0], [100.0])]):
+        gpd.GeoDataFrame(
+            {"gid": [i], "geometry": gpd.points_from_xy(*xy)}, crs="EPSG:32198"
+        ).to_parquet(staging_dir / f"part{i:04d}.parquet")
+
+    DuckDBManager.finalize_chunked_geoparquet("proj_table")
+
+    combined = gpd.read_parquet(tmp_path / "proj_table.parquet")
+    assert combined.crs is not None, "CRS was dropped when combining chunks"
+    assert combined.crs.to_epsg() == 32198
+    assert sorted(combined["gid"].tolist()) == [0, 1]
+
+
 def test_finalize_chunked_geoparquet_removes_staging_directory(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
