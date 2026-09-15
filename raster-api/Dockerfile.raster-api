@@ -42,3 +42,4 @@ RUN --mount=type=bind,source=raster-api/requirements-raster-api-test.txt,target=
 USER appuser
 COPY --chown=appuser:appuser raster-api/test /app/raster_api/test
 COPY --chown=appuser:appuser raster-api/pytest.ini /app/pytest.ini
+COPY --chown=appuser:appuser raster-api/.coveragerc /app/.coveragerc

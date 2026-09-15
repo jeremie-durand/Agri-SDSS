@@ -166,7 +166,8 @@ services:
     expose:
       - "${STAC_API_PORT}"
     environment:
-      # Admin credentials — used ONLY in entrypoint to apply pgstac grants; not read by stac-fastapi
+      # Admin credentials — pgstac grants in entrypoint, and test teardown in
+      # stac-api/test/db_utils.py. Not read by stac-fastapi itself.
       - PGSTAC_ADMIN_USER=${POSTGRES_USER:-postgres}
       - PGSTAC_ADMIN_PASS=${POSTGRES_PASS}
       - PGUSER=${DB_USER:-agri_sdss}

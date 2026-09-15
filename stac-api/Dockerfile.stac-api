@@ -60,3 +60,4 @@ RUN --mount=type=bind,source=stac-api/requirements-stac-api-test.txt,target=/tmp
 USER appuser
 COPY --chown=appuser:appuser stac-api/test /app/stac_api/test
 COPY --chown=appuser:appuser stac-api/pytest.ini /app/pytest.ini
+COPY --chown=appuser:appuser stac-api/.coveragerc /app/.coveragerc

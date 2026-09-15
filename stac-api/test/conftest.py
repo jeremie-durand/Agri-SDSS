@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from stac_fastapi.pgstac.app import app as stac_app
+from stac_api.app import app as stac_app
 
 
 @pytest.fixture(scope="session")
