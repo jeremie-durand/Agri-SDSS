@@ -14,6 +14,7 @@ from gis_pipeline.modules.processing.geoprocessing import (
     geoprocessing_vector_data,
 )
 from gis_pipeline.services.mapping import NamingPatterns
+from pyproj import CRS
 from shapely.geometry import MultiPolygon, Point, Polygon
 
 _GDF_PATTERN = NamingPatterns.PATTERN_GDF_NAME.value
@@ -679,6 +680,43 @@ def test_read_csv_as_gdf_uses_registry_crs(tmp_path):
         # CRS provided by registry should be used
         assert gdf.crs is not None
         assert gdf.crs.to_epsg() == 3857
+
+
+def test_read_csv_as_gdf_explicit_source_crs_wins(tmp_path):
+    """An explicit source_crs must override both the registry and the default."""
+    csv_path = tmp_path / "parcelles.csv"
+    pd.DataFrame({"x": [500000.0], "y": [6600000.0]}).to_csv(csv_path, index=False)
+
+    gdf = GeoprocessingVector._read_csv_as_gdf(
+        vector_file=csv_path, source_crs="EPSG:2154"
+    )
+    assert gdf.crs.to_epsg() == 2154
+
+
+def test_read_csv_as_gdf_reads_sidecar_prj(tmp_path):
+    """A sidecar .prj next to the CSV must supply the CRS when the registry has no entry."""
+    csv_path = tmp_path / "parcelles.csv"
+    pd.DataFrame({"x": [500000.0], "y": [6600000.0]}).to_csv(csv_path, index=False)
+    csv_path.with_suffix(".prj").write_text(
+        CRS.from_epsg(2154).to_wkt(), encoding="utf-8"
+    )
+
+    gdf = GeoprocessingVector._read_csv_as_gdf(vector_file=csv_path)
+    assert gdf.crs.to_epsg() == 2154
+
+
+def test_read_csv_as_gdf_warns_when_crs_assumed(tmp_path):
+    """Falling back to EPSG:4326 must be logged, not silent."""
+    csv_path = tmp_path / "unknown_source.csv"
+    pd.DataFrame({"lon": [2.0], "lat": [3.0]}).to_csv(csv_path, index=False)
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.logger"
+    ) as mock_logger:
+        gdf = GeoprocessingVector._read_csv_as_gdf(vector_file=csv_path)
+
+    assert gdf.crs.to_epsg() == 4326
+    assert mock_logger.warning.called, "assumed CRS must emit a warning"
 
 
 # ------------------------------------------
