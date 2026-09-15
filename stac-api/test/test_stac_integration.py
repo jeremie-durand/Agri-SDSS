@@ -13,7 +13,10 @@ import re
 
 import pytest
 
-from stac_api.test.db_utils import admin_delete_collection
+from stac_api.test.db_utils import (
+    admin_credentials_available,
+    admin_delete_collection,
+)
 
 # ------------------------------------------
 # Session-scoped fixtures — create once, clean up after
@@ -23,6 +26,8 @@ from stac_api.test.db_utils import admin_delete_collection
 @pytest.fixture(scope="session")
 def _created_collection(stac_integration_client, sample_stac_collection):
     """Create test collection; yield its ID; delete it after the session."""
+    if not admin_credentials_available():
+        pytest.skip("PGSTAC admin credentials unset — cannot clean up; skipping")
     collection_id = sample_stac_collection["id"]
     resp = stac_integration_client.post("/collections", json=sample_stac_collection)
     if resp.status_code not in (200, 201):
