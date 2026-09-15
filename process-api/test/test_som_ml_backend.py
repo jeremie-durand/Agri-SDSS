@@ -285,6 +285,68 @@ class TestRunScenarioProductionArtifacts:
             assert key in artifacts, f"Missing artifact: {key}"
         assert artifacts["n_test_fields"] == len(test_fields)
 
+    def test_production_model_uses_out_of_bag_scoring(self):
+        """rf_production must be fitted with oob_score=True.
+
+        The served smearing factor and metrics are derived from out-of-bag
+        residuals; without oob_score the estimator exposes no honest
+        residuals at all.
+        """
+        backend = SOMMLBackend()
+        df = self._make_df()
+        data, _mlb, _bounds = backend._preprocess(df)
+        test_fields = sorted(data["FIELD_ID"].unique())[:1]
+        train_data = data[~data["FIELD_ID"].isin(test_fields)].copy()
+        test_data = data[data["FIELD_ID"].isin(test_fields)].copy()
+        feats = [
+            "BI_mean", "CI_mean", "NDMI_mean", "OMI_mean", "RI_mean",
+            "SI_mean", "EVI_mean", "SAVI_mean", "NDVI_mean", "BSI_mean",
+            "CAI_mean", "TILL Bon",
+        ]
+
+        _summary, _preds, artifacts = backend._run_scenario(
+            train_data, test_data, feats, "S1_spec_soil"
+        )
+
+        assert artifacts["rf_production"].oob_score is True
+        assert hasattr(artifacts["rf_production"], "oob_prediction_")
+
+    def test_production_smearing_factor_is_not_degenerate(self):
+        """The smearing factor must come from out-of-bag residuals.
+
+        Computed from in-sample RandomForest predictions the residuals
+        collapse toward zero and the factor toward 1.0, which silently
+        disables the retransformation-bias correction it exists to apply.
+        """
+        backend = SOMMLBackend()
+        df = self._make_df()
+        data, _mlb, _bounds = backend._preprocess(df)
+        test_fields = sorted(data["FIELD_ID"].unique())[:1]
+        train_data = data[~data["FIELD_ID"].isin(test_fields)].copy()
+        test_data = data[data["FIELD_ID"].isin(test_fields)].copy()
+        feats = [
+            "BI_mean", "CI_mean", "NDMI_mean", "OMI_mean", "RI_mean",
+            "SI_mean", "EVI_mean", "SAVI_mean", "NDVI_mean", "BSI_mean",
+            "CAI_mean", "TILL Bon",
+        ]
+
+        _summary, _preds, artifacts = backend._run_scenario(
+            train_data, test_data, feats, "S1_spec_soil"
+        )
+
+        rf = artifacts["rf_production"]
+        in_sample_resid = artifacts["_y_production"] - rf.predict(
+            artifacts["_x_production"]
+        )
+        in_sample_factor = float(np.mean(10.0**in_sample_resid))
+
+        # In-sample residuals are near zero, so their factor sits on 1.0.
+        assert in_sample_factor == pytest.approx(1.0, abs=0.05)
+        # The served factor must be derived from OOB residuals instead.
+        assert artifacts["smearing_factor"] != pytest.approx(
+            in_sample_factor, abs=1e-9
+        )
+
     def test_production_model_trained_on_test_data_plus_good_train_images(self):
         """The production model's training set must be exactly train_final
         (the noise-filtered 'good' images from train_data) plus every row of
