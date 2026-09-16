@@ -59,17 +59,22 @@ Add entry to [docs/data/CATALOG.md](../CATALOG.md):
 ```markdown
 | SOURCENAME | Type | Format | CRS | Update | Status | Details |
 |-----------|------|--------|-----|--------|--------|---------|
-| NEW-SOURCE | vector/raster/tabular | .fmt | 4326 | freq | 🟡 Testing | [Link](sources/SOURCENAME.md) |
+| NEW-SOURCE | vector/raster/tabular | .fmt | 4326 | freq | 🟡 Testing | [Link](../sources/SOURCENAME.md) |
 ```
+
+### 1.4 Add to the frontend catalog
+
+Add an entry to [frontend/home/html/js/catalog.json](../../../frontend/home/html/js/catalog.json) so the `/data` page shows the dataset with curated metadata (bilingual name/description, license, source link) and a live ingestion status. The `match[].idPattern` regexes link the entry to the live collection ids (`postgis` ids are `public.<table>`; `parquet` ids are the file stem; `stac` ids are the collection id). Datasets fetched on demand (not ingested) use `"type": "external"`. Ingested collections matching no entry appear automatically under "Other datasets in the backend".
 
 ## Step 2: Prepare Data
 
 ### 2.1 Download & Validate
 
 ```bash
-# Create directory for new source
-mkdir -p data/input/vector/my_source/  # or raster/ for GeoTIFF
-cd data/input/vector/my_source/
+# Create directory for new source. data/input/ is flat — the pipeline
+# scans it recursively, so vector and raster can share one directory.
+mkdir -p data/input/my_source/
+cd data/input/my_source/
 
 # Download dataset
 wget https://example.com/dataset.zip
@@ -156,11 +161,11 @@ pipeline:
 # Build pipeline image
 docker compose build gis-pipeline
 
-# Test ingestion
+# Test ingestion on a small input directory
 docker compose run --rm gis-pipeline \
   python3 -m gis_pipeline.main \
-  --collection my_source \
-  --dry-run
+  --input /data/input/my_source \
+  --collection my_source
 ```
 
 ### 4.2 Check Logs
@@ -172,25 +177,26 @@ docker compose logs gis-pipeline | tail -100
 # Check for errors
 docker compose logs gis-pipeline | grep -i "error\|warning"
 
-# Detailed logs
-docker compose exec gis-pipeline tail -f logs/*.log
+# Detailed logs (mounted at ./gis-pipeline/logs on the host)
+docker compose exec gis-pipeline tail -f /gis-pipeline/logs/*.log
 ```
 
 ### 4.3 Verify PostGIS Import
 
 ```bash
 # Connect to PostgreSQL
-docker compose exec postgres psql -U postgres -d postgres
+docker compose exec database psql -U agri_sdss -d agri_sdss
 
 # Check tables
 SELECT table_name FROM information_schema.tables 
 WHERE table_name ILIKE '%my_source%';
 
-# Count features
-SELECT COUNT(*) FROM my_source_features;
+# Count features. The table is the harmonized source name with no suffix —
+# check the exact name with the query above if the pipeline renamed it.
+SELECT COUNT(*) FROM my_source;
 
 # Check geometry
-SELECT ST_SRID(geom), GeometryType(geom) FROM my_source_features LIMIT 1;
+SELECT ST_SRID(geometry), GeometryType(geometry) FROM my_source LIMIT 1;
 ```
 
 ## Step 5: Publish & Validate
@@ -206,15 +212,18 @@ docker compose run --rm gis-pipeline \
 
 ### 5.2 Verify STAC Publication
 
+Every API is reached through the single public origin rather than a host port. Against a
+local deployment add `-k` (`curl -k https://localhost/...`) — the certificate is self-signed.
+
 ```bash
 # Check STAC API
-curl http://localhost:8081/collections
+curl https://<host>/stac-api/collections
 
 # Get collection
-curl http://localhost:8081/collections/my-source
+curl https://<host>/stac-api/collections/my-source
 
 # Browse items
-curl http://localhost:8081/collections/my-source/items?limit=10
+curl https://<host>/stac-api/collections/my-source/items?limit=10
 ```
 
 ### 5.3 Test Vector/Raster APIs
@@ -223,30 +232,30 @@ curl http://localhost:8081/collections/my-source/items?limit=10
 
 ```bash
 # Get features
-curl http://localhost:8083/collections/my_source/items?limit=10
+curl https://<host>/vector-api/postgis/collections/my_source/items?limit=10
 
 # Spatial query
-curl "http://localhost:8083/collections/my_source/items?bbox=-71.5,45.0,-71.0,45.5"
+curl "https://<host>/vector-api/postgis/collections/my_source/items?bbox=-71.5,45.0,-71.0,45.5"
 ```
 
 **Raster API (WCS):**
 
 ```bash
 # Get raster info
-curl http://localhost:8082/cog/info?url=data/my_source.tif
+curl "https://<host>/raster-api/cog/info?url=file:///data/my_source.tif"
 
-# Get tile
-curl "http://localhost:8082/cog/tiles/10/512/512.png?url=data/my_source.tif"
+# Get tile — the tile matrix set segment is required
+curl "https://<host>/raster-api/cog/tiles/WebMercatorQuad/12/1235/1464.png?url=file:///data/my_source.tif"
 ```
 
 ### 5.4 Run Tests
 
 ```bash
-# Unit tests
-docker compose run --rm tests pytest test/test_my_source.py
+# Run all pipeline tests
+make test-gis-pipeline
 
-# Integration tests
-docker compose run --rm tests pytest test/integration/ -k my_source
+# Run a single test file
+docker compose run --rm gis-pipeline pytest gis_pipeline/test/ -k my_source -v
 ```
 
 ## Quick Checklist
@@ -258,12 +267,13 @@ docker compose run --rm tests pytest test/integration/ -k my_source
 - [ ] PostGIS tables verified
 - [ ] STAC metadata created
 - [ ] APIs tested (Vector/Raster/STAC)
+- [ ] Frontend catalog entry added (`frontend/home/html/js/catalog.json`)
 - [ ] Documentation completed
 - [ ] Tests pass
 - [ ] CATALOG updated
 
 ## Next Steps
 
-- See [CRS Management](crs_management.md) for coordinate system handling
-- Review [STAC Metadata Examples](../examples/stac_metadata.md)
-- Check [PostgreSQL Schema](../examples/postgis_schema.md) for database design
+- See [Data Source Catalog](../CATALOG.md) to verify your entry was added
+- Check the [PostGIS schema reference](../postgis_schema.md) for the table layout created by the pipeline
+- Review the [gis-pipeline CLAUDE.md](../../../gis-pipeline/CLAUDE.md) for ingestion rules and column conventions

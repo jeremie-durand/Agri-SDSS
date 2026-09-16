@@ -11,6 +11,7 @@ Central index for Agri-SDSS documentation. Service-specific deep-dives live next
 | [Contributing](CONTRIBUTING.md) | Branching strategy, commit conventions, PR process |
 | [Internationalization](I18N.md) | FR/EN error messages, how to request a language, gettext workflow |
 | [Third-party licenses](THIRD_PARTY_LICENSES.md) | License inventory of external tools, copyleft implications |
+| [API quick reference](api/QUICK_REFERENCE.md) | Public endpoints and copy-pasteable curl examples for every service |
 
 ## Services
 
@@ -30,9 +31,9 @@ Central index for Agri-SDSS documentation. Service-specific deep-dives live next
 | Document | Description |
 | --- | --- |
 | [Data catalog](data/CATALOG.md) | Integrated datasets and their sources |
-| [Adding new data](data/adding_new_data.md) | Step-by-step guide |
+| [Adding new data](data/guides/adding_new_data.md) | Step-by-step guide |
 | [PostGIS schema](data/postgis_schema.md) | Table layouts created by the pipeline |
-| [Database integration](data/database_integration.md) | Connecting the PostGIS DB to an existing PostgreSQL database |
+| [Database integration](data/guides/database_integration.md) | Connecting the PostGIS DB to an existing PostgreSQL database |
 
 ## Design & product
 

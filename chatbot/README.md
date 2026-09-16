@@ -4,7 +4,8 @@ Full-stack AI-powered geospatial assistant for Agri-SDSS. Provides a conversatio
 
 Built on [OpenGeo-AI-Assistant](https://github.com/jeremie-durand/OpenGeo-AI-Assistant) with MOS-specific overrides layered at Docker build time.
 
-**Backend port**: 8005 | **Frontend port**: 3001
+**Backend port**: 8000 | **Frontend port**: 3001 — both container-internal (`expose:`),
+not published to the host. The UI is reached through Caddy at `https://<host>/chatbot/`.
 
 ## Start
 

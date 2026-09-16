@@ -2,15 +2,20 @@
 
 Quick access guide to all service endpoints. For detailed documentation, refer to each service's README.
 
+Every service is reached through the single public origin — Caddy on `443`, which proxies to
+the `home` nginx. The per-service ports below are container-internal and are **not** published
+to the host, so `http://<host>:8081` will not connect. Replace `<host>` with your domain; add
+`-k` when testing against a local deployment with a self-signed certificate.
+
 ## Service URLs
 
-| Service | Port | Base URL | Documentation |
-| --------- | ------ | ---------- | ----------------- |
-| **STAC API** | 8081 | <http://localhost:8081> | [stac-api/README.md](../../stac-api/README.md) |
-| **Raster API** | 8082 | <http://localhost:8082> | [raster-api/README.md](../../raster-api/README.md) |
-| **Vector API** | 8083 | <http://localhost:8083> | [vector-api/README.md](../../vector-api/README.md) |
-| **Process API** | 5000 | <http://localhost:5000> | [pygeoapi/README.md](../../pygeoapi/README.md) |
-| **Frontend** | 8085 | <http://localhost:8085> | [frontend/stac-browser/README.md](../../frontend/stac-browser/README.md) |
+| Service | Public path | Internal port | Documentation |
+| --- | --- | --- | --- |
+| **STAC API** | `https://<host>/stac-api/` | 8081 | [stac-api/README.md](../../stac-api/README.md) |
+| **Raster API** | `https://<host>/raster-api/` | 8082 | [raster-api/README.md](../../raster-api/README.md) |
+| **Vector API** | `https://<host>/vector-api/` | 8083 | [vector-api/README.md](../../vector-api/README.md) |
+| **Process API** | `https://<host>/process-api/` | 5000 | [process-api/README.md](../../process-api/README.md) |
+| **STAC Browser** | `https://<host>/stac/` | 8080 | [frontend/stac-browser/README.md](../../frontend/stac-browser/README.md) |
 
 ## Quick Examples
 
@@ -18,45 +23,49 @@ Quick access guide to all service endpoints. For detailed documentation, refer t
 
 ```bash
 # List collections
-curl http://localhost:8081/collections
+curl https://<host>/stac-api/collections
 
 # Search items
-curl -X POST http://localhost:8081/search \
+curl -X POST https://<host>/stac-api/search \
   -H "Content-Type: application/json" \
   -d '{"collections": ["my-collection"]}'
 
-# API Documentation
-http://localhost:8081/api.html
+# API documentation (browser)
+https://<host>/stac-api/api.html
 ```
 
 ### Raster API
 
 ```bash
 # List available COGs
-curl http://localhost:8082/cog/info
+curl https://<host>/raster-api/collections
 
-# Get tile (PNG)
-curl http://localhost:8082/cog/tiles/10/512/512.png?url=<COG_URL>
+# Inspect one COG
+curl "https://<host>/raster-api/cog/info?url=file:///data/<name>.tif"
+
+# Get a tile — note the tile matrix set segment, which is required
+curl "https://<host>/raster-api/cog/tiles/WebMercatorQuad/12/1235/1464.png?url=file:///data/<name>.tif"
 ```
 
 ### Vector API
 
 ```bash
-# List collections
-curl http://localhost:8083/collections
+# PostGIS-backed collections
+curl https://<host>/vector-api/postgis/collections
+curl https://<host>/vector-api/postgis/collections/{collectionId}/items?limit=10
 
-# Get features
-curl http://localhost:8083/collections/{collectionId}/items
+# GeoParquet-backed collections
+curl https://<host>/vector-api/parquet/collections
 ```
 
 ### Process API
 
 ```bash
 # List processes
-curl http://localhost:5000/processes
+curl https://<host>/process-api/processes
 
 # Get process details
-curl http://localhost:5000/processes/{processId}
+curl https://<host>/process-api/processes/{processId}
 ```
 
 ## Environment

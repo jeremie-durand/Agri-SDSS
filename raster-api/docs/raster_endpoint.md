@@ -13,7 +13,10 @@ The Raster API provides access to dynamic raster data through a RESTful interfac
 - **Full container stack**: `docker compose up --build`
 - **Raster API only**: `docker compose up raster-api --build`
 
-Once running, the Raster API is available at: <http://localhost:8082>
+Once running, the Raster API is reached through the deployment's public origin at
+`https://<host>/raster-api/` — port 8082 is container-internal (`expose:`) and is not
+published to the host. Against a local deployment add `-k` (`curl -k
+https://localhost/...`) because the certificate is self-signed.
 
 ### Configuration
 
@@ -41,7 +44,7 @@ Returns metadata of COG file
 Example:
 
 ```bash
-curl http://localhost:8082/cog/info?url=file:///data/DEMO.tif
+curl -k "https://localhost/raster-api/cog/info?url=file:///data/DEMO.tif"
 ```
 
 Response: Metadata of DEMO.tif COG file
@@ -55,7 +58,7 @@ GET /cog/viewer?url={absolutePath}
 Example:
 
 ```In Browser
-http://localhost:8082/cog/viewer?url=file:///data/corg_fr_siigsol_cog.tif
+https://localhost/raster-api/cog/viewer?url=file:///data/corg_fr_siigsol_cog.tif
 ```
 
 Response: Web viewer of COG
@@ -69,7 +72,7 @@ GET /cog/tiles/{tileMatrixSetId}/{z}/{x}/{y}[@{scale}x][.{format}]?url={absolute
 Example:
 
 ```XYZ Tiles
-curl http://localhost:8082/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=file:///data/corg_fr_siigsol_cog.tif&bidx=1
+curl -k "https://localhost/raster-api/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=file:///data/corg_fr_siigsol_cog.tif&bidx=1"
 ```
 
 ## Data Storage

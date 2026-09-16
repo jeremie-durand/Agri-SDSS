@@ -13,7 +13,11 @@ The Vector API provides access to vector geospatial data through a RESTful inter
 - **Full container stack**: `docker compose up --build`
 - **Vector API only**: `docker compose up vector-api --build`
 
-Once running, the Vector API is available at: <http://localhost:8083>
+Once running, the Vector API is reached through the deployment's public origin at
+`https://<host>/vector-api/` — port 8083 is container-internal (`expose:`) and is not
+published to the host. Collections live under a backend prefix: `postgis/` for PostGIS
+tables and `parquet/` for GeoParquet. Against a local deployment add `-k`
+(`curl -k https://localhost/...`) because the certificate is self-signed.
 
 ### Configuration
 
@@ -23,8 +27,8 @@ The Vector API configuration is managed through environment variables and databa
 
 The system includes two demo collections for testing and demonstration purposes:
 
-- **sud_du_quebec_4326**: Southern Quebec administrative boundaries in EPSG:4326
-- **bdppad_2024_4326_sample_stac**: Sample agricultural parcels data for STAC integration in EPSG:4326
+- **sites_maricoles_2024_12**: Quebec mariculture permit sites — 38 polygons in EPSG:4326
+- **bdppad_demo_an_2025**: BDPPAD agricultural parcel demo extract — 14 556 polygons in EPSG:4326
 
 ## API Endpoints
 
@@ -41,7 +45,7 @@ Returns a list of all available vector collections.
 Example:
 
 ```bash
-curl http://localhost:8083/collections
+curl -k https://localhost/vector-api/postgis/collections
 ```
 
 Response: List of collections
@@ -60,14 +64,15 @@ collectionId (string): The identifier of the collection
 Examples:
 
 ```bash
-# Get Southern Quebec collection info
-curl http://localhost:8083/collections/public.sud_du_quebec_4326
+# Get mariculture sites collection info
+curl -k https://localhost/vector-api/postgis/collections/public.sites_maricoles_2024_12
 
 # Get agricultural parcels collection info
-curl http://localhost:8083/collections/public.bdppad_2024_4326_sample_stac
+curl -k https://localhost/vector-api/postgis/collections/public.bdppad_demo_an_2025
 ```
 
-Response:
+Response (illustrative sample captured from an earlier dataset; ids and link hrefs
+shown are not the current ones):
 
 ```json
 {"id":"public.sud_du_quebec_4326","title":"public.sud_du_quebec_4326","links":[{"href":"http://localhost:8083/collections/public.sud_du_quebec_4326","rel":"self","type":"application/json"},{"href":"http://localhost:8083/collections/public.sud_du_quebec_4326/items","rel":"items","type":"application/geo+json","title":"Items"},{"href":"http://localhost:8083/collections/public.sud_du_quebec_4326/items?f=csv","rel":"alternate","type":"text/csv","title":"Items (CSV)"},{"href":"http://localhost:8083/collections/public.sud_du_quebec_4326/items?f=geojsonseq","rel":"alternate","type":"application/geo+json-seq","title":"Items (GeoJSONSeq)"},{"href":"http://localhost:8083/collections/public.sud_du_quebec_4326/queryables","rel":"queryables","type":"application/schema+json","title":"Queryables"}],"extent":{"spatial":{"bbox":[[-74.66980081171282,44.99135832579372,-69.62529737300314,47.4119438131845]],"crs":"http://www.opengis.net/def/crs/OGC/1.3/CRS84"},"temporal":{"interval":[["2024-01-01T00:00:00+00:00","2024-12-31T00:00:00+00:00"],["2024-12-31T00:00:00+00:00","2024-12-31T00:00:00+00:00"],["2024-01-01T00:00:00+00:00","2024-01-01T00:00:00+00:00"]],"trs":"http://www.opengis.net/def/uom/ISO-8601/0/Gregorian"}},"itemType":"feature","crs":["http://www.opengis.net/def/crs/OGC/1.3/CRS84"]}
@@ -92,11 +97,11 @@ bbox (array): Bounding box filter [minx,miny,maxx,maxy]
 Examples:
 
 ```bash
-# Get Southern Quebec features with spatial filter
-curl "http://localhost:8083/collections/public.sud_du_quebec_4326/items?limit=5&bbox=-75,45,-74,46"
+# Get mariculture sites with spatial filter
+curl -k "https://localhost/vector-api/postgis/collections/public.sites_maricoles_2024_12/items?limit=5&bbox=-70,47,-57,52"
 
 # Get agricultural parcels with pagination
-curl "http://localhost:8083/collections/public.bdppad_2024_4326_sample_stac/items?limit=10&offset=20"
+curl -k "https://localhost/vector-api/postgis/collections/public.bdppad_demo_an_2025/items?limit=10&offset=20"
 ```
 
 Response: GeoJSON FeatureCollection
@@ -114,14 +119,14 @@ collectionId (string): The identifier of the collection
 featureId (string): The identifier of the feature
 
 ```bash
-# Get specific administrative boundary
-curl http://localhost:8083/collections/public.sud_du_quebec_4326/items/region-x
+# Get specific mariculture site
+curl -k https://localhost/vector-api/postgis/collections/public.sites_maricoles_2024_12/items/1
 
 # Get specific agricultural parcel
-curl http://localhost:8083/collections/public.bdppad_2024_4326_sample_stac/items/farm-x
+curl -k https://localhost/vector-api/postgis/collections/public.bdppad_demo_an_2025/items/1
 ```
 
-Response:
+Response (illustrative sample from an earlier dataset):
 
 ```json
 {

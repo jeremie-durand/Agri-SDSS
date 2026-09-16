@@ -76,10 +76,14 @@ are returned.
 
 ## Examples
 
+All services are reached through the single public origin, never at a host port.
+Against a local deployment add `-k` (`curl -k https://localhost/...`) because the
+certificate is self-signed.
+
 ### `climate-daily` — bbox, temperature + precipitation
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/msc-observations/execution \
+curl -s -X POST https://<host>/process-api/processes/msc-observations/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -96,7 +100,7 @@ curl -s -X POST http://<host>:5000/processes/msc-observations/execution \
 ### `climate-daily` — point, full variable set
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/msc-observations/execution \
+curl -s -X POST https://<host>/process-api/processes/msc-observations/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -113,7 +117,7 @@ curl -s -X POST http://<host>:5000/processes/msc-observations/execution \
 ### `swob-realtime` — bbox, last 7 days
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/msc-observations/execution \
+curl -s -X POST https://<host>/process-api/processes/msc-observations/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {

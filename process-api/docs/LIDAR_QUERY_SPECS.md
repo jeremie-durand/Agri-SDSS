@@ -162,27 +162,30 @@ same farm updates the existing STAC items (HTTP PUT on 409 Conflict).
 
 ### STAC API
 
+Every API is reached through the single public origin, never at a host port. Against a
+local deployment add `-k` (`curl -k https://localhost/...`) — the certificate is self-signed.
+
 ```bash
 # List all LiDAR items
-curl http://<host>:8081/collections/lidar_quebec/items
+curl https://<host>/stac-api/collections/lidar_quebec/items
 
 # Get a specific item
-curl http://<host>:8081/collections/lidar_quebec/items/lidar_dtm_farm_4_abc123
+curl https://<host>/stac-api/collections/lidar_quebec/items/lidar_dtm_farm_4_abc123
 ```
 
 ### Raster API
 
-LiDAR COGs are registered as STAC assets and can be served as map tiles or inspected via the raster-api (port 8082):
+LiDAR COGs are registered as STAC assets and can be served as map tiles or inspected via the raster-api:
 
 ```bash
 # Tile endpoint (use in Leaflet/MapLibre as XYZ source)
-http://<host>:8082/cog/tiles/{z}/{x}/{y}?url=<cog_asset_href>
+https://<host>/raster-api/cog/tiles/{z}/{x}/{y}?url=<cog_asset_href>
 
 # File info (band count, CRS, nodata, bounds)
-curl "http://<host>:8082/cog/info?url=<cog_asset_href>"
+curl "https://<host>/raster-api/cog/info?url=<cog_asset_href>"
 
 # Band statistics (min, max, mean, std)
-curl "http://<host>:8082/cog/statistics?url=<cog_asset_href>"
+curl "https://<host>/raster-api/cog/statistics?url=<cog_asset_href>"
 ```
 
 ---

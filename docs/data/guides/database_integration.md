@@ -19,11 +19,11 @@ Everything below assumes these characteristics of the Agri-SDSS `database` servi
 | --- | --- |
 | Extensions | `postgis`, `btree_gist`, `unaccent`, `plpgsql` + `pgstac` schema (via pypgstac migrations) |
 | `wal_level` | `replica` — fine to *subscribe* to an external publication |
-| Network exposure | Port bound to `127.0.0.1` on the host by design ([security checklist](../DEPLOYMENT.md#6-security-checklist)) |
+| Network exposure | Port bound to `127.0.0.1` on the host by design ([security checklist](../../DEPLOYMENT.md#6-security-checklist)) |
 
 ## Feeding Agri-SDSS from the organizational database
 
-Replaces the manual [production dump restore](../DEPLOYMENT.md#8-restoring-a-production-database-dump) with a continuous or scheduled flow. Three techniques, from most to least "seamless":
+Replaces the manual [production dump restore](../../DEPLOYMENT.md#8-restoring-a-production-database-dump) with a continuous or scheduled flow. Three techniques, from most to least "seamless":
 
 ### Logical replication
 
@@ -50,7 +50,7 @@ GRANT SELECT ON my_table TO agri_sdss;
 CREATE INDEX ON my_table USING GIST (geometry);
 ```
 
-Caveats: every replicated table needs a primary key (replica identity); DDL changes on the source must be applied manually on both sides; the initial copy of large tables generates sustained insert load (see the database memory notes in [DEPLOYMENT.md](../DEPLOYMENT.md#server-sizing)).
+Caveats: every replicated table needs a primary key (replica identity); DDL changes on the source must be applied manually on both sides; the initial copy of large tables generates sustained insert load (see the database memory notes in [DEPLOYMENT.md](../../DEPLOYMENT.md#server-sizing)).
 
 ### Foreign data wrapper (live remote reads, no copy)
 
@@ -75,7 +75,7 @@ CREATE INDEX ON my_table_local USING GIST (geometry);
 
 ### Scheduled dump/restore (batch)
 
-The existing [section 8 procedure](../DEPLOYMENT.md#8-restoring-a-production-database-dump), narrowed to selected tables (`pg_dump -t my_table`) and run from cron. Simplest to operate; freshness is the cron interval.
+The existing [section 8 procedure](../../DEPLOYMENT.md#8-restoring-a-production-database-dump), narrowed to selected tables (`pg_dump -t my_table`) and run from cron. Simplest to operate; freshness is the cron interval.
 
 ## Connection direction
 

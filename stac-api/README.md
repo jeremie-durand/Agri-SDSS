@@ -33,12 +33,16 @@ docker compose up -d stac-api
 
 ## Quick search
 
+The STAC API is reached through the single public origin at `https://<host>/stac-api/`.
+Against a local deployment add `-k` (`curl -k https://localhost/...`) — the certificate is
+self-signed.
+
 ```bash
 # Spatial filter
-curl "http://<host>:8081/search?bbox=-73,45,-71,46"
+curl "https://<host>/stac-api/search?bbox=-73,45,-71,46"
 
 # Collection + CQL filter
-curl -X POST http://<host>:8081/search \
+curl -X POST https://<host>/stac-api/search \
   -H "Content-Type: application/json" \
   -d '{"collections":["sentinel2_eo_products"],"bbox":[-73,45,-71,46],"filter":{"op":"<","args":[{"property":"cloud_cover"},20]}}'
 ```

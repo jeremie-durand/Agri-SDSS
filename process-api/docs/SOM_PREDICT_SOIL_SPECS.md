@@ -66,7 +66,7 @@ Rows the model has genuinely never seen fall back to an ordinary prediction.
 ## Example
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/som-predict-soil/execution \
+curl -s -X POST https://<host>/process-api/processes/som-predict-soil/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {

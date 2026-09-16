@@ -2,7 +2,8 @@
 
 Browser-facing services for Agri-SDSS. Three UIs, all served under a single origin via the `home` nginx reverse proxy.
 
-**Port**: 8084 (home) | **HTTPS**: via Caddy at :443
+**Port**: 8080 (`home`, container-internal `expose:` — not published to the host) |
+**HTTPS**: via Caddy at :443, the single public entry point
 
 ## Services
 

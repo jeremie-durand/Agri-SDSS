@@ -43,16 +43,19 @@ declared nodata value. For statistics or point queries via TiTiler, always pass
 
 **Note**: The following examples require services to be running (`docker compose up`).
 Inside the raster-api container the COG directory is mounted at `/data`.
+All services are reached through the single public origin, never at a host port.
+Against a local deployment add `-k` (`curl -k https://localhost/...`) because the
+certificate is self-signed.
 
 ```bash
 # COG metadata (bounds, bands, CRS)
-curl "http://<host>:8082/cog/info?url=/data/ph_fr_siigsol_cog.tif"
+curl "https://<host>/raster-api/cog/info?url=/data/ph_fr_siigsol_cog.tif"
 
 # Band statistics — indexes=1 and nodata=nan required (alpha band)
-curl "http://<host>:8082/cog/statistics?url=/data/ph_fr_siigsol_cog.tif&indexes=1&nodata=nan"
+curl "https://<host>/raster-api/cog/statistics?url=/data/ph_fr_siigsol_cog.tif&indexes=1&nodata=nan"
 
 # PNG tile (organic carbon, rescaled for display)
-curl "http://<host>:8082/cog/tiles/10/302/368.png?url=/data/corg_fr_siigsol_cog.tif&indexes=1&nodata=nan&rescale=0,15"
+curl "https://<host>/raster-api/cog/tiles/10/302/368.png?url=/data/corg_fr_siigsol_cog.tif&indexes=1&nodata=nan&rescale=0,15"
 ```
 
 ## Metadata

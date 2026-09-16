@@ -9,7 +9,7 @@ You don't need to write code to contribute:
 | Contribution | Where to start |
 | --- | --- |
 | Report a bug or request a feature | [Open an issue](https://github.com/jeremie-durand/Agri-SDSS/issues) |
-| Integrate a new dataset | [Adding new data guide](data/adding_new_data.md) — step-by-step, from source doc to pipeline ingestion |
+| Integrate a new dataset | [Adding new data guide](data/guides/adding_new_data.md) — step-by-step, from source doc to pipeline ingestion |
 | Add or improve an OGC process | [Adding a new OGC process](#adding-a-new-ogc-process) below |
 | Improve documentation or FR/EN translations | Edit and open a PR — docs live in `docs/` and each service's folder |
 | Improve the map, chatbot, or UI | [frontend/home/README.md](../frontend/home/README.md) and [chatbot/docs/ARCHITECTURE.md](../chatbot/docs/ARCHITECTURE.md) |
@@ -169,7 +169,7 @@ CI will build the service images, verify `ARGS.md` sync, run the full test suite
 
 ## Adding a New Data Source
 
-The most common contribution — fully documented in the [adding new data guide](data/adding_new_data.md). In short:
+The most common contribution — fully documented in the [adding new data guide](data/guides/adding_new_data.md). In short:
 
 1. Document the source in `docs/data/sources/SOURCENAME.md` (template in the guide)
 2. Add a row to the [data catalog](data/CATALOG.md) — including its license

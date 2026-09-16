@@ -26,8 +26,12 @@ docker compose up -d process-api
 
 ## Execute a process
 
+process-api is reached through the single public origin at `https://<host>/process-api/`.
+Against a local deployment add `-k` (`curl -k https://localhost/...`) — the certificate is
+self-signed.
+
 ```bash
-curl -X POST http://<host>:5000/processes/weather-timeseries/execution \
+curl -X POST https://<host>/process-api/processes/weather-timeseries/execution \
   -H "Content-Type: application/json" \
   -d '{"inputs": {"bbox": [-72.5, 45.3, -72.0, 45.7], "start_date": "2023-01-01", "end_date": "2023-12-31"}}'
 ```

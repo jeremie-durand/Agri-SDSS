@@ -114,10 +114,14 @@ Multiple variables can be requested in one call. Duplicates are removed automati
 
 ### Examples
 
+All services are reached through the single public origin, never at a host port.
+Against a local deployment add `-k` (`curl -k https://localhost/...`) because the
+certificate is self-signed.
+
 #### ERA5-Land daily — bbox, temperature + precipitation
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
+curl -s -X POST https://<host>/process-api/processes/weather-timeseries/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -134,7 +138,7 @@ curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
 #### ERA5-Land monthly — point query
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
+curl -s -X POST https://<host>/process-api/processes/weather-timeseries/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -152,7 +156,7 @@ curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
 #### RDRS daily — farm ID, full variable set
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
+curl -s -X POST https://<host>/process-api/processes/weather-timeseries/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -169,7 +173,7 @@ curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
 #### ERA5-Land hourly — precipitation at a point
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/weather-timeseries/execution \
+curl -s -X POST https://<host>/process-api/processes/weather-timeseries/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -208,7 +212,7 @@ Returns a GeoJSON Feature with scenario and model metadata.
 #### Daily timeseries — mid-century summer
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/climate-timeseries/execution \
+curl -s -X POST https://<host>/process-api/processes/climate-timeseries/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -227,7 +231,7 @@ curl -s -X POST http://<host>:5000/processes/climate-timeseries/execution \
 #### Monthly aggregation — end-of-century full year
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/climate-timeseries/execution \
+curl -s -X POST https://<host>/process-api/processes/climate-timeseries/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -288,7 +292,7 @@ Computes agronomic climate indicators from gridded weather data. Supports both h
 #### gdd — ERA5-Land historical, corn base temperature
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
+curl -s -X POST https://<host>/process-api/processes/climate-indicators/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -306,7 +310,7 @@ curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
 #### frost_days — RDRS historical, spring frost risk
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
+curl -s -X POST https://<host>/process-api/processes/climate-indicators/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -323,7 +327,7 @@ curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
 #### heat_stress_days — CMIP6 projection, custom threshold
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
+curl -s -X POST https://<host>/process-api/processes/climate-indicators/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -343,7 +347,7 @@ curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
 #### pr_total — ERA5-Land, growing season
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
+curl -s -X POST https://<host>/process-api/processes/climate-indicators/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -360,7 +364,7 @@ curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
 #### pr_days — ERA5-Land, wet-day count (threshold required)
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
+curl -s -X POST https://<host>/process-api/processes/climate-indicators/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -378,7 +382,7 @@ curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
 #### gdd — CMIP6 projection, end-of-century comparison
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/climate-indicators/execution \
+curl -s -X POST https://<host>/process-api/processes/climate-indicators/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {

@@ -43,7 +43,7 @@ docker compose down && docker compose up
 ### Step 4: Test It
 
 ```bash
-curl -X POST "http://<host>:5000/processes/sentinel-fetch/execution" \
+curl -X POST "https://<host>/process-api/processes/sentinel-fetch/execution" \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {

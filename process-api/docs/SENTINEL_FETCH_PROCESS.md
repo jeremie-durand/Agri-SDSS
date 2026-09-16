@@ -74,10 +74,14 @@ Exactly one of `farm_id` or `farm_geometry` must be provided — not both.
 
 ## Examples
 
+All services are reached through the single public origin, never at a host port.
+Against a local deployment add `-k` (`curl -k https://localhost/...`) because the
+certificate is self-signed.
+
 ### NDVI + true color, summer composite (farm by ID)
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
+curl -s -X POST https://<host>/process-api/processes/sentinel-fetch/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -93,7 +97,7 @@ curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
 ### All vegetation indices, strict cloud filter
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
+curl -s -X POST https://<host>/process-api/processes/sentinel-fetch/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -109,7 +113,7 @@ curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
 ### Max-NDVI growing season (peak greenness)
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
+curl -s -X POST https://<host>/process-api/processes/sentinel-fetch/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -125,7 +129,7 @@ curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
 ### Raw bands via explicit polygon geometry
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
+curl -s -X POST https://<host>/process-api/processes/sentinel-fetch/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -163,7 +167,7 @@ curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
         "type": "image/tiff; application=geotiff"
       }
     },
-    "preview_url": "http://<host>:8082/cog/preview.png?url=/data/sentinel2_farm_4_ndvi_...tif&rescale=0,1",
+    "preview_url": "https://<host>/raster-api/cog/preview.png?url=/data/sentinel2_farm_4_ndvi_...tif&rescale=0,1",
     "bbox": [-71.5, 45.5, -71.4, 45.6],
     "temporal_extent": ["2024-06-01", "2024-08-31"],
     "area_km2": 98.5
@@ -185,10 +189,10 @@ curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
 
 ```bash
 # TiTiler preview
-http://<host>:8082/cog/preview.png?url=/data/{filename}&rescale=0,1
+https://<host>/raster-api/cog/preview.png?url=/data/{filename}&rescale=0,1
 
 # STAC Browser
-http://<host>:8085
+https://<host>/stac/
 ```
 
 ---

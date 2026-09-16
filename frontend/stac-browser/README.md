@@ -38,7 +38,7 @@ docker compose up -d stac-browser --build
 
 ```bash
 # Collections not loading — check the STAC API and the generated config
-curl http://<host>:8081/collections
+curl https://<host>/stac-api/collections
 docker compose exec stac-browser cat /usr/share/nginx/html/config.js
 
 # Tiles not rendering — check the raster-api

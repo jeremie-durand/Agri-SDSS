@@ -327,7 +327,7 @@ to correct them.
 
 Use this procedure when seeding a fresh database from a `pg_dump` backup of a previous deployment. Place your compressed dump in `data/demo/` (create the directory if needed) — the restore command below mounts it into the container.
 
-For a continuous connection to an existing PostgreSQL database (logical replication, foreign data wrapper) instead of one-off dumps, see [Database integration](data/database_integration.md).
+For a continuous connection to an existing PostgreSQL database (logical replication, foreign data wrapper) instead of one-off dumps, see [Database integration](data/guides/database_integration.md).
 
 ### Why a filtered restore
 
