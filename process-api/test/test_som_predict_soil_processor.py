@@ -2,10 +2,19 @@
 
 from unittest.mock import patch
 
+import agri_i18n
 import pandas as pd
 import pytest
 from processes.som_predict_soil import SOMPredictSoilProcessor
 from pygeoapi.process.base import ProcessorExecuteError
+
+
+@pytest.fixture(autouse=True)
+def _english_messages():
+    """Assert against the English msgids rather than the French default."""
+    with agri_i18n.use_locale("en"):
+        yield
+
 
 
 def _make_processor() -> SOMPredictSoilProcessor:
@@ -105,6 +114,25 @@ class TestSOMPredictSoilProcessorDuckDB:
         with patch.dict("os.environ", {"DUCKDB_DATA_DIR": str(tmp_path)}):
             with pytest.raises(ProcessorExecuteError, match="No GEE feature Parquet"):
                 proc.execute({"field_ids": [416]})
+
+    def test_duckdb_error_does_not_leak_internal_detail(self, tmp_path):
+        """A DuckDB failure yields a generic message, not the raw driver error."""
+        import duckdb
+
+        proc = _make_processor()
+        (tmp_path / "BareSoil_TOPCLI_2019_Part01.parquet").write_bytes(b"not parquet")
+        with patch.dict("os.environ", {"DUCKDB_DATA_DIR": str(tmp_path)}), patch(
+            "processes.som_predict_soil.duckdb.connect",
+            side_effect=duckdb.Error("magic bytes 0xdeadbeef mismatch"),
+        ):
+            with pytest.raises(
+                ProcessorExecuteError, match="Could not read the GEE feature data"
+            ) as excinfo:
+                proc.execute({"field_ids": [416]})
+
+        assert "0xdeadbeef" not in str(excinfo.value), (
+            "internal DuckDB error must not reach the user"
+        )
 
     def test_no_matching_rows_raises(self, tmp_path):
         proc = _make_processor()

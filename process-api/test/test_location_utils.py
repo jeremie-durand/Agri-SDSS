@@ -229,13 +229,25 @@ class TestGetGeometryFromDb:
         with patch(
             "processes.location_utils.psycopg.connect", return_value=mock_db_connection
         ):
-            with pytest.raises(ProcessorExecuteError, match="Database error"):
+            with pytest.raises(
+                ProcessorExecuteError, match="Could not retrieve the farm geometry"
+            ) as excinfo:
                 get_geometry_from_db("1")
+
+        assert "conn refused" not in str(excinfo.value), (
+            "internal database error must not reach the user"
+        )
 
     def test_invalid_table_name_env_raises(self, monkeypatch) -> None:
         monkeypatch.setenv("FARM_TABLE_NAME", "public.table; DROP TABLE users--")
-        with pytest.raises(ProcessorExecuteError, match="disallowed characters"):
+        with pytest.raises(
+            ProcessorExecuteError, match="Could not retrieve the farm geometry"
+        ) as excinfo:
             get_geometry_from_db("1")
+
+        assert "DROP TABLE" not in str(excinfo.value), (
+            "server configuration details must not reach the user"
+        )
 
 
 # ---------------------------------------------------------------------------

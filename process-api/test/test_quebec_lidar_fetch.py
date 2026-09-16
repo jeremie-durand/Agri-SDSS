@@ -18,6 +18,19 @@ from processes.quebec_lidar_fetch import LidarFetchProcessor
 from processes.quebec_lidar_fetch_metadata import PROCESS_METADATA
 from pygeoapi.process.base import ProcessorExecuteError
 
+import agri_i18n
+
+
+@pytest.fixture(autouse=True)
+def _english_messages():
+    """Assert against the English msgids rather than the French default.
+
+    Message content is localised, so these tests pin the source language.
+    French rendering is covered in agri_i18n/test and vector-api/test.
+    """
+    with agri_i18n.use_locale("en"):
+        yield
+
 
 def _write_test_raster(path, values, nodata=None):
     """Write a small single-band GeoTIFF for zonal-statistics tests.
@@ -489,21 +502,54 @@ def test_compute_aspect_cog_invokes_gdaldem(processor_instance, tmp_path):
 
 @pytest.mark.unit
 def test_compute_aspect_cog_raises_on_gdal_failure(processor_instance, tmp_path):
-    """A non-zero gdaldem exit code raises ProcessorExecuteError with the
-    stderr output, matching the gdalwarp failure pattern."""
+    """A non-zero gdaldem exit code raises a generic ProcessorExecuteError,
+    keeping the stderr output in the logs, matching the gdalwarp pattern."""
     with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(
             returncode=1, stderr="gdaldem: some error"
         )
-        with pytest.raises(ProcessorExecuteError, match="gdaldem aspect"):
+        with pytest.raises(
+            ProcessorExecuteError, match="Could not compute the aspect raster"
+        ) as excinfo:
             processor_instance._compute_aspect_cog(
                 str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif")
             )
+
+    assert "gdaldem: some error" not in str(excinfo.value), (
+        "gdaldem stderr must stay in the logs, not reach the caller"
+    )
 
 
 # ---------------------------------------------------------------------------
 # LidarFetchProcessor input validation tests
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.mocked
+@pytest.mark.parametrize(
+    ("env_var", "value"),
+    [
+        ("FARM_GEOMETRY_COLUMN", "geom-1"),
+        ("FARM_GEOMETRY_COLUMN", "t.geom"),
+        ("FARM_ID_COLUMN", "gid-1"),
+        ("FARM_TABLE_NAME", "farms;drop"),
+    ],
+)
+def test_get_geometry_from_db_rejects_unsafe_identifiers(
+    mock_db_connection, monkeypatch, env_var, value
+):
+    """Farm table/column names outside their allowed pattern are never queried."""
+    monkeypatch.setenv(env_var, value)
+    with patch(
+        "processes.quebec_lidar_fetch.psycopg.connect",
+        return_value=mock_db_connection,
+    ):
+        with pytest.raises(
+            ProcessorExecuteError, match="Could not retrieve the farm geometry"
+        ):
+            LidarFetchProcessor._get_geometry_from_db(1)
+
+    mock_db_connection.cursor.return_value.execute.assert_not_called()
 
 
 @pytest.mark.unit
@@ -889,10 +935,17 @@ def test_execute_gdal_failure_raises(
     ):
         mock_run.return_value = MagicMock(returncode=1, stderr="gdalwarp: some error")
 
-        with pytest.raises(ProcessorExecuteError, match="gdalwarp"):
+        with pytest.raises(
+            ProcessorExecuteError,
+            match="Could not clip and convert the LiDAR raster",
+        ) as excinfo:
             processor_instance.execute(
                 {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
             )
+
+    assert "gdalwarp: some error" not in str(excinfo.value), (
+        "gdalwarp stderr must stay in the logs, not reach the caller"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -18,8 +18,20 @@ from processes.eo_sentinel_fetch import PROCESS_METADATA, SentinelFetchProcessor
 from pygeoapi.process.base import ProcessorExecuteError
 from rasterio.transform import from_origin
 from shapely.geometry import shape
+import agri_i18n
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _english_messages():
+    """Assert against the English msgids rather than the French default.
+
+    Message content is localised, so these tests pin the source language.
+    French rendering is covered in agri_i18n/test and vector-api/test.
+    """
+    with agri_i18n.use_locale("en"):
+        yield
 
 
 def _write_sentinel_test_raster(path: str) -> None:
@@ -256,7 +268,7 @@ def test_execute_rejects_farm_id_zero(processor_instance):
         "output_products": ["ndvi"],
     }
     with pytest.raises(
-        ProcessorExecuteError, match="Farm ID must be a positive integer"
+        ProcessorExecuteError, match="'farm_id' must be a positive integer"
     ):
         processor_instance.execute(data)
 
@@ -269,7 +281,7 @@ def test_execute_rejects_negative_farm_id(processor_instance):
         "output_products": ["ndvi"],
     }
     with pytest.raises(
-        ProcessorExecuteError, match="Farm ID must be a positive integer"
+        ProcessorExecuteError, match="'farm_id' must be a positive integer"
     ):
         processor_instance.execute(data)
 
@@ -503,8 +515,15 @@ def test_convert_to_cog_failure(processor_instance, tmp_path):
     mock_result.stderr = "GDAL error: invalid file"
 
     with patch("subprocess.run", return_value=mock_result):
-        with pytest.raises(ProcessorExecuteError, match="GDAL COG conversion failed"):
+        with pytest.raises(
+            ProcessorExecuteError,
+            match="Could not convert the raster to Cloud Optimized GeoTIFF",
+        ) as excinfo:
             processor_instance._convert_to_cog(str(input_file), str(output_file))
+
+    assert "GDAL error: invalid file" not in str(excinfo.value), (
+        "gdalwarp stderr must stay in the logs, not reach the caller"
+    )
 
 
 # ------------------------------------------
@@ -1575,8 +1594,16 @@ def test_database_connection_failure(processor_instance):
         with patch.dict(
             os.environ, {"POSTGRES_HOST": "localhost", "POSTGRES_PASS": "testpass"}
         ):
-            with pytest.raises(ProcessorExecuteError, match="Database error"):
-                processor_instance._get_geometry_from_db(4)
+            with agri_i18n.use_locale("en"):
+                with pytest.raises(
+                    ProcessorExecuteError,
+                    match="Could not retrieve the farm geometry",
+                ) as excinfo:
+                    processor_instance._get_geometry_from_db(4)
+
+    assert "Connection refused" not in str(excinfo.value), (
+        "internal database error must not reach the user"
+    )
 
 
 def test_malformed_geometry_from_database(processor_instance):
@@ -1598,12 +1625,29 @@ def test_malformed_geometry_from_database(processor_instance):
             os.environ, {"POSTGRES_HOST": "localhost", "POSTGRES_PASS": "testpass"}
         ):
             # JSON decode error is now properly caught and wrapped
-            with pytest.raises(ProcessorExecuteError, match="Invalid geometry data"):
+            with pytest.raises(
+                ProcessorExecuteError, match="Invalid geometry data"
+            ) as excinfo:
                 processor_instance._get_geometry_from_db(4)
 
+    assert "Expecting value" not in str(excinfo.value), (
+        "The JSON decoder detail must stay in the logs, not reach the caller"
+    )
 
-def test_get_geometry_from_db_invalid_table_name(processor_instance):
-    """_get_geometry_from_db raises ProcessorExecuteError for invalid FARM_TABLE_NAME."""
+
+@pytest.mark.parametrize(
+    "env_var, value",
+    [
+        ("FARM_TABLE_NAME", "bad;name"),
+        ("FARM_GEOMETRY_COLUMN", "bad column"),
+        ("FARM_GEOMETRY_COLUMN", "geom.col"),
+        ("FARM_ID_COLUMN", "id;drop table"),
+    ],
+)
+def test_get_geometry_from_db_invalid_identifier(
+    processor_instance, caplog, env_var, value
+):
+    """_get_geometry_from_db rejects unsafe farm table/column identifiers."""
     mock_conn = MagicMock()
     mock_conn.__enter__.return_value = mock_conn
     mock_conn.__exit__.return_value = None
@@ -1614,49 +1658,14 @@ def test_get_geometry_from_db_invalid_table_name(processor_instance):
             {
                 "POSTGRES_HOST": "localhost",
                 "POSTGRES_PASS": "testpass",
-                "FARM_TABLE_NAME": "bad;name",
+                env_var: value,
             },
         ):
-            with pytest.raises(ProcessorExecuteError, match="Invalid table name"):
+            with pytest.raises(
+                ProcessorExecuteError, match="Could not retrieve the farm geometry"
+            ):
                 processor_instance._get_geometry_from_db(1)
-
-
-def test_get_geometry_from_db_invalid_geometry_column(processor_instance):
-    """_get_geometry_from_db raises ProcessorExecuteError for invalid FARM_GEOMETRY_COLUMN."""
-    mock_conn = MagicMock()
-    mock_conn.__enter__.return_value = mock_conn
-    mock_conn.__exit__.return_value = None
-
-    with patch("psycopg.connect", return_value=mock_conn):
-        with patch.dict(
-            os.environ,
-            {
-                "POSTGRES_HOST": "localhost",
-                "POSTGRES_PASS": "testpass",
-                "FARM_GEOMETRY_COLUMN": "bad column",
-            },
-        ):
-            with pytest.raises(ProcessorExecuteError, match="Invalid geometry column"):
-                processor_instance._get_geometry_from_db(1)
-
-
-def test_get_geometry_from_db_invalid_id_column(processor_instance):
-    """_get_geometry_from_db raises ProcessorExecuteError for invalid FARM_ID_COLUMN."""
-    mock_conn = MagicMock()
-    mock_conn.__enter__.return_value = mock_conn
-    mock_conn.__exit__.return_value = None
-
-    with patch("psycopg.connect", return_value=mock_conn):
-        with patch.dict(
-            os.environ,
-            {
-                "POSTGRES_HOST": "localhost",
-                "POSTGRES_PASS": "testpass",
-                "FARM_ID_COLUMN": "id;drop table",
-            },
-        ):
-            with pytest.raises(ProcessorExecuteError, match="Invalid ID column"):
-                processor_instance._get_geometry_from_db(1)
+    assert f"{env_var} contains disallowed characters" in caplog.text
 
 
 def test_negative_farm_id(processor_instance):
@@ -1828,8 +1837,15 @@ def test_cog_conversion_with_nonexistent_file(processor_instance, tmp_path):
     mock_result.stderr = "Input file does not exist"
 
     with patch("subprocess.run", return_value=mock_result):
-        with pytest.raises(ProcessorExecuteError, match="GDAL COG conversion failed"):
+        with pytest.raises(
+            ProcessorExecuteError,
+            match="Could not convert the raster to Cloud Optimized GeoTIFF",
+        ) as excinfo:
             processor_instance._convert_to_cog(str(input_file), str(output_file))
+
+    assert "Input file does not exist" not in str(excinfo.value), (
+        "gdalwarp stderr must stay in the logs, not reach the caller"
+    )
 
 
 def test_long_temporal_extent(processor_instance, sample_farm_geometry):
@@ -1934,9 +1950,14 @@ def test_openeo_connection_failure(processor_instance, sample_farm_geometry):
     with patch.dict(os.environ, {"OPENEO_REFRESH_TOKEN": "a" * 210}):
         with patch("openeo.connect", side_effect=Exception("Connection failed")):
             with pytest.raises(
-                ProcessorExecuteError, match="Failed to connect to openEO backend"
-            ):
+                ProcessorExecuteError,
+                match="Could not connect to the openEO backend",
+            ) as excinfo:
                 processor_instance.execute(data)
+
+    assert "Connection failed" not in str(excinfo.value), (
+        "The raw connection error must stay in the logs, not reach the caller"
+    )
 
 
 def test_sentinel_data_load_failure(processor_instance, sample_farm_geometry):
