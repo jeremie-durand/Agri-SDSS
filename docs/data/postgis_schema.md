@@ -96,7 +96,7 @@ Columns:
 Example DDL:
 
 ```sql
-CREATE TABLE public.raster_stac (
+CREATE TABLE public.cogs (
  gid TEXT PRIMARY KEY,
  datetime TIMESTAMP WITH TIME ZONE,
  bbox FLOAT[],

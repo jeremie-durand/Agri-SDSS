@@ -16,7 +16,7 @@ See [CATALOG.md](CATALOG.md) for the single source of truth about integrated dat
 
 Templates and real examples from the project:
 
-- [PostGIS Schema](examples/postgis_schema.md) - Standard table structure and geometry types
+- [PostGIS Schema](postgis_schema.md) - Standard table structure and geometry types
 - [STAC Metadata](examples/stac_metadata.md) - Metadata template and examples
 
 ## Implementation Guides
