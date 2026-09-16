@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-02T00:00:00Z",
+  "title": "Design System: Agri-SDSS",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Acquisition Green",
+        "canonical": "oklch(7a5% 0.17 158)",
+        "tonalRamp": ["oklch(20% 0.06 158)", "oklch(30% 0.09 158)", "oklch(40% 0.12 158)", "oklch(50% 0.14 158)", "oklch(60% 0.16 158)", "oklch(70% 0.17 158)", "oklch(78% 0.16 158)", "oklch(88% 0.10 158)"]
+      },
+      "accent-dim": {
+        "role": "primary-muted",
+        "displayName": "Dimmed Acquisition",
+        "canonical": "oklch(44% 0.10 158)",
+        "tonalRamp": ["oklch(15% 0.04 158)", "oklch(25% 0.07 158)", "oklch(35% 0.09 158)", "oklch(44% 0.10 158)", "oklch(55% 0.11 158)", "oklch(65% 0.12 158)", "oklch(75% 0.13 158)", "oklch(85% 0.08 158)"]
+      },
+      "bg": {
+        "role": "neutral-bg",
+        "displayName": "Deep Space Black",
+        "canonical": "oklch(9% 0.015 258)",
+        "tonalRamp": ["oklch(5% 0.01 258)", "oklch(9% 0.015 258)", "oklch(14% 0.02 258)", "oklch(20% 0.025 258)", "oklch(30% 0.02 258)", "oklch(45% 0.02 258)", "oklch(65% 0.015 258)", "oklch(85% 0.008 258)"]
+      },
+      "surface": {
+        "role": "neutral-surface",
+        "displayName": "Instrument Panel",
+        "canonical": "oklch(14% 0.02 257)",
+        "tonalRamp": ["oklch(8% 0.015 257)", "oklch(12% 0.018 257)", "oklch(16% 0.022 257)", "oklch(22% 0.025 257)", "oklch(32% 0.022 257)", "oklch(48% 0.018 257)", "oklch(65% 0.012 257)", "oklch(82% 0.007 257)"]
+      },
+      "surface-hover": {
+        "role": "neutral-surface-elevated",
+        "displayName": "Elevated Surface",
+        "canonical": "oklch(18% 0.03 255)",
+        "tonalRamp": ["oklch(10% 0.02 255)", "oklch(14% 0.025 255)", "oklch(18% 0.03 255)", "oklch(25% 0.03 255)", "oklch(35% 0.025 255)", "oklch(50% 0.02 255)", "oklch(68% 0.015 255)", "oklch(84% 0.008 255)"]
+      },
+      "border": {
+        "role": "neutral-border",
+        "displayName": "Void Line",
+        "canonical": "oklch(22% 0.03 255)",
+        "tonalRamp": ["oklch(12% 0.02 255)", "oklch(18% 0.025 255)", "oklch(22% 0.03 255)", "oklch(28% 0.03 255)", "oklch(38% 0.025 255)", "oklch(52% 0.02 255)", "oklch(70% 0.015 255)", "oklch(86% 0.008 255)"]
+      },
+      "text-primary": {
+        "role": "neutral-text-high",
+        "displayName": "Starlight",
+        "canonical": "oklch(92% 0.008 252)",
+        "tonalRamp": ["oklch(30% 0.01 252)", "oklch(45% 0.01 252)", "oklch(58% 0.009 252)", "oklch(68% 0.009 252)", "oklch(76% 0.009 252)", "oklch(84% 0.008 252)", "oklch(90% 0.007 252)", "oklch(96% 0.005 252)"]
+      },
+      "text-secondary": {
+        "role": "neutral-text-medium",
+        "displayName": "Twilight",
+        "canonical": "oklch(60% 0.018 252)",
+        "tonalRamp": ["oklch(20% 0.01 252)", "oklch(32% 0.013 252)", "oklch(44% 0.016 252)", "oklch(55% 0.018 252)", "oklch(64% 0.017 252)", "oklch(73% 0.015 252)", "oklch(82% 0.012 252)", "oklch(91% 0.007 252)"]
+      },
+      "text-muted": {
+        "role": "neutral-text-low",
+        "displayName": "Void Text",
+        "canonical": "oklch(42% 0.022 252)",
+        "tonalRamp": ["oklch(18% 0.012 252)", "oklch(28% 0.016 252)", "oklch(36% 0.020 252)", "oklch(44% 0.022 252)", "oklch(55% 0.020 252)", "oklch(68% 0.016 252)", "oklch(80% 0.012 252)", "oklch(92% 0.006 252)"]
+      },
+      "service-stac": {
+        "role": "secondary",
+        "displayName": "Cartesian Blue",
+        "canonical": "oklch(60% 0.19 255)",
+        "tonalRamp": ["oklch(18% 0.06 255)", "oklch(28% 0.10 255)", "oklch(38% 0.14 255)", "oklch(48% 0.17 255)", "oklch(58% 0.19 255)", "oklch(68% 0.18 255)", "oklch(78% 0.14 255)", "oklch(88% 0.08 255)"]
+      },
+      "service-raster": {
+        "role": "secondary",
+        "displayName": "Thermal Amber",
+        "canonical": "oklch(74% 0.17 70)",
+        "tonalRamp": ["oklch(22% 0.06 70)", "oklch(34% 0.09 70)", "oklch(46% 0.12 70)", "oklch(58% 0.15 70)", "oklch(68% 0.17 70)", "oklch(76% 0.16 70)", "oklch(84% 0.12 70)", "oklch(92% 0.07 70)"]
+      },
+      "service-vector": {
+        "role": "secondary",
+        "displayName": "Geodesic Violet",
+        "canonical": "oklch(60% 0.22 295)",
+        "tonalRamp": ["oklch(18% 0.07 295)", "oklch(28% 0.11 295)", "oklch(38% 0.16 295)", "oklch(48% 0.20 295)", "oklch(58% 0.22 295)", "oklch(68% 0.20 295)", "oklch(78% 0.16 295)", "oklch(88% 0.09 295)"]
+      },
+      "service-pygeoapi": {
+        "role": "secondary",
+        "displayName": "Process Emerald",
+        "canonical": "oklch(70% 0.17 162)",
+        "tonalRamp": ["oklch(18% 0.06 162)", "oklch(28% 0.09 162)", "oklch(40% 0.13 162)", "oklch(52% 0.16 162)", "oklch(62% 0.17 162)", "oklch(72% 0.16 162)", "oklch(82% 0.12 162)", "oklch(92% 0.07 162)"]
+      },
+      "service-browser": {
+        "role": "secondary",
+        "displayName": "Interface Pink",
+        "canonical": "oklch(66% 0.27 345)",
+        "tonalRamp": ["oklch(18% 0.09 345)", "oklch(28% 0.14 345)", "oklch(38% 0.20 345)", "oklch(48% 0.24 345)", "oklch(58% 0.27 345)", "oklch(68% 0.25 345)", "oklch(78% 0.20 345)", "oklch(88% 0.12 345)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display / Wordmark", "purpose": "Agri-SDSS header wordmark only. One instance per page." },
+      "title": { "displayName": "Card Title", "purpose": "Service card headings and section titles." },
+      "body": { "displayName": "Body", "purpose": "Card descriptions, header tagline, all running prose." },
+      "label": { "displayName": "Label / Mono", "purpose": "Section eyebrows (≤4 words), endpoint URLs, code tokens." }
+    },
+    "shadows": [
+      {
+        "name": "float",
+        "value": "0 8px 32px rgba(0,0,0,0.5)",
+        "purpose": "Floating elements only: modals, dropdowns, tooltips. Never on cards or buttons."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-surface",
+        "value": "background 0.2s ease, border-color 0.2s ease",
+        "purpose": "Card hover state transitions."
+      },
+      {
+        "name": "ease-button",
+        "value": "background 0.15s ease, border-color 0.15s ease, color 0.15s ease",
+        "purpose": "Button state transitions."
+      }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "640px", "purpose": "Single-column layout, reduced padding." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main action button. Used for 'Ouvrir' and 'Endpoint' links on service cards.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">Ouvrir</a>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 500; text-decoration: none; border: 1px solid #3ecf8e; background: #3ecf8e; color: #0f1117; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease; } .ds-btn-primary:hover { background: #5adeaa; border-color: #5adeaa; } .ds-btn-primary:focus-visible { outline: 2px solid #3ecf8e; outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary action button. Used for Docs, Collections, and other auxiliary links.",
+      "html": "<a class=\"ds-btn-ghost\" href=\"#\">Docs</a>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 500; text-decoration: none; border: 1px solid #2a2e45; background: transparent; color: #8b92a8; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease; } .ds-btn-ghost:hover { background: #22263a; color: #e8eaf0; border-color: #3a3f5c; } .ds-btn-ghost:focus-visible { outline: 2px solid #3ecf8e; outline-offset: 2px; }"
+    },
+    {
+      "name": "Service Card",
+      "kind": "card",
+      "refersTo": "service-card",
+      "description": "Primary content unit. Each card is one service entry point with icon, title, badge, description, endpoint URL, and action buttons.",
+      "html": "<div class=\"ds-service-card\"><div class=\"ds-card-header\"><div class=\"ds-card-icon\" style=\"background:#0f1e3d\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#3b82f6\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"12 2 2 7 12 12 22 7 12 2\"/><polyline points=\"2 17 12 22 22 17\"/><polyline points=\"2 12 12 17 22 12\"/></svg></div><div class=\"ds-card-title-group\"><div class=\"ds-card-title\">STAC API</div><span class=\"ds-card-badge\" style=\"background:#0f1e3d;color:#3b82f6\">OGC · STAC</span></div></div><p class=\"ds-card-description\">Catalogue spatio-temporel pour la découverte des rasters.</p><div class=\"ds-endpoint-url\"><span class=\"ds-dot\"></span>localhost/mos-stac</div><div class=\"ds-card-actions\"><a class=\"ds-btn-primary\" href=\"#\">Endpoint</a><a class=\"ds-btn-ghost\" href=\"#\">Docs</a></div></div>",
+      "css": ".ds-service-card { background: #1a1d27; border: 1px solid #2a2e45; border-radius: 10px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; transition: border-color 0.2s ease, background 0.2s ease; } .ds-service-card:hover { border-color: #3a3f5c; background: #22263a; } .ds-card-header { display: flex; align-items: flex-start; gap: 0.85rem; } .ds-card-icon { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; } .ds-card-title-group { flex: 1; min-width: 0; } .ds-card-title { font-size: 0.98rem; font-weight: 600; color: #e8eaf0; } .ds-card-badge { display: inline-block; margin-top: 0.3rem; padding: 0.18rem 0.55rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; } .ds-card-description { font-size: 0.85rem; color: #8b92a8; line-height: 1.6; flex: 1; } .ds-card-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; } .ds-endpoint-url { font-size: 0.75rem; color: #555d78; font-family: 'SFMono-Regular', Consolas, monospace; display: flex; align-items: center; gap: 0.4rem; } .ds-dot { width: 6px; height: 6px; border-radius: 50%; background: #3ecf8e; flex-shrink: 0; } .ds-btn-primary { display: inline-flex; align-items: center; padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 500; text-decoration: none; border: 1px solid #3ecf8e; background: #3ecf8e; color: #0f1117; transition: background 0.15s ease; } .ds-btn-primary:hover { background: #5adeaa; border-color: #5adeaa; } .ds-btn-ghost { display: inline-flex; align-items: center; padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 500; text-decoration: none; border: 1px solid #2a2e45; background: transparent; color: #8b92a8; transition: background 0.15s ease, color 0.15s ease; } .ds-btn-ghost:hover { background: #22263a; color: #e8eaf0; border-color: #3a3f5c; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Observatory",
+    "overview": "Agri-SDSS is a dark-mode precision instrument. Its surfaces are the control room of a research observatory: deep black-blue voids, instrument panels that reveal data on demand, and a single signal-green acquisition color that marks what is live, active, and reachable. Nothing glows for decoration. Every lit element has a reason.\n\nThe aesthetic is neither developer-tool austere nor enterprise-platform heavy. It is a calm, public-facing scientific interface. Density is moderate. Typography is clear and purposeful. The service grid is the primary interaction surface — six cards, each a gateway.\n\nThis system explicitly rejects heavy enterprise GIS aesthetics: crowded navigation, tiny muted text, navy-on-gray palettes. It equally rejects flashy SaaS conventions: no hero metrics, no gradient blobs, no glassmorphism.",
+    "keyCharacteristics": [
+      "Dark surfaces with tonal depth (background → surface → surface-hover), no shadows",
+      "One signal accent (Acquisition Green) used sparingly for active states and primary actions",
+      "Service-specific colors scoped to badges only — never bled into layout",
+      "System font stack — legible and neutral, letting data carry weight",
+      "French primary voice, calm and direct, no marketing language"
+    ],
+    "rules": [
+      { "name": "The One Signal Rule", "body": "Acquisition Green (#3ecf8e) is the only color that communicates interactivity or live status outside of service badges. If a new interactive element appears on the page, its active/live state uses this color. No other color takes that role.", "section": "colors" },
+      { "name": "The Scoped Badge Rule", "body": "Service accent colors (Cartesian Blue, Thermal Amber, Geodesic Violet, Process Emerald, Interface Pink) are badge-only. They do not migrate to headings, borders, backgrounds, buttons, or any element outside a card badge or card icon context.", "section": "colors" },
+      { "name": "The Single-Family Rule", "body": "No second typeface is introduced. Not for headings, not for decorative purposes, not for personality. The weight and size hierarchy is the typography.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "No box-shadow on cards, buttons, or containers at rest or on hover. If a floating element appears, it uses a single subtle shadow (0 8px 32px rgba(0,0,0,0.5)) against the dark background. This is the only permitted shadow, and only for truly floating elements.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use Acquisition Green (#3ecf8e) for primary buttons, active status indicators, wordmark accents, and focus rings. Nothing else.",
+      "Do keep service accent colors inside card badges and icon backgrounds only.",
+      "Do convey depth through tonal surface shifts (bg → surface → surface-hover). No shadows on cards or containers at rest.",
+      "Do keep body text at #e8eaf0 on dark surfaces — never drop to #8b92a8 for running descriptions.",
+      "Do use the system font stack. No web fonts unless a specific typographic need is confirmed.",
+      "Do limit uppercase to labels of 4 words or fewer.",
+      "Do respect prefers-reduced-motion: every transition has a @media (prefers-reduced-motion: reduce) override.",
+      "Do write UI copy in French first, direct and brief — no tech buzzwords in visible labels."
+    ],
+    "donts": [
+      "Don't use dense enterprise GIS aesthetics: crowded navigation, tiny muted body text, navy-on-gray color palettes.",
+      "Don't introduce SaaS dashboard conventions: no gradient blobs, no glassmorphism cards, no background-clip gradient headings.",
+      "Don't add a second typeface.",
+      "Don't use box-shadow on cards or buttons. The flat tonal system is intentional.",
+      "Don't bleed service accent colors outside their card.",
+      "Don't use Void Text (#555d78) for body content.",
+      "Don't use border-left or border-right as a colored accent stripe on cards or callouts.",
+      "Don't uppercase body sentences."
+    ]
+  }
+}

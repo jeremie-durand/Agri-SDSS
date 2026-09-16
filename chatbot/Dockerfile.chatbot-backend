@@ -1,0 +1,104 @@
+# ── Stage 0: Ollama binary ────────────────────────────────────────────────────
+# Set INCLUDE_OLLAMA=stub (via .env.ci or --build-arg) to skip the ~500 MB
+# CUDA kernel bundle in CI where the LLM is reached over an external URL.
+ARG INCLUDE_OLLAMA=full
+
+# Compile the gettext catalogs. Build-stage only: Babel never reaches runtime,
+# and the .mo files are gitignored so they must be produced here.
+FROM python:3.12-slim AS i18n
+RUN --mount=type=bind,source=agri_i18n/requirements-i18n.txt,target=/tmp/requirements-i18n.txt \
+    pip install --no-cache-dir -r /tmp/requirements-i18n.txt
+COPY agri_i18n/locales /build/locales
+RUN pybabel compile -d /build/locales -D messages --statistics
+
+FROM ollama/ollama:latest AS ollama-full
+
+# Minimal stub for CI: empty placeholders so COPY commands below still succeed.
+FROM alpine:3.20 AS ollama-stub
+RUN mkdir -p /usr/lib/ollama && touch /usr/bin/ollama
+
+# Select based on build arg (BuildKit skips the unused stage entirely).
+FROM ollama-${INCLUDE_OLLAMA} AS ollama
+
+# ── Stage 1: Clone OpenGeo-AI-Assistant at pinned version ────────────────────
+FROM alpine/git:2.43.0 AS source
+# Default, override with --build-arg CHATBOT_VERSION=... when building
+ARG CHATBOT_VERSION=v0.2.1-alpha
+RUN git clone --depth 1 --branch ${CHATBOT_VERSION} \
+    https://github.com/jeremie-durand/OpenGeo-AI-Assistant.git /src
+
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+FROM python:3.12-slim AS runtime
+
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libexpat1 \
+    libexpat1-dev \
+    libgeos-dev \
+    libxml2 \
+    libxml2-dev \
+    gdal-bin \
+    libgdal-dev \
+    libproj-dev \
+    proj-bin \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV GDAL_CONFIG=/usr/bin/gdal-config
+ENV CPLUS_INCLUDE_PATH=/usr/include/gdal
+ENV C_INCLUDE_PATH=/usr/include/gdal
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# requirements.txt lives at opengeo-ai-assistant/ root (not inside container-app/)
+COPY --from=source /src/opengeo-ai-assistant/requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy all app code from container-app/ (*.py, *.json, agents/, geoint/)
+COPY --from=source /src/opengeo-ai-assistant/container-app/ .
+
+# Layer agri-sdss overrides on top of upstream
+COPY chatbot/overrides/backend/ .
+
+# Shared gettext helpers (runtime pieces only; tests run in the process-api image)
+COPY agri_i18n/__init__.py agri_i18n/middleware.py /app/agri_i18n/
+COPY --from=i18n /build/locales /app/agri_i18n/locales
+
+# Ollama runtime — only used when LLM_BASE_URL targets localhost:11434
+COPY --from=ollama /usr/bin/ollama /usr/local/bin/ollama
+COPY --from=ollama /usr/lib/ollama /usr/local/lib/ollama
+
+# Fix deprecated datetime.utcnow() calls in upstream fastapi_app.py (Python 3.12+)
+RUN sed -i 's/^from datetime import datetime$/from datetime import datetime, timezone/' /app/fastapi_app.py \
+    && sed -i 's/datetime\.utcnow()/datetime.now(timezone.utc)/g' /app/fastapi_app.py
+
+RUN mkdir -p /app/uploads /app/.ollama && \
+    groupadd --system appuser && \
+    useradd --system --no-create-home --gid appuser appuser && \
+    chown -R appuser:appuser /app && \
+    chmod +x /app/entrypoint.sh
+
+USER appuser
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
+
+CMD ["/app/entrypoint.sh"]
+
+# ── Stage 3: Test (extends runtime with test deps + test files) ───────────────
+FROM runtime AS test
+USER root
+
+COPY chatbot/requirements-chatbot-test.txt /tmp/
+RUN pip install --no-cache-dir -r /tmp/requirements-chatbot-test.txt
+
+COPY chatbot/test /app/chatbot/test
+COPY chatbot/pytest.ini /app/pytest.ini
+
+RUN chown -R appuser:appuser /app/chatbot
+USER appuser

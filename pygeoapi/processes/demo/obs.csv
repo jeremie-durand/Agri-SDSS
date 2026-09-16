@@ -1,3 +1,0 @@
-id,lon,lat,stn_id,value,uri,datetimestamp,foo
-1,0.0,0.0,station1,25,http://example.com,2020-01-01T00:00:00Z,example
-2,0.0,0.0,station2,100,http://example.com,2020-01-01T00:00:00Z,example

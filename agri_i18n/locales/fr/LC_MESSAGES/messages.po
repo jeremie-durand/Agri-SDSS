@@ -1,0 +1,642 @@
+# French translations for Agri-SDSS backend services.
+# Copyright (C) 2026 Agri-SDSS contributors
+# This file is distributed under the same license as the Agri-SDSS project.
+#
+# Message ids are the English source strings; only non-English catalogs
+# exist.
+# Regenerate with `make i18n-update`, then fill in every empty msgstr.
+# Entries arrive here in Phase 3, when the service messages are converted.
+msgid ""
+msgstr ""
+"Project-Id-Version:  Agri-SDSS\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-09-16 14:30+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: fr\n"
+"Language-Team: fr <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: chatbot/overrides/backend/sdss_api.py:35
+msgid "Invalid or missing API key."
+msgstr "Clé d’API invalide ou manquante."
+
+#: chatbot/overrides/backend/sdss_api.py:237
+msgid "I was unable to complete the spatial analysis."
+msgstr "Je n’ai pas pu compléter l’analyse spatiale."
+
+#: process-api/processes/backend_utils.py:34
+#, python-brace-format
+msgid "Longitude {value} out of range [-180, 180]"
+msgstr "Longitude {value} hors de l’intervalle [-180, 180]"
+
+#: process-api/processes/backend_utils.py:38
+#, python-brace-format
+msgid "Latitude {value} out of range [-90, 90]"
+msgstr "Latitude {value} hors de l’intervalle [-90, 90]"
+
+#: process-api/processes/backend_utils.py:51
+#, python-brace-format
+msgid "bbox minx ({minx}) must be < maxx ({maxx})"
+msgstr "bbox minx ({minx}) doit être < maxx ({maxx})"
+
+#: process-api/processes/backend_utils.py:57
+#, python-brace-format
+msgid "bbox miny ({miny}) must be < maxy ({maxy})"
+msgstr "bbox miny ({miny}) doit être < maxy ({maxy})"
+
+#: process-api/processes/backend_utils.py:67
+#, python-brace-format
+msgid "'{field}' must be provided when location_type is '{field}'"
+msgstr "« {field} » doit être fourni lorsque location_type vaut « {field} »"
+
+#: process-api/processes/climate_indicators.py:93
+#: process-api/processes/climate_timeseries.py:87
+#: process-api/processes/msc_observations.py:80
+#: process-api/processes/som_predict_soil.py:113
+#: process-api/processes/weather_timeseries.py:85
+msgid "An unexpected error occurred while running this process."
+msgstr "Une erreur inattendue s'est produite lors de l'exécution de ce traitement."
+
+#: process-api/processes/climate_indicators.py:110
+#: process-api/processes/climate_timeseries.py:114
+#: process-api/processes/msc_observations.py:111
+#: process-api/processes/weather_timeseries.py:116
+#, python-brace-format
+msgid "Invalid inputs: {errors}"
+msgstr "Paramètres d'entrée invalides : {errors}"
+
+#: process-api/processes/climate_indicators.py:162
+#: process-api/processes/climate_indicators.py:233
+#, python-brace-format
+msgid "Unsupported indicator: {indicator}"
+msgstr "Indicateur non pris en charge : {indicator}"
+
+#: process-api/processes/eo_sentinel_fetch.py:214
+#: process-api/processes/eo_sentinel_fetch.py:250
+#: process-api/processes/location_utils.py:135
+#: process-api/processes/location_utils.py:140
+#: process-api/processes/location_utils.py:143
+#: process-api/processes/location_utils.py:169
+#: process-api/processes/quebec_lidar_fetch.py:368
+#: process-api/processes/quebec_lidar_fetch.py:404
+msgid "Could not retrieve the farm geometry."
+msgstr "Impossible de récupérer la géométrie de la ferme."
+
+#: process-api/processes/eo_sentinel_fetch.py:227
+#: process-api/processes/location_utils.py:159
+#: process-api/processes/quebec_lidar_fetch.py:381
+#, python-brace-format
+msgid "Farm ID {farm_id} not found in database"
+msgstr "Identifiant de ferme {farm_id} introuvable dans la base de données"
+
+#: process-api/processes/eo_sentinel_fetch.py:242
+#: process-api/processes/quebec_lidar_fetch.py:396
+#, python-brace-format
+msgid "Invalid geometry data for farm ID {farm_id}"
+msgstr "Données de géométrie invalides pour la ferme {farm_id}"
+
+#: process-api/processes/eo_sentinel_fetch.py:348
+msgid "Failed to load Sentinel-2 data from OpenEO. Check server logs for details."
+msgstr ""
+"Échec du chargement des données Sentinel-2 depuis OpenEO. Consultez les "
+"journaux du serveur pour plus de détails."
+
+#: process-api/processes/eo_sentinel_fetch.py:462
+msgid "Failed to generate any output products"
+msgstr "Aucun produit de sortie n'a pu être généré"
+
+#: process-api/processes/eo_sentinel_fetch.py:507
+#, python-brace-format
+msgid ""
+"OpenEO authentication failed. The OPENEO_REFRESH_TOKEN env var token is "
+"expired or invalid, and the config file fallback also failed. "
+"{expiry_note} Please re-run: {script} to obtain a new token."
+msgstr ""
+"Échec de l'authentification OpenEO. Le jeton de la variable "
+"OPENEO_REFRESH_TOKEN est expiré ou invalide, et le recours au fichier de "
+"configuration a également échoué. {expiry_note} Veuillez réexécuter : "
+"{script} pour obtenir un nouveau jeton."
+
+#: process-api/processes/eo_sentinel_fetch.py:545
+#, python-brace-format
+msgid ""
+"OpenEO authentication failed. No valid refresh token found. Looked for "
+"refresh-tokens.json in OPENEO_CONFIG_HOME={config_home}. {expiry_note} "
+"Please run: {script} to set up authentication and copy the token to your "
+".env file."
+msgstr ""
+"Échec de l'authentification OpenEO. Aucun jeton de rafraîchissement "
+"valide trouvé. Recherche de refresh-tokens.json dans "
+"OPENEO_CONFIG_HOME={config_home}. {expiry_note} Veuillez exécuter : "
+"{script} pour configurer l'authentification et copier le jeton dans votre"
+" fichier .env."
+
+#: process-api/processes/eo_sentinel_fetch.py:635
+msgid "Could not connect to the openEO backend. Please try again later."
+msgstr ""
+"Impossible de se connecter au serveur openEO. Veuillez réessayer plus "
+"tard."
+
+#: process-api/processes/eo_sentinel_fetch.py:676
+#, python-brace-format
+msgid "Invalid aggregation method '{method}'. Must be one of: {methods}"
+msgstr "Méthode d'agrégation invalide « {method} ». Valeurs acceptées : {methods}"
+
+#: process-api/processes/eo_sentinel_fetch.py:738
+msgid "Could not convert the raster to Cloud Optimized GeoTIFF."
+msgstr "Impossible de convertir le raster en Cloud Optimized GeoTIFF."
+
+#: process-api/processes/eo_sentinel_fetch.py:1141
+#, python-brace-format
+msgid "'cloud_cover_max' must be between 0 and 100, got: {value}"
+msgstr "« cloud_cover_max » doit être compris entre 0 et 100, reçu : {value}"
+
+#: process-api/processes/eo_sentinel_fetch.py:1148
+#: process-api/processes/quebec_lidar_fetch.py:143
+msgid "Either 'farm_geometry' or 'farm_id' must be provided"
+msgstr "Vous devez fournir « farm_geometry » ou « farm_id »"
+
+#: process-api/processes/eo_sentinel_fetch.py:1152
+#: process-api/processes/quebec_lidar_fetch.py:147
+msgid "Provide only one of 'farm_geometry' or 'farm_id', not both"
+msgstr "Fournissez « farm_geometry » ou « farm_id », mais pas les deux"
+
+#: process-api/processes/eo_sentinel_fetch.py:1157
+#: process-api/processes/location_utils.py:123
+#: process-api/processes/quebec_lidar_fetch.py:151
+#, python-brace-format
+msgid "'farm_id' must be a positive integer, got: {value}"
+msgstr "« farm_id » doit être un entier positif, reçu : {value}"
+
+#: process-api/processes/eo_sentinel_fetch.py:1169
+#, python-brace-format
+msgid "Start date ({start}) must be before or equal to end date ({end})"
+msgstr ""
+"La date de début ({start}) doit être antérieure ou égale à la date de fin"
+" ({end})"
+
+#: process-api/processes/eo_sentinel_fetch.py:1175
+#, python-brace-format
+msgid "Invalid temporal extent format: {error}"
+msgstr "Format d'étendue temporelle invalide : {error}"
+
+#: process-api/processes/eo_sentinel_fetch.py:1203
+msgid ""
+"Invalid geometry provided. Geometry must be a valid Polygon or "
+"MultiPolygon."
+msgstr ""
+"Géométrie invalide. La géométrie doit être un Polygon ou un MultiPolygon "
+"valide."
+
+#: process-api/processes/eo_sentinel_fetch.py:1209
+msgid "Empty geometry provided. Geometry must contain coordinates."
+msgstr "Géométrie vide. La géométrie doit contenir des coordonnées."
+
+#: process-api/processes/eo_sentinel_fetch.py:1221
+#, python-brace-format
+msgid ""
+"Farm area ({area} km²) exceeds maximum allowed ({maximum} km²). Please "
+"use a smaller polygon or contact administrator for async processing."
+msgstr ""
+"La superficie de la ferme ({area} km²) dépasse le maximum autorisé "
+"({maximum} km²). Utilisez un polygone plus petit ou contactez "
+"l'administrateur pour un traitement asynchrone."
+
+#: process-api/processes/eo_sentinel_fetch.py:1306
+msgid "Invalid input parameters — check required fields and types."
+msgstr ""
+"Paramètres d'entrée invalides — vérifiez les champs obligatoires et leurs"
+" types."
+
+#: process-api/processes/eo_sentinel_fetch.py:1311
+msgid "Data validation error — check input values."
+msgstr "Erreur de validation des données — vérifiez les valeurs fournies."
+
+#: process-api/processes/eo_sentinel_fetch.py:1318
+msgid "Unexpected error processing Sentinel-2 data."
+msgstr "Erreur inattendue lors du traitement des données Sentinel-2."
+
+#: process-api/processes/location_utils.py:67
+#, python-brace-format
+msgid "Unsupported location type: {value}"
+msgstr "Type de localisation non pris en charge : {value}"
+
+#: process-api/processes/location_utils.py:89
+#, python-brace-format
+msgid "Invalid GeoJSON geometry: {error}"
+msgstr "Géométrie GeoJSON invalide : {error}"
+
+#: process-api/processes/location_utils.py:92
+msgid "GeoJSON geometry is invalid or empty"
+msgstr "La géométrie GeoJSON est invalide ou vide"
+
+#: process-api/processes/location_utils.py:117
+#, python-brace-format
+msgid "'farm_id' must be a valid integer, got: {value!r}"
+msgstr "« farm_id » doit être un entier valide, reçu : {value!r}"
+
+#: process-api/processes/quebec_lidar_fetch.py:160
+#, python-brace-format
+msgid "Unknown product(s): {products}. Valid values: {valid}"
+msgstr "Produit(s) inconnu(s) : {products}. Valeurs acceptées : {valid}"
+
+#: process-api/processes/quebec_lidar_fetch.py:191
+#, python-brace-format
+msgid "Farm area ({area} km²) exceeds maximum allowed ({maximum} km²)"
+msgstr ""
+"La superficie de la ferme ({area} km²) dépasse le maximum autorisé "
+"({maximum} km²)"
+
+#: process-api/processes/quebec_lidar_fetch.py:223
+#, python-brace-format
+msgid ""
+"No LiDAR tiles found for the supplied geometry (bbox={bbox}). The area "
+"may not be covered by MRNF LiDAR data."
+msgstr ""
+"Aucune tuile LiDAR trouvée pour la géométrie fournie (bbox={bbox}). Le "
+"secteur n'est peut-être pas couvert par les données LiDAR du MRNF."
+
+#: process-api/processes/quebec_lidar_fetch.py:234
+#, python-brace-format
+msgid ""
+"Cannot compute 'aspect': no DTM tiles found for the supplied geometry "
+"(bbox={bbox}). Aspect is derived from DTM."
+msgstr ""
+"Impossible de calculer l'orientation : aucune tuile MNT trouvée pour la "
+"géométrie fournie (bbox={bbox}). L'orientation est dérivée du MNT."
+
+#: process-api/processes/quebec_lidar_fetch.py:338
+msgid "Unexpected error processing LiDAR data."
+msgstr "Erreur inattendue lors du traitement des données LiDAR."
+
+#: process-api/processes/quebec_lidar_fetch.py:490
+msgid "Could not clip and convert the LiDAR raster to COG format."
+msgstr "Impossible de découper et de convertir le raster LiDAR au format COG."
+
+#: process-api/processes/quebec_lidar_fetch.py:522
+msgid "Could not compute the aspect raster from the terrain model."
+msgstr ""
+"Impossible de calculer le raster d'orientation à partir du modèle de "
+"terrain."
+
+#: process-api/processes/som_predict_soil.py:91
+msgid ""
+"No predictions were produced. Check that the requested field IDs have "
+"sufficient training data in the GEE feature Parquet files."
+msgstr ""
+"Aucune prédiction n'a été produite. Vérifiez que les parcelles demandées "
+"disposent de suffisamment de données d'entraînement dans les fichiers "
+"Parquet d'attributs GEE."
+
+#: process-api/processes/som_predict_soil.py:129
+msgid "'field_ids' is required and must contain at least one integer field ID."
+msgstr ""
+"« field_ids » est obligatoire et doit contenir au moins un identifiant de"
+" parcelle entier."
+
+#: process-api/processes/som_predict_soil.py:137
+#, python-brace-format
+msgid "'field_ids' must be a list of integers: {error}"
+msgstr "« field_ids » doit être une liste d'entiers : {error}"
+
+#: process-api/processes/som_predict_soil.py:149
+#, python-brace-format
+msgid "Unknown scenarios: {invalid}. Valid values: {valid}"
+msgstr "Scénarios inconnus : {invalid}. Valeurs acceptées : {valid}"
+
+#: process-api/processes/som_predict_soil.py:176
+msgid ""
+"No GEE feature Parquet files found. Run the gis-pipeline to ingest the "
+"BareSoil_TOPCLI_*.csv files first."
+msgstr ""
+"Aucun fichier Parquet d'attributs GEE trouvé. Exécutez d'abord gis-"
+"pipeline pour ingérer les fichiers BareSoil_TOPCLI_*.csv."
+
+#: process-api/processes/som_predict_soil.py:202
+msgid "Could not read the GEE feature data."
+msgstr "Impossible de lire les données de caractéristiques GEE."
+
+#: process-api/processes/som_predict_soil.py:208
+msgid ""
+"GEE feature Parquet files are empty. Run the gis-pipeline to ingest the "
+"BareSoil_TOPCLI_*.csv files."
+msgstr ""
+"Les fichiers Parquet d'attributs GEE sont vides. Exécutez gis-pipeline "
+"pour ingérer les fichiers BareSoil_TOPCLI_*.csv."
+
+#: process-api/processes/som_predict_soil.py:218
+#, python-brace-format
+msgid ""
+"No feature data found for field IDs {field_ids} in the GEE feature "
+"Parquet files."
+msgstr ""
+"Aucune donnée trouvée pour les parcelles {field_ids} dans les fichiers "
+"Parquet d'attributs GEE."
+
+#: process-api/processes/climate_backend/cmip_backend.py:101
+msgid ""
+"The climate dataset registry is unavailable. Please contact the service "
+"administrator."
+msgstr ""
+"Le registre des jeux de données climatiques est indisponible. Veuillez "
+"contacter l'administrateur du service."
+
+#: process-api/processes/climate_backend/cmip_backend.py:114
+#: process-api/processes/climate_backend/cmip_backend.py:124
+msgid ""
+"The climate dataset registry could not be read. Please contact the "
+"service administrator."
+msgstr ""
+"Le registre des jeux de données climatiques n'a pas pu être lu. Veuillez "
+"contacter l'administrateur du service."
+
+#: process-api/processes/climate_backend/cmip_backend.py:245
+#: process-api/processes/weather_backend/pavics_backend.py:295
+#, python-brace-format
+msgid "Unknown dataset {dataset!r}. Available datasets: {available}"
+msgstr ""
+"Jeu de données inconnu {dataset!r}. Jeux de données disponibles : "
+"{available}"
+
+#: process-api/processes/climate_backend/cmip_backend.py:271
+#, python-brace-format
+msgid "Unknown model {model!r}. Available models: {available}"
+msgstr "Modèle inconnu {model!r}. Modèles disponibles : {available}"
+
+#: process-api/processes/climate_backend/cmip_backend.py:284
+#, python-brace-format
+msgid ""
+"Scenario {scenario!r} is not available for model {model!r}. Supported: "
+"{supported}"
+msgstr ""
+"Le scénario {scenario!r} n'est pas disponible pour le modèle {model!r}. "
+"Scénarios pris en charge : {supported}"
+
+#: process-api/processes/climate_backend/cmip_backend.py:336
+#: process-api/processes/weather_backend/pavics_backend.py:329
+#, python-brace-format
+msgid ""
+"Variable {variable!r} is not available in dataset {dataset!r}. Available:"
+" {available}"
+msgstr ""
+"La variable {variable!r} n'est pas disponible dans le jeu de données "
+"{dataset!r}. Variables disponibles : {available}"
+
+#: process-api/processes/climate_backend/cmip_backend.py:376
+#: process-api/processes/weather_backend/pavics_backend.py:370
+#, python-brace-format
+msgid ""
+"Could not read the metadata of the dataset at {url}. The remote data "
+"server returned an unreadable response."
+msgstr ""
+"Impossible de lire les métadonnées du jeu de données à {url}. Le serveur "
+"de données distant a renvoyé une réponse illisible."
+
+#: process-api/processes/climate_backend/cmip_backend.py:389
+#: process-api/processes/weather_backend/pavics_backend.py:383
+#, python-brace-format
+msgid ""
+"Failed to open OPeNDAP dataset at {url}. The remote data server may be "
+"unavailable — please try again later."
+msgstr ""
+"Impossible d'ouvrir le jeu de données OPeNDAP à {url}. Le serveur de "
+"données distant est peut-être indisponible — veuillez réessayer plus "
+"tard."
+
+#: process-api/processes/climate_backend/cmip_backend.py:401
+#: process-api/processes/weather_backend/pavics_backend.py:395
+msgid "An unexpected error occurred while opening the dataset."
+msgstr ""
+"Une erreur inattendue s'est produite lors de l'ouverture du jeu de "
+"données."
+
+#: process-api/processes/climate_backend/cmip_backend.py:408
+#: process-api/processes/weather_backend/pavics_backend.py:402
+#, python-brace-format
+msgid "Variables {missing} not found in dataset. Available: {available}"
+msgstr ""
+"Variables {missing} introuvables dans le jeu de données. Variables "
+"disponibles : {available}"
+
+#: process-api/processes/climate_backend/cmip_backend.py:438
+#: process-api/processes/climate_backend/cmip_backend.py:486
+#, python-brace-format
+msgid ""
+"No data found within bbox {bbox} — check that the bbox intersects the "
+"dataset domain."
+msgstr ""
+"Aucune donnée trouvée dans l'emprise {bbox} — vérifiez que l'emprise "
+"recoupe le domaine du jeu de données."
+
+#: process-api/processes/climate_backend/cmip_backend.py:499
+#: process-api/processes/weather_backend/pavics_backend.py:532
+msgid ""
+"Polygon clipping is not available on this server. Use a bounding box "
+"instead, or contact the service administrator."
+msgstr ""
+"Le découpage par polygone n'est pas disponible sur ce serveur. Utilisez "
+"plutôt une emprise rectangulaire, ou contactez l'administrateur du "
+"service."
+
+#: process-api/processes/climate_backend/cmip_backend.py:514
+#: process-api/processes/weather_backend/pavics_backend.py:547
+msgid ""
+"The polygon spatial clip failed. Check that the polygon is valid and "
+"overlaps the dataset domain."
+msgstr ""
+"Le découpage spatial par polygone a échoué. Vérifiez que le polygone est "
+"valide et qu'il recoupe l'emprise du jeu de données."
+
+#: process-api/processes/climate_backend/models.py:110
+#: process-api/processes/climate_backend/models.py:211
+#: process-api/processes/weather_backend/models.py:54
+#: process-api/processes/weather_backend/msc_backend.py:102
+#, python-brace-format
+msgid "Invalid date format (expected YYYY-MM-DD): {value!r}"
+msgstr "Format de date invalide (AAAA-MM-JJ attendu) : {value!r}"
+
+#: process-api/processes/climate_backend/models.py:124
+#: process-api/processes/climate_backend/models.py:225
+#: process-api/processes/weather_backend/models.py:78
+#: process-api/processes/weather_backend/msc_backend.py:117
+#, python-brace-format
+msgid "'start_date' ({start}) must be <= 'end_date' ({end})"
+msgstr "« start_date » ({start}) doit être <= « end_date » ({end})"
+
+#: process-api/processes/climate_backend/models.py:236
+msgid "'scenario' is required when using a CMIP6 dataset"
+msgstr "« scenario » est requis avec un jeu de données CMIP6"
+
+#: process-api/processes/climate_backend/models.py:240
+msgid "'model' is required when using a CMIP6 dataset"
+msgstr "« model » est requis avec un jeu de données CMIP6"
+
+#: process-api/processes/weather_backend/models.py:65
+msgid "'dataset' must be a non-empty string"
+msgstr "« dataset » doit être une chaîne non vide"
+
+#: process-api/processes/weather_backend/msc_backend.py:131
+#, python-brace-format
+msgid ""
+"Variable(s) {invalid} not available for collection {collection!r}. "
+"Available: {available}"
+msgstr ""
+"Variable(s) {invalid} non disponible(s) pour la collection {collection!r}. "
+"Variables disponibles : {available}"
+
+#: process-api/processes/weather_backend/msc_backend.py:324
+#, python-brace-format
+msgid "Unknown MSC collection {collection!r}. Available: {available}"
+msgstr ""
+"Collection MSC inconnue {collection!r}. Collections disponibles : "
+"{available}"
+
+#: process-api/processes/weather_backend/msc_backend.py:391
+#, python-brace-format
+msgid ""
+"The MSC GeoMet API request timed out for collection {collection!r}. "
+"Please try again later."
+msgstr ""
+"La requête à l'API MSC GeoMet a expiré pour la collection {collection!r}."
+" Veuillez réessayer plus tard."
+
+#: process-api/processes/weather_backend/msc_backend.py:404
+#, python-brace-format
+msgid ""
+"The MSC GeoMet API returned HTTP error {status} for collection "
+"{collection!r}."
+msgstr ""
+"L'API MSC GeoMet a renvoyé l'erreur HTTP {status} pour la collection "
+"{collection!r}."
+
+#: process-api/processes/weather_backend/msc_backend.py:417
+#, python-brace-format
+msgid ""
+"The MSC GeoMet API request failed for collection {collection!r}. Please "
+"try again later."
+msgstr ""
+"La requête à l'API MSC GeoMet a échoué pour la collection {collection!r}."
+" Veuillez réessayer plus tard."
+
+#: process-api/processes/weather_backend/msc_backend.py:596
+#, python-brace-format
+msgid ""
+"No data found in MSC collection {collection!r} for bbox {bbox} and period"
+" {start_date}/{end_date}. Possible causes: no active stations in this "
+"area for the requested period (climate-daily stations may have closed — "
+"try an earlier date range or switch to 'swob-realtime' for near real-time"
+" data within the last 30 days), or the area is outside MSC coverage "
+"(Canada only)."
+msgstr ""
+"Aucune donnée trouvée dans la collection MSC {collection!r} pour "
+"l'emprise {bbox} et la période {start_date}/{end_date}. Causes possibles "
+": aucune station active dans ce secteur pour la période demandée (des "
+"stations climate-daily ont pu fermer — essayez une période antérieure ou "
+"utilisez « swob-realtime » pour des données quasi temps réel des 30 "
+"derniers jours), ou le secteur est hors de la couverture MSC (Canada "
+"seulement)."
+
+#: process-api/processes/weather_backend/pavics_backend.py:133
+msgid ""
+"The weather dataset registry is unavailable. Please contact the service "
+"administrator."
+msgstr ""
+"Le registre des jeux de données météorologiques est indisponible. "
+"Veuillez contacter l'administrateur du service."
+
+#: process-api/processes/weather_backend/pavics_backend.py:146
+#: process-api/processes/weather_backend/pavics_backend.py:156
+msgid ""
+"The weather dataset registry could not be read. Please contact the "
+"service administrator."
+msgstr ""
+"Le registre des jeux de données météorologiques n'a pas pu être lu. "
+"Veuillez contacter l'administrateur du service."
+
+#: process-api/processes/weather_backend/pavics_backend.py:454
+#, python-brace-format
+msgid "No grid points found within bbox {bbox} for rotated-pole dataset"
+msgstr ""
+"Aucun point de grille trouvé dans l'emprise {bbox} pour ce jeu de données"
+" à pôle tourné"
+
+#: process-api/processes/weather_backend/pavics_backend.py:518
+#, python-brace-format
+msgid ""
+"No grid points found within bbox {bbox} — the area may be smaller than "
+"the dataset's grid resolution. Try a larger bbox."
+msgstr ""
+"Aucun point de grille trouvé dans l'emprise {bbox} — le secteur est peut-"
+"être plus petit que la résolution de la grille. Essayez une emprise plus "
+"grande."
+
+#: process-api/processes/weather_backend/pavics_backend.py:706
+#, python-brace-format
+msgid ""
+"Requested end_date {end_date!r} exceeds the available data range for "
+"dataset {dataset!r} (max: {range_end!r}). For ERA5-Land, data is "
+"available up to approximately 90 days before today."
+msgstr ""
+"La date de fin demandée {end_date!r} dépasse la plage de données "
+"disponible pour le jeu de données {dataset!r} (max : {range_end!r}). Pour"
+" ERA5-Land, les données sont disponibles jusqu'à environ 90 jours avant "
+"aujourd'hui."
+
+#: vector-api/src/parquet_router.py:56
+msgid ""
+"Invalid collection ID. Only alphanumeric characters, underscores, and "
+"hyphens are allowed."
+msgstr ""
+"Identifiant de collection invalide. Seuls les caractères alphanumériques, "
+"les traits de soulignement et les traits d’union sont autorisés."
+
+#: vector-api/src/parquet_router.py:65 vector-api/src/parquet_router.py:99
+msgid ""
+"Parquet service unavailable: DuckDB spatial extension could not be "
+"loaded. Please check server configuration."
+msgstr ""
+"Service Parquet indisponible : l’extension spatiale DuckDB n’a pas pu être "
+"chargée. Veuillez vérifier la configuration du serveur."
+
+#: vector-api/src/parquet_router.py:73
+#, python-brace-format
+msgid "Collection not found: {collection}"
+msgstr "Collection introuvable : {collection}"
+
+#: vector-api/src/parquet_router.py:215 vector-api/src/parquet_router.py:276
+#: vector-api/src/parquet_router.py:394 vector-api/src/parquet_router.py:452
+#: vector-api/src/parquet_router.py:520
+msgid "Internal server error"
+msgstr "Erreur interne du serveur"
+
+#: vector-api/src/parquet_router.py:326
+#, python-brace-format
+msgid "Invalid bbox format. Expected minx,miny,maxx,maxy: {error}"
+msgstr "Format bbox invalide. Attendu minx,miny,maxx,maxy : {error}"
+
+#: vector-api/src/parquet_router.py:427
+#, python-brace-format
+msgid "Item not found: {item} in collection {collection}"
+msgstr "Entité introuvable : {item} dans la collection {collection}"
+
+#: vector-api/src/pedo_router.py:40 vector-api/src/som_router.py:42
+#: vector-api/src/water_router.py:44
+msgid "'geometry' field is required"
+msgstr "Le champ « geometry » est requis"
+
+#: vector-api/src/pedo_router.py:48 vector-api/src/som_router.py:50
+#: vector-api/src/water_router.py:52
+#, python-brace-format
+msgid "Invalid geometry: {error}"
+msgstr "Géométrie invalide : {error}"
+
+#: vector-api/src/pedo_router.py:74 vector-api/src/som_router.py:91
+#: vector-api/src/water_router.py:85
+msgid "Internal database error"
+msgstr "Erreur interne de la base de données"
+

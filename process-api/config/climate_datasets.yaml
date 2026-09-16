@@ -1,0 +1,179 @@
+# Climate dataset registry for the climate-timeseries and climate-indicators OGC processes.
+#
+# All entries verified against the live PAVICS THREDDS catalog:
+#   https://pavics.ouranos.ca/twitcher/ows/proxy/thredds/catalog/datasets/simulations/
+#   bias_adjusted/cmip6/ouranos/ESPO-G/ESPO-G6-R2v1.0.0/catalog.html
+#
+# The full OPeNDAP URL is constructed as:
+#   {CLIMATE_PAVICS_TDS_BASE_URL}/dodsC/{catalog_path}/{filename}
+#
+# Filename template (applied per model+scenario):
+#   day_ESPO-G6-R2_v1.0.0_CMIP6_ScenarioMIP_NAM_{institution}_{model}_{scenario}_{member_id}_{date_range}.ncml
+#
+# Default base URL: https://pavics.ouranos.ca/twitcher/ows/proxy/thredds
+# Override with env var: CLIMATE_PAVICS_TDS_BASE_URL
+#
+# Unit conversion per variable (applied by the backend before returning results):
+#   output_value = raw_value * scale_factor + add_offset
+#
+# CMIP6 NetCDF files store temperatures in Kelvin and precipitation in kg m-2 s-1.
+# Conversions used below:
+#   temperatures: add_offset = -273.15  →  degC = K - 273.15
+#   precipitation: scale_factor = 86400.0  →  mm/day = kg m-2 s-1 × 86400
+#
+# standard_name values follow the CF Conventions standard name table:
+#   https://cfconventions.org/Data/cf-standard-names/current/build/cf-standard-name-table.html
+# ---------------------------------------------------------------------------
+
+cmip6_espo_g6_r2:
+  title: "ESPO-G6-R2 v1.0.0 Bias-Adjusted CMIP6 Projections (PAVICS)"
+  description: >
+    Ouranos ESPO-G6-R2 v1.0.0 — bias-adjusted daily CMIP6 projections for
+    North America. 26 models across 3 scenarios (ssp245, ssp370, ssp585),
+    1950-01-01 to 2100-12-31. Bias-adjusted against ERA5-Land at ~0.1° resolution.
+    Note: 'tas' (mean temperature) is not available; use tasmin/tasmax instead.
+    EC-Earth3-CC and NESM3 do not provide ssp370.
+  provider: "pavics"
+  catalog_path: "datasets/simulations/bias_adjusted/cmip6/ouranos/ESPO-G/ESPO-G6-R2v1.0.0"
+  filename_template: "day_ESPO-G6-R2_v1.0.0_CMIP6_ScenarioMIP_NAM_{institution}_{model}_{scenario}_{member_id}_{date_range}.ncml"
+  rotated_pole: true
+  lat_dim: "rlat"
+  lon_dim: "rlon"
+  lat_2d_coord: "lat"
+  lon_2d_coord: "lon"
+  time_dim: "time"
+  valid_time_range:
+    start: "1950-01-01"
+    end: "2100-12-31"
+  supported_scenarios: ["ssp245", "ssp370", "ssp585"]
+  variables:
+    tasmin:
+      netcdf_name: "tasmin"
+      native_units: "K"
+      output_units: "degC"
+      add_offset: -273.15
+      long_name: "Daily minimum near-surface air temperature"
+      standard_name: "air_temperature"
+    tasmax:
+      netcdf_name: "tasmax"
+      native_units: "K"
+      output_units: "degC"
+      add_offset: -273.15
+      long_name: "Daily maximum near-surface air temperature"
+      standard_name: "air_temperature"
+    pr:
+      netcdf_name: "pr"
+      native_units: "kg m-2 s-1"
+      output_units: "mm/day"
+      scale_factor: 86400.0
+      long_name: "Precipitation"
+      standard_name: "precipitation_flux"
+  # Per-model metadata: institution, CMIP6 member_id, date range, optional scenario override
+  # Models that do not support all three scenarios have a supported_scenarios list.
+  models:
+    TaiESM1:
+      institution: "AS-RCEC"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    BCC-CSM2-MR:
+      institution: "BCC"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    FGOALS-g3:
+      institution: "CAS"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    CanESM5:
+      institution: "CCCma"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    CMCC-ESM2:
+      institution: "CMCC"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    CNRM-CM6-1:
+      institution: "CNRM-CERFACS"
+      member_id: "r1i1p1f2"
+      date_range: "19500101-21001231"
+    CNRM-ESM2-1:
+      institution: "CNRM-CERFACS"
+      member_id: "r1i1p1f2"
+      date_range: "19500101-21001231"
+    ACCESS-CM2:
+      institution: "CSIRO-ARCCSS"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    ACCESS-ESM1-5:
+      institution: "CSIRO"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    EC-Earth3-CC:
+      institution: "EC-Earth-Consortium"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+      supported_scenarios: ["ssp245", "ssp585"]
+    EC-Earth3-Veg:
+      institution: "EC-Earth-Consortium"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    EC-Earth3:
+      institution: "EC-Earth-Consortium"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    INM-CM4-8:
+      institution: "INM"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    INM-CM5-0:
+      institution: "INM"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    IPSL-CM6A-LR:
+      institution: "IPSL"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    MIROC-ES2L:
+      institution: "MIROC"
+      member_id: "r1i1p1f2"
+      date_range: "19500101-21001231"
+    MIROC6:
+      institution: "MIROC"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    UKESM1-0-LL:
+      institution: "MOHC"
+      member_id: "r1i1p1f2"
+      date_range: "19500101-21001230"
+    MPI-ESM1-2-HR:
+      institution: "MPI-M"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    MPI-ESM1-2-LR:
+      institution: "MPI-M"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    MRI-ESM2-0:
+      institution: "MRI"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    NorESM2-LM:
+      institution: "NCC"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    NorESM2-MM:
+      institution: "NCC"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    KACE-1-0-G:
+      institution: "NIMS-KMA"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001230"
+    GFDL-ESM4:
+      institution: "NOAA-GFDL"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+    NESM3:
+      institution: "NUIST"
+      member_id: "r1i1p1f1"
+      date_range: "19500101-21001231"
+      supported_scenarios: ["ssp245", "ssp585"]

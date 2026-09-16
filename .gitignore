@@ -176,13 +176,53 @@ cython_debug/
 # Local configuration files
 *.bak
 
-# Local data files
-data/duckdb/
+# Windows/WSL download metadata
+*:Zone.Identifier
+
+# Local data files — bind-mount dirs keep a tracked .gitkeep so fresh clones
+# have them user-owned (Docker creates missing bind-mount sources as root,
+# which breaks writes from the non-root containers)
 data/rasters/
 data/tmp/
 data/pg/
-data/input/
-data/output/
+data/SOM/
+data/input/*
+!data/input/.gitkeep
+data/duckdb/*
+!data/duckdb/.gitkeep
+!data/duckdb/duckdb_extensions/
+data/duckdb/duckdb_extensions/*
+!data/duckdb/duckdb_extensions/.gitkeep
+data/output/*
+!data/output/raster_cog/
+data/output/raster_cog/*
+!data/output/raster_cog/.gitkeep
+docs/data/formation_output/
+data/demo/*
+!data/demo/bdppad/
+
+# OpenEO authentication tokens (sensitive)
+process-api/config/openeo-config/refresh-tokens.json
 
 # Log files
-stac-fastapi/pipeline/logs/
+gis-pipeline/logs/
+
+# Custom processes
+pygeoapi/processes/hamed_functions/
+pygeoapi/config/openeo-config/refresh-tokens.json
+process-api/processes/hamed_functions/
+
+# AI development tools
+.claude/
+.github/prompts/
+.github/skills/
+.cursor/
+openspec/
+docs/superpowers/
+.superpowers/
+
+# Frontend development
+frontend/veda-ui/
+
+# Git worktrees (used by superpowers agentic workflows)
+.worktrees/
