@@ -35,6 +35,7 @@ from .climate_backend.models import ClimateIndicatorsProperties, GeoJSONGeometry
 from .climate_indicators_metadata import PROCESS_METADATA
 from .location_utils import resolve_location
 from .weather_backend import PAVICSBackend, WeatherTimeseriesFeature
+from agri_i18n import _
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,9 @@ class ClimateIndicatorsProcessor(BaseProcessor):
             logger.error(
                 "Unexpected error in ClimateIndicatorsProcessor: %s", exc, exc_info=True
             )
-            raise ProcessorExecuteError(f"Unexpected error: {exc}") from exc
+            raise ProcessorExecuteError(
+                _("An unexpected error occurred while running this process.")
+            ) from exc
 
     def __repr__(self) -> str:
         return f"<ClimateIndicatorsProcessor> {self.name}"
@@ -103,7 +106,9 @@ class ClimateIndicatorsProcessor(BaseProcessor):
                 f"{' -> '.join(str(loc) for loc in e['loc'])}: {e['msg']}"
                 for e in exc.errors()
             )
-            raise ProcessorExecuteError(f"Invalid inputs: {errors}") from exc
+            raise ProcessorExecuteError(
+                _("Invalid inputs: {errors}").format(errors=errors)
+            ) from exc
 
     # Map each indicator to the variables it requires from the backend.
     _INDICATOR_VARIABLES: Dict[Indicator, List[str]] = {
@@ -154,7 +159,9 @@ class ClimateIndicatorsProcessor(BaseProcessor):
         required_vars = self._INDICATOR_VARIABLES.get(validated.indicator)
         if required_vars is None:
             raise ProcessorExecuteError(
-                f"Unsupported indicator: {validated.indicator!r}"
+                _("Unsupported indicator: {indicator}").format(
+                    indicator=validated.indicator.value
+                )
             )
 
         raw = self._fetch_raw(validated, required_vars, bbox, polygon_geojson)
@@ -223,7 +230,9 @@ class ClimateIndicatorsProcessor(BaseProcessor):
 
         else:
             raise ProcessorExecuteError(
-                f"Unsupported indicator: {validated.indicator!r}"
+                _("Unsupported indicator: {indicator}").format(
+                    indicator=validated.indicator.value
+                )
             )
 
         properties = ClimateIndicatorsProperties(

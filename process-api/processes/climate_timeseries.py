@@ -21,6 +21,7 @@ from .climate_backend import (
 )
 from .climate_timeseries_metadata import PROCESS_METADATA
 from .location_utils import resolve_location
+from agri_i18n import _
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,9 @@ class ClimateTimeseriesProcessor(BaseProcessor):
             logger.error(
                 "Unexpected error in ClimateTimeseriesProcessor: %s", exc, exc_info=True
             )
-            raise ProcessorExecuteError(f"Unexpected error: {exc}") from exc
+            raise ProcessorExecuteError(
+                _("An unexpected error occurred while running this process.")
+            ) from exc
 
     def __repr__(self) -> str:
         return f"<ClimateTimeseriesProcessor> {self.name}"
@@ -107,4 +110,6 @@ class ClimateTimeseriesProcessor(BaseProcessor):
                 f"{' -> '.join(str(loc) for loc in e['loc'])}: {e['msg']}"
                 for e in exc.errors()
             )
-            raise ProcessorExecuteError(f"Invalid inputs: {errors}") from exc
+            raise ProcessorExecuteError(
+                _("Invalid inputs: {errors}").format(errors=errors)
+            ) from exc
