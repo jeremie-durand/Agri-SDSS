@@ -44,7 +44,7 @@ curl https://<host>/raster-api/collections
 curl "https://<host>/raster-api/cog/info?url=file:///data/<name>.tif"
 
 # Get a tile — note the tile matrix set segment, which is required
-curl "https://<host>/raster-api/cog/tiles/WebMercatorQuad/12/1235/1464.png?url=file:///data/<name>.tif"
+curl "https://<host>/raster-api/cog/tiles/WebMercatorQuad/12/1235/1464.png?url=file:///data/<name>.tif&bidx=1"
 ```
 
 ### Vector API

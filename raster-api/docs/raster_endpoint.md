@@ -44,7 +44,7 @@ Returns metadata of COG file
 Example:
 
 ```bash
-curl -k "https://localhost/raster-api/cog/info?url=file:///data/DEMO.tif"
+curl -k "https://localhost/raster-api/cog/info?url=file:///data/corg_fr_siigsol_cog.tif"
 ```
 
 Response: Metadata of DEMO.tif COG file

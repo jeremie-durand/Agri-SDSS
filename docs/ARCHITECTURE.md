@@ -116,7 +116,7 @@ curl "https://<host>/vector-api/postgis/collections/{collectionId}/items?bbox=-7
 
 # Raster API — COG metadata and tiles (TiTiler)
 curl "https://<host>/raster-api/cog/info?url=<COG_URL>"
-curl "https://<host>/raster-api/cog/tiles/{z}/{x}/{y}.png?url=<COG_URL>"
+curl "https://<host>/raster-api/cog/tiles/{tileMatrixSetId}/{z}/{x}/{y}.png?url=<COG_URL>&bidx=1"
 
 # OGC Processes — list and inspect processes
 curl https://<host>/process-api/processes

@@ -36,8 +36,11 @@ Each soil property is a separate COG in `data/output/raster_cog/`:
 | `cec_fr_siigsol_cog.tif` | Cation Exchange Capacity | cmol/kg | 0-50 |
 
 **Band layout caveat**: each COG carries a float32 alpha band as its last band and no
-declared nodata value. For statistics or point queries via TiTiler, always pass
-`indexes=1` and `nodata=nan` — otherwise the alpha band skews the results.
+declared nodata value. For statistics, tiles or point queries via TiTiler, always pass
+`bidx=1` and `nodata=nan` — otherwise the alpha band skews the results, and a tile
+request fails outright because PNG cannot encode all six bands. Note the parameter is
+`bidx`; `indexes` is accepted but silently ignored by this TiTiler version, so a request
+using it returns 200 while reporting every band.
 
 ## Using SIIGSOL Data
 
@@ -51,11 +54,11 @@ certificate is self-signed.
 # COG metadata (bounds, bands, CRS)
 curl "https://<host>/raster-api/cog/info?url=/data/ph_fr_siigsol_cog.tif"
 
-# Band statistics — indexes=1 and nodata=nan required (alpha band)
-curl "https://<host>/raster-api/cog/statistics?url=/data/ph_fr_siigsol_cog.tif&indexes=1&nodata=nan"
+# Band statistics — bidx=1 and nodata=nan required (alpha band)
+curl "https://<host>/raster-api/cog/statistics?url=/data/ph_fr_siigsol_cog.tif&bidx=1&nodata=nan"
 
 # PNG tile (organic carbon, rescaled for display)
-curl "https://<host>/raster-api/cog/tiles/10/302/368.png?url=/data/corg_fr_siigsol_cog.tif&indexes=1&nodata=nan&rescale=0,15"
+curl "https://<host>/raster-api/cog/tiles/WebMercatorQuad/10/302/368.png?url=/data/corg_fr_siigsol_cog.tif&bidx=1&nodata=nan&rescale=0,15"
 ```
 
 ## Metadata

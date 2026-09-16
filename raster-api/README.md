@@ -18,7 +18,7 @@ docker compose up -d raster-api
 | --- | --- |
 | `GET /cog/info` | COG metadata (bounds, bands, CRS) |
 | `GET /cog/viewer` | In-browser COG viewer |
-| `GET /cog/tiles/{z}/{x}/{y}` | Slippy map tiles (XYZ) |
+| `GET /cog/tiles/{tileMatrixSetId}/{z}/{x}/{y}` | Slippy map tiles (XYZ) |
 | `GET /cog/preview` | Thumbnail image |
 | `GET /cog/statistics` | Band statistics |
 | `GET /wcs` | OGC WCS 2.0.1 |

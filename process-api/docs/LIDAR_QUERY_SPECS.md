@@ -179,7 +179,7 @@ LiDAR COGs are registered as STAC assets and can be served as map tiles or inspe
 
 ```bash
 # Tile endpoint (use in Leaflet/MapLibre as XYZ source)
-https://<host>/raster-api/cog/tiles/{z}/{x}/{y}?url=<cog_asset_href>
+https://<host>/raster-api/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=<cog_asset_href>
 
 # File info (band count, CRS, nodata, bounds)
 curl "https://<host>/raster-api/cog/info?url=<cog_asset_href>"
