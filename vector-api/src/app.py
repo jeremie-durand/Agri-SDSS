@@ -10,7 +10,6 @@ through a unified API with consistent namespace prefixes.
 
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager
 
 from agri_i18n.middleware import LocaleASGIMiddleware
@@ -25,6 +24,7 @@ from tipg.settings import CustomSQLSettings, DatabaseSettings
 
 from .config import (
     API_DESCRIPTION,
+    EXTERNAL_ROOT,
     API_TITLE,
     API_VERSION,
     CORS_ALLOW_CREDENTIALS,
@@ -48,11 +48,27 @@ class MountRootPathMiddleware:
         Create a fresh scope dict (avoiding upstream mutation) and force both
         root_path and app_root_path to the mount prefix so request.base_url
         returns the correct value regardless of Starlette version.
+
+        The external proxy prefix is applied to the response body rather than
+        the scope. Widening root_path to include it makes the sub-app fail to
+        resolve its own routes (verified: /postgis/* returns 404), so the
+        prefix is inserted into emitted hrefs after routing has happened.
     """
 
-    def __init__(self, app: FastAPI, root_path: str) -> None:
+    def __init__(self, app: FastAPI, root_path: str, external_root: str = "") -> None:
         self.app = app
         self.root_path = root_path
+        self.external_root = external_root
+
+    @staticmethod
+    def _origin(scope) -> str:
+        """Public origin of the request, as the sub-app will emit it."""
+        headers = {k.lower(): v for k, v in scope.get("headers", [])}
+        host = headers.get(b"host", b"").decode() or "localhost"
+        proto = headers.get(b"x-forwarded-proto", b"").decode() or scope.get(
+            "scheme", "http"
+        )
+        return f"{proto}://{host}"
 
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] in ("http", "websocket"):
@@ -61,7 +77,37 @@ class MountRootPathMiddleware:
                 "root_path": self.root_path,
                 "app_root_path": self.root_path,
             }
-        await self.app(scope, receive, send)
+        if not self.external_root:
+            await self.app(scope, receive, send)
+            return
+        origin = self._origin(scope)
+        needle = f"{origin}{self.root_path}".encode()
+        replacement = f"{origin}{self.external_root}{self.root_path}".encode()
+        await self.app(scope, receive, self._rewriting_send(send, needle, replacement))
+
+    def _rewriting_send(self, send, needle: bytes, replacement: bytes):
+        """Wrap send so hrefs in JSON bodies carry the proxy prefix."""
+        state = {"rewrite": False}
+
+        async def wrapped(message):
+            if message["type"] == "http.response.start":
+                headers = [
+                    (k, v)
+                    for k, v in message.get("headers", [])
+                    if k.lower() != b"content-length"
+                ]
+                state["rewrite"] = any(
+                    k.lower() == b"content-type" and b"json" in v.lower()
+                    for k, v in headers
+                )
+                message = {**message, "headers": headers}
+            elif message["type"] == "http.response.body" and state["rewrite"]:
+                body = message.get("body", b"")
+                if body:
+                    message = {**message, "body": body.replace(needle, replacement)}
+            await send(message)
+
+        return wrapped
 
 
 # Configure logging
@@ -70,11 +116,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-# External path prefix used by the reverse proxy (e.g. /vector-api).
-# Used only for URL generation in docs and self-links — NOT passed to uvicorn
-# as --root-path, which would break Starlette's sub-app mount resolution.
-_EXTERNAL_ROOT = os.getenv("APP_ROOT_PATH", "").rstrip("/")
 
 db_settings = DatabaseSettings()
 custom_sql_settings = CustomSQLSettings()
@@ -149,7 +190,10 @@ app.add_middleware(
 )
 
 # Mount TiPg under /postgis prefix, wrapped so request.base_url includes the prefix.
-app.mount(POSTGIS_PREFIX, MountRootPathMiddleware(tipg_app, POSTGIS_PREFIX))
+app.mount(
+    POSTGIS_PREFIX,
+    MountRootPathMiddleware(tipg_app, POSTGIS_PREFIX, EXTERNAL_ROOT),
+)
 
 # Include the Parquet router
 app.include_router(parquet_router)
@@ -219,7 +263,7 @@ async def parquet_openapi_spec():
         version=API_VERSION,
         description=ENDPOINTS["parquet"]["long_description"],
         routes=parquet_routes,
-        servers=[{"url": _EXTERNAL_ROOT}] if _EXTERNAL_ROOT else None,
+        servers=[{"url": EXTERNAL_ROOT}] if EXTERNAL_ROOT else None,
     )
 
 
@@ -227,7 +271,7 @@ async def parquet_openapi_spec():
 async def parquet_swagger_ui():
     """Swagger UI for the Parquet Collections API."""
     return get_swagger_ui_html(
-        openapi_url=f"{_EXTERNAL_ROOT}/parquet/openapi.json",
+        openapi_url=f"{EXTERNAL_ROOT}/parquet/openapi.json",
         title=ENDPOINTS["parquet"]["title"],
     )
 

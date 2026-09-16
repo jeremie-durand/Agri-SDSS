@@ -12,7 +12,7 @@ from agri_i18n import _
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from .config import PARQUET_COLLECTIONS, PARQUET_PREFIX
+from .config import PARQUET_COLLECTIONS, PARQUET_PREFIX, external_base_url
 from .duckdb_manager import (
     ColumnInfo,
     DuckDBManager,
@@ -112,7 +112,7 @@ def build_links(request: Request, collection_id: Optional[str] = None) -> List[D
     Returns:
         List of link dictionaries.
     """
-    base_url = str(request.base_url).rstrip("/")
+    base_url = external_base_url(request)
     links = []
 
     if collection_id:
@@ -339,7 +339,7 @@ async def get_items(
             bbox=bbox_tuple,
         )
 
-        base_url = str(request.base_url).rstrip("/")
+        base_url = external_base_url(request)
 
         # Build query params string preserving bbox filter
         query_params = f"limit={limit}"
@@ -428,7 +428,7 @@ async def get_item(
                 ).format(item=item_id, collection=collection_id),
             )
 
-        base_url = str(request.base_url).rstrip("/")
+        base_url = external_base_url(request)
         feature["links"] = [
             {
                 "href": f"{base_url}/parquet/collections/{collection_id}/items/{item_id}",
@@ -502,7 +502,7 @@ async def get_queryables(request: Request, collection_id: str) -> Dict[str, Any]
 
                 properties[col["name"]] = {"type": json_type}
 
-        base_url = str(request.base_url).rstrip("/")
+        base_url = external_base_url(request)
 
         return {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
