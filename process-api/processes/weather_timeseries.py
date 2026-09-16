@@ -21,6 +21,7 @@ from .weather_backend import (
     WeatherTimeseriesInput,
 )
 from .weather_timeseries_metadata import PROCESS_METADATA
+from agri_i18n import _
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,9 @@ class WeatherTimeseriesProcessor(BaseProcessor):
             logger.error(
                 "Unexpected error in WeatherTimeseriesProcessor: %s", exc, exc_info=True
             )
-            raise ProcessorExecuteError(f"Unexpected error: {exc}") from exc
+            raise ProcessorExecuteError(
+                _("An unexpected error occurred while running this process.")
+            ) from exc
 
     def __repr__(self) -> str:
         return f"<WeatherTimeseriesProcessor> {self.name}"
@@ -109,4 +112,6 @@ class WeatherTimeseriesProcessor(BaseProcessor):
                 f"{' -> '.join(str(loc) for loc in e['loc'])}: {e['msg']}"
                 for e in exc.errors()
             )
-            raise ProcessorExecuteError(f"Invalid inputs: {errors}") from exc
+            raise ProcessorExecuteError(
+                _("Invalid inputs: {errors}").format(errors=errors)
+            ) from exc

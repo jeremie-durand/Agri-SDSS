@@ -23,6 +23,8 @@ import yaml
 from pydap.client import open_url as pydap_open_url
 from pygeoapi.process.base import ProcessorExecuteError
 
+from agri_i18n import _
+
 from ..backend_utils import apply_variable_conversions
 from ..cache_utils import TTLCache
 from .models import (
@@ -125,16 +127,35 @@ def _load_dataset_registry(
         with registry_path.open("r", encoding="utf-8") as fh:
             registry = yaml.safe_load(fh)
     except FileNotFoundError as exc:
+        logger.error("Weather dataset registry not found at %s: %s", registry_path, exc)
         raise ProcessorExecuteError(
-            f"Weather dataset registry not found at {registry_path}: {exc}"
+            _(
+                "The weather dataset registry is unavailable. "
+                "Please contact the service administrator."
+            )
         ) from exc
     except yaml.YAMLError as exc:
+        logger.error(
+            "Failed to parse weather dataset registry at %s: %s",
+            registry_path,
+            exc,
+            exc_info=True,
+        )
         raise ProcessorExecuteError(
-            f"Failed to parse weather dataset registry at {registry_path}: {exc}"
+            _(
+                "The weather dataset registry could not be read. "
+                "Please contact the service administrator."
+            )
         ) from exc
     if not isinstance(registry, dict):
+        logger.error(
+            "Weather dataset registry at %s is not a YAML mapping", registry_path
+        )
         raise ProcessorExecuteError(
-            f"Weather dataset registry at {registry_path} must be a YAML mapping"
+            _(
+                "The weather dataset registry could not be read. "
+                "Please contact the service administrator."
+            )
         )
     return registry
 
@@ -270,7 +291,9 @@ class PAVICSBackend:
         if config is None:
             available = sorted(self._registry.keys())
             raise ProcessorExecuteError(
-                f"Unknown dataset {dataset!r}. " f"Available datasets: {available}"
+                _(
+                    "Unknown dataset {dataset!r}. Available datasets: {available}"
+                ).format(dataset=dataset, available=available)
             )
         return config
 
@@ -302,9 +325,14 @@ class PAVICSBackend:
             if var not in var_registry:
                 available = sorted(var_registry.keys())
                 raise ProcessorExecuteError(
-                    f"Variable {var!r} is not available in dataset "
-                    f"{dataset_config.get('title', '?')!r}. "
-                    f"Available: {available}"
+                    _(
+                        "Variable {variable!r} is not available in dataset "
+                        "{dataset!r}. Available: {available}"
+                    ).format(
+                        variable=var,
+                        dataset=dataset_config.get("title", "?"),
+                        available=available,
+                    )
                 )
             mapping[var] = var_registry[var]["netcdf_name"]
         return mapping
@@ -331,23 +359,49 @@ class PAVICSBackend:
             store = pydap_open_url(opendap_url, session=session, user_charset="utf-8")
             ds = xr.open_dataset(xr.backends.PydapDataStore(store))
         except UnicodeDecodeError as exc:
+            logger.error(
+                "Encoding error reading OPeNDAP metadata from %s: %s",
+                opendap_url,
+                exc,
+                exc_info=True,
+            )
             raise ProcessorExecuteError(
-                f"Encoding error reading OPeNDAP metadata from {opendap_url}: {exc}"
+                _(
+                    "Could not read the metadata of the dataset at {url}. "
+                    "The remote data server returned an unreadable response."
+                ).format(url=opendap_url)
             ) from exc
         except OSError as exc:
+            logger.error(
+                "Failed to open OPeNDAP dataset at %s: %s",
+                opendap_url,
+                exc,
+                exc_info=True,
+            )
             raise ProcessorExecuteError(
-                f"Failed to open OPeNDAP dataset at {opendap_url}: {exc}"
+                _(
+                    "Failed to open OPeNDAP dataset at {url}. The remote data "
+                    "server may be unavailable — please try again later."
+                ).format(url=opendap_url)
             ) from exc
         except Exception as exc:
+            logger.error(
+                "Unexpected error opening OPeNDAP dataset %s: %s",
+                opendap_url,
+                exc,
+                exc_info=True,
+            )
             raise ProcessorExecuteError(
-                f"Unexpected error opening OPeNDAP dataset: {exc}"
+                _("An unexpected error occurred while opening the dataset.")
             ) from exc
 
         missing = [v for v in netcdf_vars if v not in ds.data_vars]
         if missing:
             raise ProcessorExecuteError(
-                f"Variables {missing} not found in dataset. "
-                f"Available: {sorted(ds.data_vars)}"
+                _(
+                    "Variables {missing} not found in dataset. "
+                    "Available: {available}"
+                ).format(missing=missing, available=sorted(ds.data_vars))
             )
 
         return ds[netcdf_vars]
@@ -396,7 +450,10 @@ class PAVICSBackend:
 
         if rlat_idx.size == 0 or rlon_idx.size == 0:
             raise ProcessorExecuteError(
-                f"No grid points found within bbox {bbox} for rotated-pole dataset"
+                _(
+                    "No grid points found within bbox {bbox} for rotated-pole "
+                    "dataset"
+                ).format(bbox=bbox)
             )
 
         return ds.isel(
@@ -457,8 +514,10 @@ class PAVICSBackend:
 
         if lat_indices.size == 0 or lon_indices.size == 0:
             raise ProcessorExecuteError(
-                f"No grid points found within bbox {bbox} — the area may be "
-                "smaller than the dataset's grid resolution. Try a larger bbox."
+                _(
+                    "No grid points found within bbox {bbox} — the area may be "
+                    "smaller than the dataset's grid resolution. Try a larger bbox."
+                ).format(bbox=bbox)
             )
 
         ds = ds.isel({lat_dim: lat_indices, lon_dim: lon_indices})
@@ -467,9 +526,13 @@ class PAVICSBackend:
             try:
                 import rioxarray  # noqa: F401 — activates ds.rio accessor
             except ImportError as exc:
+                logger.error("rioxarray is not installed; polygon clip unavailable")
                 raise ProcessorExecuteError(
-                    "rioxarray is required for polygon spatial clip but is not "
-                    "installed. Install it via: pip install rioxarray"
+                    _(
+                        "Polygon clipping is not available on this server. "
+                        "Use a bounding box instead, or contact the service "
+                        "administrator."
+                    )
                 ) from exc
             try:
                 ds = (
@@ -478,8 +541,12 @@ class PAVICSBackend:
                     .rio.clip([polygon_geojson], crs="EPSG:4326", drop=True)
                 )
             except Exception as exc:
+                logger.error("Polygon spatial clip failed: %s", exc, exc_info=True)
                 raise ProcessorExecuteError(
-                    f"Polygon spatial clip failed: {exc}"
+                    _(
+                        "The polygon spatial clip failed. Check that the polygon "
+                        "is valid and overlaps the dataset domain."
+                    )
                 ) from exc
 
         return ds
@@ -635,10 +702,12 @@ class PAVICSBackend:
         range_end = valid_range.get("end")
         if range_end and end_date > range_end:
             raise ProcessorExecuteError(
-                f"Requested end_date {end_date!r} exceeds the available data "
-                f"range for dataset {dataset!r} (max: {range_end!r}). "
-                "For ERA5-Land, data is available up to approximately 90 days "
-                "before today."
+                _(
+                    "Requested end_date {end_date!r} exceeds the available data "
+                    "range for dataset {dataset!r} (max: {range_end!r}). "
+                    "For ERA5-Land, data is available up to approximately 90 days "
+                    "before today."
+                ).format(end_date=end_date, dataset=dataset, range_end=range_end)
             )
         canonical_to_netcdf = self._resolve_variable_names(
             variables=variables, dataset_config=dataset_config

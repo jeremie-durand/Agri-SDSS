@@ -63,7 +63,9 @@ def resolve_location(
         geom = get_geometry_from_db(farm_id)  # type: ignore[arg-type]
         return calc_bbox_from_geojson(geom), geom
 
-    raise ProcessorExecuteError(f"Unhandled location_type: {location_type!r}")
+    raise ProcessorExecuteError(
+        _("Unsupported location type: {value}").format(value=location_type)
+    )
 
 
 def calc_bbox_from_geojson(
@@ -129,13 +131,16 @@ def get_geometry_from_db(farm_id: str) -> Dict[str, Any]:
     id_column: str = farm.FARM_ID_COLUMN
 
     if not re.match(r"^[a-zA-Z0-9_.]+$", table_name):
-        raise ProcessorExecuteError("FARM_TABLE_NAME contains disallowed characters")
+        logger.error("FARM_TABLE_NAME contains disallowed characters: %s", table_name)
+        raise ProcessorExecuteError(_("Could not retrieve the farm geometry."))
     if not re.match(r"^[a-zA-Z0-9_]+$", geom_column):
-        raise ProcessorExecuteError(
-            "FARM_GEOMETRY_COLUMN contains disallowed characters"
+        logger.error(
+            "FARM_GEOMETRY_COLUMN contains disallowed characters: %s", geom_column
         )
+        raise ProcessorExecuteError(_("Could not retrieve the farm geometry."))
     if not re.match(r"^[a-zA-Z0-9_]+$", id_column):
-        raise ProcessorExecuteError("FARM_ID_COLUMN contains disallowed characters")
+        logger.error("FARM_ID_COLUMN contains disallowed characters: %s", id_column)
+        raise ProcessorExecuteError(_("Could not retrieve the farm geometry."))
 
     conn_params = DatabaseConfig().to_conn_params()
 
@@ -159,6 +164,7 @@ def get_geometry_from_db(farm_id: str) -> Dict[str, Any]:
     except ProcessorExecuteError:
         raise
     except psycopg.Error as exc:
+        logger.error("Farm geometry lookup failed: %s", exc, exc_info=True)
         raise ProcessorExecuteError(
-            f"Database error retrieving farm geometry: {exc}"
+            _("Could not retrieve the farm geometry.")
         ) from exc

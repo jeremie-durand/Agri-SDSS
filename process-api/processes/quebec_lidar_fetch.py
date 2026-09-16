@@ -22,6 +22,7 @@ import numpy as np
 import psycopg
 import rasterio
 import requests
+from agri_i18n import _
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 from rasterio.features import geometry_mask
 from shapely.geometry import shape
@@ -139,22 +140,25 @@ class LidarFetchProcessor(BaseProcessor):
             # ----------------------------------------------------------
             if farm_geometry is None and farm_id is None:
                 raise ProcessorExecuteError(
-                    "Either 'farm_geometry' or 'farm_id' must be provided"
+                    _("Either 'farm_geometry' or 'farm_id' must be provided")
                 )
             if farm_geometry is not None and farm_id is not None:
                 raise ProcessorExecuteError(
-                    "Provide only one of 'farm_geometry' or 'farm_id', not both"
+                    _("Provide only one of 'farm_geometry' or 'farm_id', not both")
                 )
             if farm_id is not None and farm_id <= 0:
                 raise ProcessorExecuteError(
-                    f"farm_id must be a positive integer, got: {farm_id}"
+                    _("'farm_id' must be a positive integer, got: {value}").format(
+                        value=farm_id
+                    )
                 )
 
             unknown = set(products) - set(VALID_PRODUCTS)
             if unknown:
                 raise ProcessorExecuteError(
-                    f"Unknown product(s): {sorted(unknown)}. "
-                    f"Valid values: {VALID_PRODUCTS}"
+                    _(
+                        "Unknown product(s): {products}. Valid values: {valid}"
+                    ).format(products=sorted(unknown), valid=VALID_PRODUCTS)
                 )
 
             # ----------------------------------------------------------
@@ -183,8 +187,12 @@ class LidarFetchProcessor(BaseProcessor):
             area_km2 = self._calculate_area_km2(bbox)
             if area_km2 > self.MAX_FARM_AREA_KM2:
                 raise ProcessorExecuteError(
-                    f"Farm area ({area_km2:.1f} km²) exceeds maximum allowed "
-                    f"({self.MAX_FARM_AREA_KM2} km²)"
+                    _(
+                        "Farm area ({area} km²) exceeds maximum allowed "
+                        "({maximum} km²)"
+                    ).format(
+                        area=f"{area_km2:.1f}", maximum=self.MAX_FARM_AREA_KM2
+                    )
                 )
 
             # ----------------------------------------------------------
@@ -211,17 +219,22 @@ class LidarFetchProcessor(BaseProcessor):
                 )
             if not tile_urls:
                 raise ProcessorExecuteError(
-                    f"No LiDAR tiles found for the supplied geometry "
-                    f"(bbox={bbox}). The area may not be covered by MRNF LiDAR data."
+                    _(
+                        "No LiDAR tiles found for the supplied geometry "
+                        "(bbox={bbox}). The area may not be covered by MRNF "
+                        "LiDAR data."
+                    ).format(bbox=bbox)
                 )
             if (
                 self.ASPECT_PRODUCT in products
                 and self.ASPECT_SOURCE_PRODUCT not in tile_urls
             ):
                 raise ProcessorExecuteError(
-                    "Cannot compute 'aspect': no DTM tiles found for the "
-                    f"supplied geometry (bbox={bbox}). Aspect is derived "
-                    "from DTM."
+                    _(
+                        "Cannot compute 'aspect': no DTM tiles found for the "
+                        "supplied geometry (bbox={bbox}). Aspect is derived "
+                        "from DTM."
+                    ).format(bbox=bbox)
                 )
 
             # ----------------------------------------------------------
@@ -321,7 +334,9 @@ class LidarFetchProcessor(BaseProcessor):
             logger.error(
                 "Unexpected error in LidarFetchProcessor: %s", exc, exc_info=True
             )
-            raise ProcessorExecuteError(f"LiDAR fetch failed: {exc}") from exc
+            raise ProcessorExecuteError(
+                _("Unexpected error processing LiDAR data.")
+            ) from exc
 
     # ------------------------------------------------------------------
     # Geometry helpers
@@ -340,18 +355,18 @@ class LidarFetchProcessor(BaseProcessor):
                     geom_column: str = farm.FARM_GEOMETRY_COLUMN
                     id_column: str = farm.FARM_ID_COLUMN
 
-                    if not re.match(r"^[a-zA-Z0-9_.-]+$", table_name):
-                        raise ProcessorExecuteError(
-                            "Invalid table name format in FARM_TABLE_NAME"
-                        )
-                    if not re.match(r"^[a-zA-Z0-9_]+$", geom_column):
-                        raise ProcessorExecuteError(
-                            "Invalid geometry column name format in FARM_GEOMETRY_COLUMN"
-                        )
-                    if not re.match(r"^[a-zA-Z0-9_]+$", id_column):
-                        raise ProcessorExecuteError(
-                            "Invalid ID column name format in FARM_ID_COLUMN"
-                        )
+                    for _var, _value, _pattern in (
+                        ("FARM_TABLE_NAME", table_name, r"^[a-zA-Z0-9_.-]+$"),
+                        ("FARM_GEOMETRY_COLUMN", geom_column, r"^[a-zA-Z0-9_]+$"),
+                        ("FARM_ID_COLUMN", id_column, r"^[a-zA-Z0-9_]+$"),
+                    ):
+                        if not re.match(_pattern, _value):
+                            logger.error(
+                                "%s contains disallowed characters: %s", _var, _value
+                            )
+                            raise ProcessorExecuteError(
+                                _("Could not retrieve the farm geometry.")
+                            )
 
                     query: str = f"""
                         SELECT ST_AsGeoJSON({geom_column}) as geom
@@ -363,19 +378,30 @@ class LidarFetchProcessor(BaseProcessor):
 
                     if not result:
                         raise ProcessorExecuteError(
-                            f"Farm ID {farm_id} not found in database"
+                            _("Farm ID {farm_id} not found in database").format(
+                                farm_id=farm_id
+                            )
                         )
 
                     try:
                         return json.loads(result[0])
                     except json.JSONDecodeError as exc:
+                        logger.error(
+                            "Stored geometry for farm %s is not valid JSON: %s",
+                            farm_id,
+                            exc,
+                            exc_info=True,
+                        )
                         raise ProcessorExecuteError(
-                            f"Invalid geometry data for farm ID {farm_id}: {exc}"
+                            _("Invalid geometry data for farm ID {farm_id}").format(
+                                farm_id=farm_id
+                            )
                         ) from exc
 
         except psycopg.Error as exc:
+            logger.error("Farm geometry lookup failed: %s", exc, exc_info=True)
             raise ProcessorExecuteError(
-                f"Database error retrieving farm geometry: {exc}"
+                _("Could not retrieve the farm geometry.")
             ) from exc
 
     @staticmethod
@@ -459,8 +485,9 @@ class LidarFetchProcessor(BaseProcessor):
             cmd, capture_output=True, text=True
         )
         if result.returncode != 0:
+            logger.error("gdalwarp clip/COG conversion failed: %s", result.stderr)
             raise ProcessorExecuteError(
-                f"gdalwarp clip/COG conversion failed: {result.stderr}"
+                _("Could not clip and convert the LiDAR raster to COG format.")
             )
 
     def _compute_aspect_cog(self, dtm_path: str, output_path: str) -> None:
@@ -490,8 +517,9 @@ class LidarFetchProcessor(BaseProcessor):
             cmd, capture_output=True, text=True
         )
         if result.returncode != 0:
+            logger.error("gdaldem aspect computation failed: %s", result.stderr)
             raise ProcessorExecuteError(
-                f"gdaldem aspect computation failed: {result.stderr}"
+                _("Could not compute the aspect raster from the terrain model.")
             )
 
     # ------------------------------------------------------------------

@@ -21,6 +21,7 @@ from .config import DatabaseConfig, StorageConfig
 from .som_backend.som_ml_backend import BARESAIL_GLOB, SOMMLBackend
 from .som_backend.som_model_store import SOMModelStore
 from .som_predict_soil_metadata import PROCESS_METADATA
+from agri_i18n import _
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +87,11 @@ class SOMPredictSoilProcessor(BaseProcessor):
 
             if not all_preds:
                 raise ProcessorExecuteError(
-                    "No predictions were produced. Check that the requested field IDs "
-                    "have sufficient training data in the GEE feature Parquet files."
+                    _(
+                        "No predictions were produced. Check that the requested "
+                        "field IDs have sufficient training data in the GEE "
+                        "feature Parquet files."
+                    )
                 )
             preds_df = pd.DataFrame(all_preds)
             geom_map = self._fetch_field_geometries(field_ids)
@@ -105,7 +109,9 @@ class SOMPredictSoilProcessor(BaseProcessor):
             logger.error(
                 "Unexpected error in SOMPredictSoilProcessor: %s", exc, exc_info=True
             )
-            raise ProcessorExecuteError(f"Unexpected error: {exc}") from exc
+            raise ProcessorExecuteError(
+                _("An unexpected error occurred while running this process.")
+            ) from exc
 
     # ------------------------------------------------------------------
     # Input validation
@@ -119,13 +125,16 @@ class SOMPredictSoilProcessor(BaseProcessor):
         field_ids = data.get("field_ids")
         if not field_ids:
             raise ProcessorExecuteError(
-                "'field_ids' is required and must contain at least one integer field ID."
+                _(
+                    "'field_ids' is required and must contain at least one "
+                    "integer field ID."
+                )
             )
         try:
             field_ids = [int(fid) for fid in field_ids]
         except (TypeError, ValueError) as exc:
             raise ProcessorExecuteError(
-                f"'field_ids' must be a list of integers: {exc}"
+                _("'field_ids' must be a list of integers: {error}").format(error=exc)
             ) from exc
 
         valid_scenarios = {
@@ -137,8 +146,9 @@ class SOMPredictSoilProcessor(BaseProcessor):
         invalid = [s for s in scenarios if s not in valid_scenarios]
         if invalid:
             raise ProcessorExecuteError(
-                f"Unknown scenarios: {invalid}. "
-                f"Valid values: {sorted(valid_scenarios)}"
+                _("Unknown scenarios: {invalid}. Valid values: {valid}").format(
+                    invalid=invalid, valid=sorted(valid_scenarios)
+                )
             )
         return field_ids, scenarios
 
@@ -162,8 +172,10 @@ class SOMPredictSoilProcessor(BaseProcessor):
         parquet_files = list(data_dir.glob(BARESAIL_GLOB))
         if not parquet_files:
             raise ProcessorExecuteError(
-                "No GEE feature Parquet files found. "
-                "Run the gis-pipeline to ingest the BareSoil_TOPCLI_*.csv files first."
+                _(
+                    "No GEE feature Parquet files found. Run the gis-pipeline to "
+                    "ingest the BareSoil_TOPCLI_*.csv files first."
+                )
             )
 
         glob_pattern = str(data_dir / BARESAIL_GLOB)
@@ -181,22 +193,31 @@ class SOMPredictSoilProcessor(BaseProcessor):
             df = con.execute(query).df()
             con.close()
         except duckdb.Error as exc:
+            logger.error(
+                "DuckDB query on GEE feature Parquet files failed: %s",
+                exc,
+                exc_info=True,
+            )
             raise ProcessorExecuteError(
-                f"Failed to query GEE feature Parquet files: {exc}"
+                _("Could not read the GEE feature data.")
             ) from exc
 
         if df.empty:
             raise ProcessorExecuteError(
-                "GEE feature Parquet files are empty. "
-                "Run the gis-pipeline to ingest the BareSoil_TOPCLI_*.csv files."
+                _(
+                    "GEE feature Parquet files are empty. Run the gis-pipeline to "
+                    "ingest the BareSoil_TOPCLI_*.csv files."
+                )
             )
 
         df["FIELD_ID"] = df["FIELD_ID"].astype(float)
         requested = {float(fid) for fid in field_ids}
         if not df["FIELD_ID"].isin(requested).any():
             raise ProcessorExecuteError(
-                f"No feature data found for field IDs {field_ids} "
-                "in the GEE feature Parquet files."
+                _(
+                    "No feature data found for field IDs {field_ids} in the GEE "
+                    "feature Parquet files."
+                ).format(field_ids=field_ids)
             )
         logger.info(
             "Loaded %d rows for %d field IDs from DuckDB.",
@@ -267,7 +288,7 @@ class SOMPredictSoilProcessor(BaseProcessor):
             GeoJSON FeatureCollection dict.
         """
         features = []
-        for _, row in preds_df.iterrows():
+        for _idx, row in preds_df.iterrows():
             field_id = int(row["FIELD_ID"])
             features.append(
                 {

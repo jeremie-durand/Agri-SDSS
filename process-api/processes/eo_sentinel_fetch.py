@@ -31,6 +31,7 @@ from .asset_url_utils import cog_href, preview_href, tilejson_href
 from .config import ApiConfig, DatabaseConfig, FarmConfig
 from .eo_backend import vegetation_indices as veg_indices
 from .eo_sentinel_fetch_metadata import PROCESS_METADATA
+from agri_i18n import _
 
 logger = logging.getLogger(__name__)
 
@@ -200,18 +201,18 @@ class SentinelFetchProcessor(BaseProcessor):
                     geom_column: str = farm.FARM_GEOMETRY_COLUMN
                     id_column: str = farm.FARM_ID_COLUMN
 
-                    if not re.match(r"^[a-zA-Z0-9_.-]+$", table_name):
-                        raise ProcessorExecuteError(
-                            "Invalid table name format in FARM_TABLE_NAME"
-                        )
-                    if not re.match(r"^[a-zA-Z0-9_]+$", geom_column):
-                        raise ProcessorExecuteError(
-                            "Invalid geometry column name format in FARM_GEOMETRY_COLUMN"
-                        )
-                    if not re.match(r"^[a-zA-Z0-9_]+$", id_column):
-                        raise ProcessorExecuteError(
-                            "Invalid ID column name format in FARM_ID_COLUMN"
-                        )
+                    for _var, _value, _pattern in (
+                        ("FARM_TABLE_NAME", table_name, r"^[a-zA-Z0-9_.-]+$"),
+                        ("FARM_GEOMETRY_COLUMN", geom_column, r"^[a-zA-Z0-9_]+$"),
+                        ("FARM_ID_COLUMN", id_column, r"^[a-zA-Z0-9_]+$"),
+                    ):
+                        if not re.match(_pattern, _value):
+                            logger.error(
+                                "%s contains disallowed characters: %s", _var, _value
+                            )
+                            raise ProcessorExecuteError(
+                                _("Could not retrieve the farm geometry.")
+                            )
 
                     query: str = f"""
                         SELECT ST_AsGeoJSON({geom_column}) as geom
@@ -223,20 +224,31 @@ class SentinelFetchProcessor(BaseProcessor):
 
                     if not result:
                         raise ProcessorExecuteError(
-                            f"Farm ID {farm_id} not found in database"
+                            _("Farm ID {farm_id} not found in database").format(
+                                farm_id=farm_id
+                            )
                         )
 
                     try:
                         return json.loads(result[0])
                     except json.JSONDecodeError as e:
-                        raise ProcessorExecuteError(
-                            f"Invalid geometry data for farm ID {farm_id}: {str(e)}"
+                        logger.error(
+                            "Stored geometry for farm %s is not valid JSON: %s",
+                            farm_id,
+                            e,
+                            exc_info=True,
                         )
+                        raise ProcessorExecuteError(
+                            _("Invalid geometry data for farm ID {farm_id}").format(
+                                farm_id=farm_id
+                            )
+                        ) from e
 
         except psycopg.Error as e:
+            logger.error("Farm geometry lookup failed: %s", e, exc_info=True)
             raise ProcessorExecuteError(
-                f"Database error retrieving farm geometry: {str(e)}"
-            )
+                _("Could not retrieve the farm geometry.")
+            ) from e
 
     @staticmethod
     def _calculate_area_km2(bounds: Tuple[float, float, float, float]) -> float:
@@ -332,8 +344,11 @@ class SentinelFetchProcessor(BaseProcessor):
         except Exception as e:
             logger.error(f"Failed to load Sentinel-2 data: {str(e)}", exc_info=True)
             raise ProcessorExecuteError(
-                "Failed to load Sentinel-2 data from OpenEO. Check server logs for details."
-            )
+                _(
+                    "Failed to load Sentinel-2 data from OpenEO. "
+                    "Check server logs for details."
+                )
+            ) from e
 
     def _generate_assets(
         self,
@@ -443,7 +458,9 @@ class SentinelFetchProcessor(BaseProcessor):
                     continue
 
             if not assets:
-                raise ProcessorExecuteError("Failed to generate any output products")
+                raise ProcessorExecuteError(
+                    _("Failed to generate any output products")
+                )
 
             return assets
         finally:
@@ -486,13 +503,16 @@ class SentinelFetchProcessor(BaseProcessor):
                     f"Authentication failed with config file fallback: {str(config_auth_error)}",
                     exc_info=True,
                 )
-                error_msg = (
-                    f"OpenEO authentication failed. The OPENEO_REFRESH_TOKEN env var token is "
-                    f"expired or invalid, and the config file fallback also failed. "
-                    f"{self.TOKEN_EXPIRY_MSG} "
-                    f"Please re-run: {self.TOKEN_SCRIPT_PATH} to obtain a new token."
+                error_msg = _(
+                    "OpenEO authentication failed. The OPENEO_REFRESH_TOKEN env "
+                    "var token is expired or invalid, and the config file "
+                    "fallback also failed. {expiry_note} Please re-run: "
+                    "{script} to obtain a new token."
+                ).format(
+                    expiry_note=self.TOKEN_EXPIRY_MSG,
+                    script=self.TOKEN_SCRIPT_PATH,
                 )
-                raise ProcessorExecuteError(error_msg)
+                raise ProcessorExecuteError(error_msg) from config_auth_error
 
     def _authenticate_with_config_file(self, connection: Any) -> None:
         """Authenticate using the refresh-tokens.json config file (fallback / local dev).
@@ -521,15 +541,18 @@ class SentinelFetchProcessor(BaseProcessor):
             config_home = os.getenv(
                 "OPENEO_CONFIG_HOME", self.OPENEO_CONFIG_HOME_DEFAULT
             )
-            error_msg = (
-                f"OpenEO authentication failed. No valid refresh token found. "
-                f"Looked for refresh-tokens.json in OPENEO_CONFIG_HOME={config_home}. "
-                f"{self.TOKEN_EXPIRY_MSG} "
-                f"Please run: {self.TOKEN_SCRIPT_PATH} to set up authentication "
-                f"and copy the token to your .env file. "
-                f"Error details: {str(config_auth_error)}"
+            error_msg = _(
+                "OpenEO authentication failed. No valid refresh token found. "
+                "Looked for refresh-tokens.json in "
+                "OPENEO_CONFIG_HOME={config_home}. {expiry_note} Please run: "
+                "{script} to set up authentication and copy the token to your "
+                ".env file."
+            ).format(
+                config_home=config_home,
+                expiry_note=self.TOKEN_EXPIRY_MSG,
+                script=self.TOKEN_SCRIPT_PATH,
             )
-            raise ProcessorExecuteError(error_msg)
+            raise ProcessorExecuteError(error_msg) from config_auth_error
 
     def _process_sentinel_data(
         self,
@@ -609,8 +632,8 @@ class SentinelFetchProcessor(BaseProcessor):
         except Exception as e:
             logger.error(f"Failed to connect to openEO: {str(e)}", exc_info=True)
             raise ProcessorExecuteError(
-                f"Failed to connect to openEO backend: {str(e)}"
-            )
+                _("Could not connect to the openEO backend. Please try again later.")
+            ) from e
 
         # Determine required bands based on requested products
         required_bands: set = self._get_required_bands(output_products)
@@ -649,7 +672,10 @@ class SentinelFetchProcessor(BaseProcessor):
         valid_methods = ["median", "max", "min", "mean"]
         if aggregation_method not in valid_methods:
             raise ProcessorExecuteError(
-                f"Invalid aggregation method '{aggregation_method}'. Must be one of: {', '.join(valid_methods)}"
+                _(
+                    "Invalid aggregation method '{method}'. "
+                    "Must be one of: {methods}"
+                ).format(method=aggregation_method, methods=", ".join(valid_methods))
             )
 
         # Apply temporal aggregation
@@ -707,7 +733,10 @@ class SentinelFetchProcessor(BaseProcessor):
             cmd, capture_output=True, text=True
         )
         if result.returncode != 0:
-            raise ProcessorExecuteError(f"GDAL COG conversion failed: {result.stderr}")
+            logger.error("GDAL COG conversion failed: %s", result.stderr)
+            raise ProcessorExecuteError(
+                _("Could not convert the raster to Cloud Optimized GeoTIFF.")
+            )
 
     def _get_product_title(self, product: str) -> str:
         """Get human-readable title for product"""
@@ -1108,22 +1137,26 @@ class SentinelFetchProcessor(BaseProcessor):
 
             if not 0 <= cloud_cover_max <= 100:
                 raise ProcessorExecuteError(
-                    f"'cloud_cover_max' must be between 0 and 100, got: {cloud_cover_max}"
+                    _(
+                        "'cloud_cover_max' must be between 0 and 100, got: {value}"
+                    ).format(value=cloud_cover_max)
                 )
 
             # Validate that exactly one geometry source is provided
             if farm_geometry is None and farm_id is None:
                 raise ProcessorExecuteError(
-                    "Either 'farm_geometry' or 'farm_id' must be provided"
+                    _("Either 'farm_geometry' or 'farm_id' must be provided")
                 )
             if farm_geometry is not None and farm_id is not None:
                 raise ProcessorExecuteError(
-                    "Provide only one of 'farm_geometry' or 'farm_id', not both"
+                    _("Provide only one of 'farm_geometry' or 'farm_id', not both")
                 )
 
             if farm_id is not None and farm_id <= 0:
                 raise ProcessorExecuteError(
-                    f"Farm ID must be a positive integer, got: {farm_id}"
+                    _("'farm_id' must be a positive integer, got: {value}").format(
+                        value=farm_id
+                    )
                 )
 
             # Validate temporal extent
@@ -1132,10 +1165,15 @@ class SentinelFetchProcessor(BaseProcessor):
                 end_date: datetime = datetime.fromisoformat(temporal_extent[1])
                 if start_date > end_date:
                     raise ProcessorExecuteError(
-                        f"Start date ({temporal_extent[0]}) must be before or equal to end date ({temporal_extent[1]})"
+                        _(
+                            "Start date ({start}) must be before or equal to "
+                            "end date ({end})"
+                        ).format(start=temporal_extent[0], end=temporal_extent[1])
                     )
             except (ValueError, IndexError) as e:
-                raise ProcessorExecuteError(f"Invalid temporal extent format: {str(e)}")
+                raise ProcessorExecuteError(
+                    _("Invalid temporal extent format: {error}").format(error=e)
+                ) from e
 
             # Get farm geometry
             geometry_geojson: Dict[str, Any]
@@ -1161,11 +1199,14 @@ class SentinelFetchProcessor(BaseProcessor):
             # Validate geometry
             if not geom_shape.is_valid:
                 raise ProcessorExecuteError(
-                    "Invalid geometry provided. Geometry must be a valid Polygon or MultiPolygon."
+                    _(
+                        "Invalid geometry provided. Geometry must be a valid "
+                        "Polygon or MultiPolygon."
+                    )
                 )
             if geom_shape.is_empty:
                 raise ProcessorExecuteError(
-                    "Empty geometry provided. Geometry must contain coordinates."
+                    _("Empty geometry provided. Geometry must contain coordinates.")
                 )
 
             bbox: Tuple[float, float, float, float] = (
@@ -1176,8 +1217,13 @@ class SentinelFetchProcessor(BaseProcessor):
             area_km2: float = self._calculate_area_km2(geom_shape.bounds)
             if area_km2 > self.MAX_FARM_AREA_KM2:
                 raise ProcessorExecuteError(
-                    f"Farm area ({area_km2:.2f} km²) exceeds maximum allowed ({self.MAX_FARM_AREA_KM2} km²). "
-                    "Please use a smaller polygon or contact administrator for async processing."
+                    _(
+                        "Farm area ({area} km²) exceeds maximum allowed "
+                        "({maximum} km²). Please use a smaller polygon or "
+                        "contact administrator for async processing."
+                    ).format(
+                        area=f"{area_km2:.2f}", maximum=self.MAX_FARM_AREA_KM2
+                    )
                 )
 
             # Fetch and process Sentinel-2 data
@@ -1257,16 +1303,20 @@ class SentinelFetchProcessor(BaseProcessor):
         except (KeyError, TypeError) as e:
             logger.error("Invalid input parameters: %s", e, exc_info=True)
             raise ProcessorExecuteError(
-                "Invalid input parameters — check required fields and types."
+                _("Invalid input parameters — check required fields and types.")
             )
         except (ValueError, AttributeError) as e:
             logger.error("Data validation error: %s", e, exc_info=True)
-            raise ProcessorExecuteError("Data validation error — check input values.")
+            raise ProcessorExecuteError(
+                _("Data validation error — check input values.")
+            )
         except Exception as e:
             logger.error(
                 "Unexpected error processing Sentinel-2 data: %s", e, exc_info=True
             )
-            raise ProcessorExecuteError("Unexpected error processing Sentinel-2 data.")
+            raise ProcessorExecuteError(
+                _("Unexpected error processing Sentinel-2 data.")
+            )
 
     def __repr__(self) -> str:
         return f"<SentinelFetchProcessor> {self.name}"

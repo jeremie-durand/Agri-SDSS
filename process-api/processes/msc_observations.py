@@ -17,6 +17,7 @@ from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 from .location_utils import resolve_location
 from .msc_observations_metadata import PROCESS_METADATA
 from .weather_backend import MSCBackend, MSCObservationsInput
+from agri_i18n import _
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class MSCObservationsProcessor(BaseProcessor):
         """
         try:
             validated = self._validate_inputs(data)
-            bbox, _ = resolve_location(
+            bbox, _geometry = resolve_location(
                 location_type=validated.location_type,
                 farm_id=validated.farm_id,
                 point=validated.point,
@@ -75,7 +76,9 @@ class MSCObservationsProcessor(BaseProcessor):
             logger.error(
                 "Unexpected error in MSCObservationsProcessor: %s", exc, exc_info=True
             )
-            raise ProcessorExecuteError(f"Unexpected error: {exc}") from exc
+            raise ProcessorExecuteError(
+                _("An unexpected error occurred while running this process.")
+            ) from exc
 
     def __repr__(self) -> str:
         return f"<MSCObservationsProcessor> {self.name}"
@@ -104,4 +107,6 @@ class MSCObservationsProcessor(BaseProcessor):
                 f"{' -> '.join(str(loc) for loc in e['loc'])}: {e['msg']}"
                 for e in exc.errors()
             )
-            raise ProcessorExecuteError(f"Invalid inputs: {errors}") from exc
+            raise ProcessorExecuteError(
+                _("Invalid inputs: {errors}").format(errors=errors)
+            ) from exc
