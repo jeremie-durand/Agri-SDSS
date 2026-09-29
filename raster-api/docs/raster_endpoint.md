@@ -22,12 +22,16 @@ https://localhost/...`) because the certificate is self-signed.
 
 The Raster API configuration is managed through environment variables and database connection settings defined in the Dockerfile and docker-compose files.
 
-## Demo Collections
+## Available COGs
 
-The system includes two demo collections for testing and demonstration purposes:
+`GET /raster-api/collections` lists every COG in the mounted data directory
+(`data/output/raster_cog`, `/data` in the container). The files come from two
+producers:
 
-- **sud_du_quebec_4326**: Southern Quebec administrative boundaries in EPSG:4326
-- **bdppad_2024_4326_sample_stac**: Sample agricultural parcels data for STAC integration in EPSG:4326
+- **gis-pipeline**: ingested rasters, named `<name>_cog.tif`, such as the SIIGSOL
+  soil-property layers (`corg_fr_siigsol_cog`, `ph_fr_siigsol_cog`, …)
+- **process-api**: LiDAR (`lidar_dtm_…`, `lidar_slope_…`, `lidar_aspect_…`) and
+  Sentinel-2 (`sentinel2_…_ndvi_…`) process outputs
 
 ## API Endpoints
 
