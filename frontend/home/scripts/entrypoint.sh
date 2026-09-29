@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# Substitute environment variables into the HTML template
+# index.html is baked in as a template and copied as is (no substitution)
 cp /usr/share/nginx/html/index.html.template /usr/share/nginx/html/index.html
 
 cat > /usr/share/nginx/html/runtime-config.js <<RUNTIME_EOF
