@@ -281,9 +281,13 @@ Now all variations are automatically normalized during processing.
    - Benefit: Handle arbitrarily large rasters without OOM errors
 
 4. **Enhanced Error Recovery**
-   - Current: Pipeline stops on first critical error
-   - Proposed: Implement retry logic with exponential backoff for transient failures
-   - Benefit: More resilient to network/API timeouts
+   - Current: A failing file or layer is logged and counted in the run report, and
+     the run continues; a raster batch aborts only when every raster fails. Only the
+     STAC API client retries (`urllib3.Retry` with backoff on 5xx); PostGIS writes
+     and the vector-api invalidate call are attempted once.
+   - Proposed: Extend retry with backoff to PostGIS writes and the vector-api
+     notification
+   - Benefit: More resilient to transient database and network failures
 
 ---
 
