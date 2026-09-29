@@ -191,7 +191,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 | `/chatbot/` | `chatbot-frontend:3001` | `sub_filter` injects chatbot-bridge.js and nav |
 | `/api/`, `/chat/`, `/query/`, etc. | `chatbot-backend:8000` | Chatbot SPA uses `window.location.origin` as base URL |
 | `/sdss/` | `chatbot-backend:8000` | SDSS spatial process routes |
-| `/stac-api/` | `stac-api` | Used by chatbot-bridge.js |
+| `/stac-api/` | `stac-api` | Read-only: `GET`/`HEAD`/`OPTIONS`, plus `POST` on `/stac-api/search`; writes get 403 |
 | `/vector-api/` | `vector-api` | Used by chatbot-bridge.js and map |
 | `/raster-api/` | `raster-api` | Used for tile overlays |
 | `/process-api/` | `process-api:5000` | 630s read timeout for long-running processes |
