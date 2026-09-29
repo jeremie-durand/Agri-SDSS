@@ -365,9 +365,9 @@ services:
       - ENABLE_AUTH=${ENABLE_AUTH:-false}
       - API_KEY=${API_KEY}
       - STAC_API_URL=http://stac-api:${STAC_API_PORT:-8081}
-      - RASTER_API_INTERNAL_URL=http://raster-api:8080
-      - VECTOR_API_INTERNAL_URL=http://vector-api:8080
-      - VECTOR_API_URL=http://vector-api:8080
+      - RASTER_API_INTERNAL_URL=http://raster-api:${RASTER_API_PORT:-8082}
+      - VECTOR_API_INTERNAL_URL=http://vector-api:${VECTOR_API_PORT:-8083}
+      - VECTOR_API_URL=http://vector-api:${VECTOR_API_PORT:-8083}
       - PYGEOAPI_INTERNAL_URL=http://process-api:5000
       - FRONTEND_URL=${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}
       - WEATHER_DATA_SOURCE=${WEATHER_DATA_SOURCE:-planetary_computer}
