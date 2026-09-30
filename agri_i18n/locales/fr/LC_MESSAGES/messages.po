@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Agri-SDSS\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-09-16 14:30+0000\n"
+"POT-Creation-Date: 2026-09-30 18:09+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: fr\n"
@@ -486,8 +486,8 @@ msgid ""
 "Variable(s) {invalid} not available for collection {collection!r}. "
 "Available: {available}"
 msgstr ""
-"Variable(s) {invalid} non disponible(s) pour la collection {collection!r}. "
-"Variables disponibles : {available}"
+"Variable(s) {invalid} non disponible(s) pour la collection "
+"{collection!r}. Variables disponibles : {available}"
 
 #: process-api/processes/weather_backend/msc_backend.py:324
 #, python-brace-format
@@ -592,16 +592,16 @@ msgid ""
 "Invalid collection ID. Only alphanumeric characters, underscores, and "
 "hyphens are allowed."
 msgstr ""
-"Identifiant de collection invalide. Seuls les caractères alphanumériques, "
-"les traits de soulignement et les traits d’union sont autorisés."
+"Identifiant de collection invalide. Seuls les caractères alphanumériques,"
+" les traits de soulignement et les traits d’union sont autorisés."
 
 #: vector-api/src/parquet_router.py:65 vector-api/src/parquet_router.py:99
 msgid ""
 "Parquet service unavailable: DuckDB spatial extension could not be "
 "loaded. Please check server configuration."
 msgstr ""
-"Service Parquet indisponible : l’extension spatiale DuckDB n’a pas pu être "
-"chargée. Veuillez vérifier la configuration du serveur."
+"Service Parquet indisponible : l’extension spatiale DuckDB n’a pas pu "
+"être chargée. Veuillez vérifier la configuration du serveur."
 
 #: vector-api/src/parquet_router.py:73
 #, python-brace-format
@@ -624,17 +624,25 @@ msgstr "Format bbox invalide. Attendu minx,miny,maxx,maxy : {error}"
 msgid "Item not found: {item} in collection {collection}"
 msgstr "Entité introuvable : {item} dans la collection {collection}"
 
+#: vector-api/src/pedo_properties_router.py:91
+#: vector-api/src/pedo_properties_router.py:132
+msgid "Pedological property tables are unavailable."
+msgstr "Les tables de propriétés pédologiques sont indisponibles."
+
+#: vector-api/src/pedo_properties_router.py:100
 #: vector-api/src/pedo_router.py:40 vector-api/src/som_router.py:42
 #: vector-api/src/water_router.py:44
 msgid "'geometry' field is required"
 msgstr "Le champ « geometry » est requis"
 
+#: vector-api/src/pedo_properties_router.py:106
 #: vector-api/src/pedo_router.py:48 vector-api/src/som_router.py:50
 #: vector-api/src/water_router.py:52
 #, python-brace-format
 msgid "Invalid geometry: {error}"
 msgstr "Géométrie invalide : {error}"
 
+#: vector-api/src/pedo_properties_router.py:119
 #: vector-api/src/pedo_router.py:74 vector-api/src/som_router.py:91
 #: vector-api/src/water_router.py:85
 msgid "Internal database error"
