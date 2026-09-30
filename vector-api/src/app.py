@@ -12,7 +12,6 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from agri_i18n.middleware import LocaleASGIMiddleware
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
@@ -22,20 +21,23 @@ from tipg.database import close_db_connection, connect_to_db
 from tipg.main import app as tipg_app
 from tipg.settings import CustomSQLSettings, DatabaseSettings
 
+from agri_i18n.middleware import LocaleASGIMiddleware
+
 from .config import (
     API_DESCRIPTION,
-    EXTERNAL_ROOT,
     API_TITLE,
     API_VERSION,
     CORS_ALLOW_CREDENTIALS,
     CORS_ORIGINS,
     ENDPOINTS,
+    EXTERNAL_ROOT,
     PARQUET_COLLECTIONS,
     PARQUET_PREFIX,
     POSTGIS_COLLECTIONS,
     POSTGIS_PREFIX,
 )
 from .parquet_router import router as parquet_router
+from .pedo_properties_router import router as pedo_properties_router
 from .pedo_router import router as pedo_router
 from .som_router import router as som_router
 from .water_router import router as water_router
@@ -203,6 +205,9 @@ app.include_router(water_router)
 
 # Include the pedo-coverage router
 app.include_router(pedo_router)
+
+# Include the pedo-properties router (IRDA components, hydro group, density)
+app.include_router(pedo_properties_router)
 
 # Include the SOM field-match router
 app.include_router(som_router)
