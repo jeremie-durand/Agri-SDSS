@@ -67,6 +67,7 @@ test-caddy:
 	docker cp caddy/Caddyfile.test $$(docker compose ps -q caddy):/tmp/Caddyfile.test
 	docker compose exec caddy caddy reload --config /tmp/Caddyfile.test --adapter caddyfile
 	@echo "Running rate limiting integration tests..."
+	@status=0; \
 	docker run --rm \
 		--network eoapi-network \
 		-v $(CURDIR)/caddy/test:/test:ro \
@@ -78,9 +79,12 @@ test-caddy:
 		-e RATE_LIMIT_CHATBOT_BROWSE_EVENTS=4 \
 		-e RATE_LIMIT_COG_DOWNLOAD_EVENTS=4 \
 		python:3.11-slim \
-		sh -c "pip install pytest requests urllib3 -q && pytest /test/ -v -m integration -p no:cacheprovider"
-	@echo "Restoring production Caddyfile..."
-	docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+		sh -c "pip install pytest requests urllib3 -q && pytest /test/ -v -m integration -p no:cacheprovider" \
+		|| status=$$?; \
+	echo "Restoring production Caddyfile..."; \
+	docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
+		|| status=1; \
+	exit $$status
 
 .PHONY: build lint-dockerfiles lint-md lint-nginx scan-secrets test-caddy generate-args \
 	smoke-entrypoints \
