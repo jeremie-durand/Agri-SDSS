@@ -51,9 +51,15 @@ curl -X POST https://<host>/stac-api/search \
 
 | Variable | Description |
 | --- | --- |
-| `STAC_API_URL` | Public base URL used for self-links in responses |
-| `POSTGRES_HOST` / `POSTGRES_PORT` | pgSTAC database connection |
-| `POSTGRES_USER` / `POSTGRES_PASS` / `POSTGRES_DBNAME` | Database credentials |
+| `PGHOST` / `PGPORT` / `PGDATABASE` | pgSTAC database connection |
+| `PGUSER` / `PGPASSWORD` | App role the API runs as (`DB_USER` / `DB_PASS`) |
+| `PGSTAC_ADMIN_USER` / `PGSTAC_ADMIN_PASS` | Superuser, used only by the entrypoint to grant pgstac access to the app role (and by test cleanup) |
+| `APP_ROOT_PATH` | Public path prefix (`/stac-api`), passed to uvicorn `--root-path`; self-links are built from it |
+| `CORS_ORIGINS` | Allowed CORS origins (`*` by default in `.env`) |
+| `ENABLE_TRANSACTIONS_EXTENSIONS` | Enables the write endpoints used by gis-pipeline and process-api |
+
+`STAC_API_URL` is not read by stac-api itself: it is the internal URL other
+services use to reach it (`http://stac-api:8081`).
 
 ## Requirements
 

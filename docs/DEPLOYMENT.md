@@ -114,23 +114,27 @@ The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on
 
 ### Rate limiting
 
-PyGeoAPI process routes are rate limited by Caddy. Defaults (per IP):
+Caddy rate-limits per client IP. Defaults:
 
 | Route | Limit |
 | --- | --- |
 | `POST /process-api/processes/*/execution` | 10 requests / minute |
 | `GET /process-api/*` | 60 requests / minute |
+| `POST` chatbot LLM routes (`/api/query`, `/api/geoint/*`, `/sdss/*`, …) | 10 requests / minute |
+| `POST` chatbot catalogue searches (`/api/stac-search`, …) | 30 requests / minute |
+| `GET /api/*` | 60 requests / minute |
+| `GET /cog/*` | 30 requests / minute |
 
-Clients exceeding the limit receive `HTTP 429` with a `Retry-After` header. Adjust in `.env`:
+Clients exceeding a limit receive `HTTP 429` with a `Retry-After` header.
+
+The limits are set in `caddy/Caddyfile` itself — no `.env` variable changes them. To
+adjust one, edit the zone's `window` / `events`, then:
 
 ```bash
-RATE_LIMIT_PYGEOAPI_EXEC_EVENTS=10   # number of POST executions allowed
-RATE_LIMIT_PYGEOAPI_EXEC_WINDOW=1m   # per window duration
-RATE_LIMIT_PYGEOAPI_BROWSE_EVENTS=60
-RATE_LIMIT_PYGEOAPI_BROWSE_WINDOW=1m
+docker compose restart caddy   # Caddyfile is bind-mounted, no rebuild needed
 ```
 
-After changing these values: `docker compose up -d caddy` (no rebuild needed — values are env vars).
+Zone details: [caddy/CLAUDE.md](../caddy/CLAUDE.md#rate-limit-zones).
 
 ---
 
@@ -140,7 +144,9 @@ Caddy is the single entry point for all traffic (ports 80 and 443). Backend serv
 
 ### Local / staging (self-signed certificate)
 
-The default `Caddyfile` uses `tls internal` with `localhost, agri-sdss.local`. No changes needed — Caddy issues a self-signed cert automatically.
+With `SITE_ADDRESS` and `ACME_EMAIL` unset in `.env`, Caddy serves
+`localhost, agri-sdss.local` with `tls internal`. No changes needed — Caddy issues a
+self-signed cert automatically.
 
 To add `agri-sdss.local` to your local hosts file (Windows/Mac client):
 
@@ -150,34 +156,23 @@ To add `agri-sdss.local` to your local hosts file (Windows/Mac client):
 
 ### Production (real domain + Let's Encrypt)
 
-Once your DNS is pointed at the server:
+Once your DNS is pointed at the server, no file needs editing — the `Caddyfile` reads
+its site address and TLS mode from `.env`:
 
-1. Edit `Caddyfile` — replace the host block:
-
-   ```caddyfile
-   # Before
-   localhost, agri-sdss.local {
-       tls internal
-       reverse_proxy home:8080
-   }
-
-   # After
-   mon-domaine.ca {
-       reverse_proxy home:8080
-   }
-   ```
-
-2. Update `.env`:
+1. Update `.env`:
 
    ```ini
+   SITE_ADDRESS=mon-domaine.ca        # Caddy site address (default: localhost, agri-sdss.local)
+   ACME_EMAIL=admin@mon-domaine.ca    # Let's Encrypt account; unset = tls internal (self-signed)
    HOST_PROTOCOL=https
    HOST_URL=mon-domaine.ca
    ```
 
-3. Restart Caddy:
+2. Recreate the services so they pick up the new values (a plain `restart` keeps the
+   old environment):
 
    ```bash
-   docker compose restart caddy
+   docker compose up -d
    ```
 
 Caddy fetches and renews the Let's Encrypt certificate automatically. The `caddy_data` Docker volume persists the certificate across restarts — do not delete it.
@@ -313,8 +308,9 @@ All changes needed when moving from self-signed to a real domain:
 
 | File | Change |
 | --- | --- |
-| `Caddyfile` | Replace `localhost, agri-sdss.local {` + `tls internal` with `ton-domaine.ca {` |
-| `.env` | `HOST_URL=ton-domaine.ca`, `HOST_PROTOCOL=https` |
+| `.env` | `SITE_ADDRESS=ton-domaine.ca`, `ACME_EMAIL=<email>`, `HOST_URL=ton-domaine.ca`, `HOST_PROTOCOL=https` |
+
+Then `docker compose up -d` to recreate the services with the new values.
 
 Any STAC items published before the domain change carry hrefs built from the
 old `HOST_URL` — run the

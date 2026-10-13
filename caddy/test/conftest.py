@@ -1,17 +1,10 @@
 """Fixtures for Caddy rate limiting integration tests.
 
-Requires the full stack running with short rate limit windows:
-    RATE_LIMIT_PYGEOAPI_EXEC_EVENTS=3
-    RATE_LIMIT_PYGEOAPI_EXEC_WINDOW=5s
-    RATE_LIMIT_PYGEOAPI_BROWSE_EVENTS=5
-    RATE_LIMIT_PYGEOAPI_BROWSE_WINDOW=5s
-
-Run with:
-    docker compose run --rm -e RATE_LIMIT_PYGEOAPI_EXEC_EVENTS=3 \\
-        -e RATE_LIMIT_PYGEOAPI_EXEC_WINDOW=5s \\
-        -e RATE_LIMIT_PYGEOAPI_BROWSE_EVENTS=5 \\
-        -e RATE_LIMIT_PYGEOAPI_BROWSE_WINDOW=5s \\
-        caddy pytest caddy/test/ -v -m integration
+Run with ``make test-caddy``. It hot-reloads the running Caddy with
+caddy/Caddyfile.test (the same zones with 5 s windows), runs this suite from a
+python container on eoapi-network, then restores the production Caddyfile even
+when a test fails. The RATE_LIMIT_* variables it passes only tell the tests
+which limits Caddyfile.test sets; they do not configure Caddy.
 """
 
 import os

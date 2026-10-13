@@ -1,6 +1,6 @@
 # raster-api
 
-OGC raster service built on TiTiler. Serves Cloud-Optimized GeoTIFFs (COGs) as map tiles, WCS coverages, WMS layers, and band statistics.
+OGC raster service built on TiTiler. Serves Cloud-Optimized GeoTIFFs (COGs) as dynamic map tiles (XYZ, TileJSON, WMTS), previews, point values, and band statistics.
 
 **Port**: 8082 | **Requires**: COG files in `data/output/raster_cog/`
 
@@ -21,10 +21,14 @@ docker compose up -d raster-api
 | `GET /cog/tiles/{tileMatrixSetId}/{z}/{x}/{y}` | Slippy map tiles (XYZ) |
 | `GET /cog/preview` | Thumbnail image |
 | `GET /cog/statistics` | Band statistics |
-| `GET /wcs` | OGC WCS 2.0.1 |
-| `GET /wms` | OGC WMS 1.3.0 |
+| `GET /cog/point/{lon},{lat}` | Pixel values at a point |
+| `GET /cog/{tileMatrixSetId}/tilejson.json` | TileJSON for web maps |
+| `GET /cog/WMTSCapabilities.xml` | OGC WMTS capabilities |
+| `GET /collections` | COG files available in the mounted data directory (custom route) |
 
-All endpoints accept a `url` parameter pointing to the COG file (local path or cloud URI).
+All `/cog/*` endpoints take a `url` parameter pointing to the COG file. Local
+files are addressed by their container path, e.g. `url=/data/<file>.tif`.
+There are no WMS or WCS endpoints; the full route list is at `/raster-api/api`.
 
 ## Key behaviours
 
@@ -37,8 +41,10 @@ All endpoints accept a `url` parameter pointing to the COG file (local path or c
 
 | Variable | Description |
 | --- | --- |
-| `GDAL_DISABLE_READDIR_ON_OPEN` | Set `EMPTY_DIR` for faster COG access |
-| `CPL_VSIL_CURL_CACHE_SIZE` | VSICURL cache size for remote COGs |
+| `APP_ROOT_PATH` | Public path prefix (`/raster-api`), passed to uvicorn `--root-path` |
+| `RASTER_COG_DIR` | Directory listed by `/collections` (default `/data`) |
+| `GDAL_CACHEMAX` | GDAL block cache size in MB (`200`) |
+| `WEB_CONCURRENCY` | Number of uvicorn workers (`2`) |
 
 ## COG requirements
 

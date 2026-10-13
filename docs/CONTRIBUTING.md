@@ -144,7 +144,7 @@ git commit -m "fix: resolve projection issue in pipeline"
 | `fix:` | Bug fix |
 | `docs:` | Documentation changes |
 | `test:` | Test additions/changes |
-| `refacto:` | Code refactoring |
+| `refactor:` | Code refactoring |
 | `chore:` | Maintenance tasks |
 
 ### 5. Open a Pull Request

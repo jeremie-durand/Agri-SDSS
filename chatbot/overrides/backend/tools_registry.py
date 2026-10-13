@@ -2,7 +2,7 @@
 Quebec SDSS (Spatial Decision Support System) Tools
 
 Plain async functions following the upstream FunctionTool pattern.
-Add to the kernel via: kernel.add_plugin(create_sdss_plugin(), "sdss")
+Called by the /sdss/query agent loop in sdss_api.py.
 """
 
 import logging
@@ -10,6 +10,7 @@ import os
 from typing import Callable, Set
 
 import httpx
+
 from agri_i18n import get_locale
 
 logger = logging.getLogger(__name__)

@@ -32,20 +32,20 @@ def _aiohttp_mock(get_json=None, post_json=None, status: int = 200) -> MagicMock
 
 @pytest.mark.mocked
 def test_health_check_reaches_internal_stac_api():
-    """GET /api/health must call STAC_API_URL (http://stac-api:8080) to verify connectivity."""
+    """GET /api/health must call STAC_API_URL (http://stac-api:8081) to verify connectivity."""
     mock_session = _aiohttp_mock(status=200)
     with patch("aiohttp.ClientSession", return_value=mock_session):
         response = TestClient(app).get("/api/health")
     assert response.status_code == 200
     stac_calls = [
-        c for c in mock_session.get.call_args_list if "stac-api:8080" in str(c)
+        c for c in mock_session.get.call_args_list if "stac-api:8081" in str(c)
     ]
     assert len(stac_calls) >= 1
 
 
 @pytest.mark.mocked
 def test_stac_collections_calls_internal_stac_api():
-    """GET /api/stac/collections must call http://stac-api:8080/collections."""
+    """GET /api/stac/collections must call http://stac-api:8081/collections."""
     fake_collections = {
         "collections": [{"id": "soil-om", "title": "Soil Organic Matter"}]
     }
@@ -54,7 +54,7 @@ def test_stac_collections_calls_internal_stac_api():
         response = TestClient(app).get("/api/stac/collections")
     assert response.status_code == 200
     stac_calls = [
-        c for c in mock_session.get.call_args_list if "stac-api:8080" in str(c)
+        c for c in mock_session.get.call_args_list if "stac-api:8081" in str(c)
     ]
     assert len(stac_calls) >= 1
     assert "/collections" in str(stac_calls[0])
@@ -62,7 +62,7 @@ def test_stac_collections_calls_internal_stac_api():
 
 @pytest.mark.mocked
 def test_stac_search_proxies_to_internal_stac_api():
-    """POST /api/stac-search must POST to http://stac-api:8080/search."""
+    """POST /api/stac-search must POST to http://stac-api:8081/search."""
     fake_geojson = {"type": "FeatureCollection", "features": []}
     mock_session = _aiohttp_mock(post_json=fake_geojson, status=200)
     payload = {
@@ -74,7 +74,7 @@ def test_stac_search_proxies_to_internal_stac_api():
         response = TestClient(app).post("/api/stac-search", json=payload)
     assert response.status_code == 200
     stac_calls = [
-        c for c in mock_session.post.call_args_list if "stac-api:8080" in str(c)
+        c for c in mock_session.post.call_args_list if "stac-api:8081" in str(c)
     ]
     assert len(stac_calls) >= 1
     assert "/search" in str(stac_calls[0])
@@ -83,6 +83,6 @@ def test_stac_search_proxies_to_internal_stac_api():
 @pytest.mark.mocked
 def test_internal_service_env_vars_match_docker_hostnames():
     """Env vars for raster-api, vector-api, process-api must use correct Docker network hostnames."""
-    assert os.getenv("RASTER_API_INTERNAL_URL") == "http://raster-api:8080"
-    assert os.getenv("VECTOR_API_INTERNAL_URL") == "http://vector-api:8080"
+    assert os.getenv("RASTER_API_INTERNAL_URL") == "http://raster-api:8082"
+    assert os.getenv("VECTOR_API_INTERNAL_URL") == "http://vector-api:8083"
     assert os.getenv("PYGEOAPI_INTERNAL_URL") == "http://process-api:5000"

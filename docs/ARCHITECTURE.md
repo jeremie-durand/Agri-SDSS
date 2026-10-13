@@ -46,7 +46,7 @@ flowchart LR
 | `gis-pipeline` | — | Ingestion: geodata → PostGIS + COGs + GeoParquet + STAC |
 | `stac-api` | 8081 | STAC 1.0.0 catalog (stac-fastapi + pgSTAC) |
 | `vector-api` | 8083 | OGC Features — PostGIS (TiPg) and DuckDB/Parquet backends |
-| `raster-api` | 8082 | OGC Tiles / WCS / WMS for COGs (TiTiler) |
+| `raster-api` | 8082 | Dynamic tiles, previews and statistics for COGs (TiTiler) |
 | `process-api` | 5000 | OGC Processes — climate, satellite, LiDAR (PyGeoAPI + OpenEO) |
 | `chatbot` | 8000 / 3001 | AI geospatial assistant (backend + React frontend) |
 | `stac-browser` | 8080 | STAC catalog explorer UI (served at `/stac/` via home) |

@@ -33,14 +33,14 @@ graph TD
     Home -->|/| Map[map.html<br/>Leaflet map]
     Home -->|/services| Services[index.html<br/>Services overview]
     Home -->|/data| Data[data.html<br/>Data catalog]
-    Home -->|/stac/| STAC[stac-browser<br/>:8085]
+    Home -->|/stac/| STAC[stac-browser<br/>:8080]
     Home -->|/chatbot/| Chatbot[chatbot-frontend<br/>:3001]
 
     Home -->|/stac-api/| StacAPI[stac-api<br/>:8081]
     Home -->|/vector-api/| VectorAPI[vector-api<br/>:8083]
     Home -->|/raster-api/| RasterAPI[raster-api<br/>:8082]
     Home -->|/process-api/| PyGeoAPI[process-api<br/>:5000]
-    Home -->|/api, /chat, ...| ChatbotAPI[chatbot-backend<br/>:8005]
+    Home -->|/api, /sdss| ChatbotAPI[chatbot-backend<br/>:8000]
 
     Map -->|postMessage| Chatbot
     Chatbot -->|postMessage| Map
@@ -89,18 +89,18 @@ docker run --rm --network eoapi-network curlimages/curl:latest -sI http://home:8
 
 ## Configuration
 
-The nginx config is generated at container startup by `scripts/entrypoint.sh`. Backend service ports are patched in at runtime from environment variables.
-
-**Environment Variables:**
+The nginx config is generated at container startup by `scripts/entrypoint.sh`. Three
+backend ports are patched in at startup from environment variables:
 
 ```bash
-STAC_BROWSER_PORT=8085       # stac-browser container port
 STAC_API_PORT=8081           # stac-api container port
 RASTER_API_PORT=8082         # raster-api container port
 VECTOR_API_PORT=8083         # vector-api container port
-PROCESS_API_PORT=5000       # process-api container port
-CHATBOT_BACKEND_PORT=8005    # chatbot-backend container port
 ```
+
+The other proxy targets are fixed in the script: `stac-browser:8080`,
+`chatbot-frontend:3001`, `chatbot-backend:8000` and `process-api:5000`. Changing
+one of those ports means editing `entrypoint.sh` and rebuilding.
 
 These are all container-internal ports used to build the proxy targets in the
 generated nginx config — none of them is a host-side port for `home` itself.
@@ -139,7 +139,8 @@ expects, so changing them only makes sense alongside replacing that analysis.
 To change a proxy route or add a new one:
 
 1. Edit `scripts/entrypoint.sh` — the nginx config is generated there as a heredoc
-2. Rebuild the container: `docker compose up home --build`
+2. Validate it: `make lint-nginx`
+3. Rebuild the container: `docker compose up -d --build home`
 
 ---
 
@@ -187,11 +188,11 @@ The main page. Modules loaded via ES imports from `html/js/`:
 
 | Path | Proxied To | Notes |
 | ------ | ----------- | ------- |
-| `/stac/` | `stac-browser:8085` | `sub_filter` rewrites asset paths and injects nav |
+| `/stac/` | `stac-browser:8080` | `sub_filter` rewrites asset paths and injects nav |
 | `/chatbot/` | `chatbot-frontend:3001` | `sub_filter` injects chatbot-bridge.js and nav |
-| `/api/`, `/chat/`, `/query/`, etc. | `chatbot-backend:8000` | Chatbot SPA uses `window.location.origin` as base URL |
+| `/api/*` and `/{pc_collections_metadata,pc_rendering_config,stac_collections}.json` | `chatbot-backend:8000` | Chatbot SPA uses `window.location.origin` as base URL; nothing else is proxied to the backend. Mirrored in `chatbot/overrides/frontend/nginx.conf` |
 | `/sdss/` | `chatbot-backend:8000` | SDSS spatial process routes |
-| `/stac-api/` | `stac-api` | Used by chatbot-bridge.js |
+| `/stac-api/` | `stac-api` | Read-only: `GET`/`HEAD`/`OPTIONS`, plus `POST` on `/stac-api/search`; writes get 403 |
 | `/vector-api/` | `vector-api` | Used by chatbot-bridge.js and map |
 | `/raster-api/` | `raster-api` | Used for tile overlays |
 | `/process-api/` | `process-api:5000` | 630s read timeout for long-running processes |
@@ -204,10 +205,13 @@ The main page. Modules loaded via ES imports from `html/js/`:
 
 ### Editing Static Files
 
-The HTML, CSS, and JS files in `html/` are served directly by nginx — no build step. Edit and rebuild:
+The HTML, CSS, and JS files in `html/` are served directly by nginx — no build step.
+`html/js/`, `html/css/`, `map.html`, `data.html`, `about.html` and `report-bug.html` are
+bind-mounted read-only, so edits are live: hard-refresh the browser. `index.html` is
+baked into the image (as `index.html.template`), so it needs a rebuild:
 
 ```bash
-docker compose up home --build
+docker compose up -d --build home
 ```
 
 ### Editing the Nginx Config
@@ -246,12 +250,22 @@ Open the browser console on the map page (`https://<host>`) and check for `postM
 curl -s https://<host>/chatbot/ | grep chatbot-bridge.js
 ```
 
-### Environment variable not applied
+### 502 on every API route after recreating a backend
 
-The entrypoint patches ports at startup — a rebuild is not needed, but the container must be restarted:
+nginx resolves each `proxy_pass` hostname once, at startup, so a recreated backend
+container (new IP) is unreachable until `home` restarts:
 
 ```bash
-docker compose up -d home
+docker compose restart home
+```
+
+### Environment variable not applied
+
+The entrypoint reads its variables at startup — a rebuild is not needed, but the
+container must be recreated to pick up new values:
+
+```bash
+docker compose up -d --force-recreate home
 ```
 
 ---

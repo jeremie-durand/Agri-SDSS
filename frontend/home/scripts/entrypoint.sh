@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# Substitute environment variables into the HTML template
+# index.html is baked in as a template and copied as is (no substitution)
 cp /usr/share/nginx/html/index.html.template /usr/share/nginx/html/index.html
 
 cat > /usr/share/nginx/html/runtime-config.js <<RUNTIME_EOF
@@ -156,8 +156,20 @@ server {
     }
 
     # ── Local Agri-SDSS API proxies (used by chatbot-bridge.js) ────────────────
+    # Read-only in public: stac-api runs the Transactions extension with no auth,
+    # for gis-pipeline and process-api, which publish on the internal URL.
     location /stac-api/ {
+        limit_except GET OPTIONS { deny all; }
         proxy_pass http://stac-api:8080/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        add_header Access-Control-Allow-Origin *;
+    }
+    # POST /search is a read (CQL2 filters in the body), used by STAC Browser.
+    location = /stac-api/search {
+        limit_except GET POST OPTIONS { deny all; }
+        proxy_pass http://stac-api:8080/search;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $forwarded_proto;
