@@ -259,7 +259,8 @@ function somPredictDisplayResults(fc) {
         return;
     }
 
-    var factor   = (somPredictUnit === 'pct') ? 0.1 : 1.0;
+    // Model values are % SOM (loss on ignition); 1 % = 10 g/kg.
+    var factor   = (somPredictUnit === 'pct') ? 1.0 : 10.0;
     var unitLabel = (somPredictUnit === 'pct') ? 'SOM (%)' : 'SOM (g/kg)';
     var unitSuffix = (somPredictUnit === 'pct') ? ' %' : ' g/kg';
 
@@ -287,7 +288,8 @@ function somPredictDisplayResults(fc) {
             labels: years,
             datasets: [
                 {
-                    label: '_max',
+                    label: _tL()['som-chart-band'] || 'Min–max of per-image predictions within the year',
+                    isBand: true,
                     data: maxPred,
                     borderColor: 'transparent',
                     backgroundColor: 'rgba(34,211,238,0.12)',
@@ -342,6 +344,11 @@ function somPredictDisplayResults(fc) {
                     callbacks: {
                         label: function(ctx) {
                             if (ctx.dataset.label[0] === '_') return null;
+                            if (ctx.dataset.isBand) {
+                                var lo = minPred[ctx.dataIndex], hi = maxPred[ctx.dataIndex];
+                                if (lo == null || hi == null) return null;
+                                return ctx.dataset.label + ': ' + lo.toFixed(2) + '–' + hi.toFixed(2) + unitSuffix;
+                            }
                             return ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y.toFixed(2) + unitSuffix : '—');
                         }
                     }
@@ -731,6 +738,7 @@ export async function somShowPreview() {
             '<div class="som-report-page__section">' +
                 '<div class="som-report-section-title">' + tLang['som-pdf-projection'] + '</div>' +
                 chartHtml +
+                '<div class="som-report-disclaimer">' + tLang['som-illustrative-note'] + '</div>' +
             '</div>' +
             '<div class="som-report-disclaimer">' + tLang['som-pdf-disclaimer'] + '</div>' +
             '<div class="som-report-footer">' +
@@ -852,19 +860,32 @@ export function somSavePdf() {
     doc.text(tLang['som-pdf-projection'], 12, y);
     y += 6;
 
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7.5);
+    var noteLines = doc.splitTextToSize(tLang['som-illustrative-note'], 186);
+    var disclaimerLines = doc.splitTextToSize(tLang['som-pdf-disclaimer'], 186);
+    var lineH = 3.2;
+    var textH = (noteLines.length + disclaimerLines.length) * lineH + 2;
+
     if (s.chartDataUrl) {
         var cw = (somChartInstance && somChartInstance.canvas.width)  || 440;
         var ch = (somChartInstance && somChartInstance.canvas.height) || 180;
         var chartW = 186;
         var chartH = Math.round(chartW * ch / cw);
+        // Shrink a tall chart so the note and disclaimer stay above the footer rule (y = 285).
+        var maxChartH = 282 - y - 5 - textH;
+        if (chartH > maxChartH) {
+            chartW = Math.round(chartW * maxChartH / chartH);
+            chartH = maxChartH;
+        }
         doc.addImage(s.chartDataUrl, 'PNG', 12, y, chartW, chartH);
         y += chartH + 5;
     }
 
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(7.5);
     doc.setTextColor(155, 182, 210);
-    doc.text(tLang['som-pdf-disclaimer'], 12, y, { maxWidth: 186 });
+    doc.text(noteLines, 12, y);
+    y += noteLines.length * lineH + 2;
+    doc.text(disclaimerLines, 12, y);
 
     // ── Footer ────────────────────────────────────────────────────────────────
     doc.setDrawColor(41, 71, 102);

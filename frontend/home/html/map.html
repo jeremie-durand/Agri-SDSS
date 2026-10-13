@@ -252,6 +252,7 @@
 
       <div class="som-results" id="somResults" hidden>
         <h3 class="som-results__title" data-i18n="som-results-title">Projected SOM</h3>
+        <p class="som-results__note" data-i18n="som-illustrative-note">Illustrative only: placeholder values, not computed from the form inputs.</p>
         <div class="som-chart-wrap">
           <canvas id="somChart"></canvas>
         </div>
@@ -462,6 +463,7 @@
       'som-run-ok':        'Analysis complete',
       'som-run-error':     'PyGeoAPI unreachable',
       'som-results-title': 'Projected SOM (%)',
+      'som-illustrative-note': 'Illustrative only: placeholder values, not computed from the form inputs.',
       'som-export-pdf':        'Export PDF',
       'som-fields-required':   'Some required fields are missing',
       'som-pdf-title':         'Agri-SDSS — SOM Analysis Report',
@@ -537,7 +539,7 @@
       'som-help-farmer-images':     '<strong>Images used</strong>: the number of cloud-free satellite images from autumn and early spring included in the model. More images = more reliable result. At least 5 is recommended.',
       'som-help-scientist-title':   'For scientists',
       'som-help-scientist-model':   'RandomForestRegressor on Sentinel-2 spectral indices (BSI, NDVI, EVI, SAVI, OMI, CAI, RI, SI, BI, CI, NDMI + stdDev) with one-hot soil type encoding. Scenarios: S1 (spectral+soil), S2 (+topo), S3 (+topo+climate). Feature selection via LassoCV on inner train set (GroupShuffleSplit 80/20 by FIELD_ID). Image ranking via GroupKFold(3) RMSE. Optimal image count: argmax R² on inner validation. Back-transform: Duan smearing (log₁₀).',
-      'som-help-scientist-metrics': 'R² and RMSE are computed on field-level aggregated predictions (mean over images per field). When the test set contains only 1 field, field-level R² is undefined; inner-validation R² is shown instead (*).',
+      'som-help-scientist-metrics': 'R² and RMSE are computed on field-level aggregated predictions (mean over images per field). When the test set contains only 1 field, field-level R² is undefined; inner-validation R² is shown instead (*). The shaded band spans the minimum and maximum of the per-image predictions within each year, i.e. the spread across Sentinel-2 acquisition dates; it is not a model-uncertainty interval.',
       'som-help-scientist-gee':     'Training data from GEE: Sentinel-2 L2A, bare-soil masked (BSI &gt; 0), cloud filter &lt; 1% at tile level. Low image counts may reflect strict cloud filtering in high-cloud years or limited bare-soil exposure windows.',
       'aac-not-live':          'Note: The 2025 layer is not yet available from Agriculture Canada.',
       'vector-none':           'No vector collection.',
@@ -545,6 +547,7 @@
       'vector-loading':        'Vector: loading collections…',
       'som-chart-predicted':   'Predicted SOM (avg)',
       'som-chart-measured':    'Measured SOM (avg)',
+      'som-chart-band':        'Min–max of per-image predictions within the year',
       'som-pdf-unavailable':   'PDF export unavailable (jsPDF not loaded).',
       'chat-backend-error':    'Error: could not reach the backend.',
       'chat-analysing':        'Analysing…',
@@ -617,6 +620,7 @@
       'som-run-ok':        'Analyse terminée',
       'som-run-error':     'PyGeoAPI inaccessible',
       'som-results-title': 'MOS projeté (%)',
+      'som-illustrative-note': 'Illustratif seulement : valeurs fictives, non calculées à partir des données du formulaire.',
       'som-export-pdf':        'Exporter PDF',
       'som-fields-required':   'Certains champs requis sont manquants',
       'som-pdf-title':         'Agri-SDSS — Rapport d’analyse SOM',
@@ -684,7 +688,7 @@
       'som-help-farmer-images':     '<strong>Images utilisées</strong> : le nombre d\'images satellites sans nuages du printemps et de l\'automne incluses dans le modèle. Plus il y a d\'images, plus le résultat est fiable. Au moins 5 images sont recommandées.',
       'som-help-scientist-title':   'Pour les scientifiques',
       'som-help-scientist-model':   'Régression RandomForest sur indices spectraux Sentinel-2 (BSI, NDVI, EVI, SAVI, OMI, CAI, RI, SI, BI, CI, NDMI + écart-type) avec encodage one-hot du type de sol. Scénarios : S1 (spectral+sol), S2 (+topo), S3 (+topo+climat). Sélection de variables via LassoCV sur jeu d\'entraînement interne (GroupShuffleSplit 80/20 par FIELD_ID). Classement des images via RMSE GroupKFold(3). Nombre optimal d\'images : argmax R² sur la validation interne. Rétrotransformation : estimateur de Duan (espace log₁₀).',
-      'som-help-scientist-metrics': 'R² et RMSE sont calculés sur les prédictions agrégées à l\'échelle de la parcelle (moyenne sur les images par parcelle). Lorsque le jeu de test ne contient qu\'une seule parcelle, le R² au niveau parcellaire est indéfini ; le R² de validation interne est alors affiché (*).',
+      'som-help-scientist-metrics': 'R² et RMSE sont calculés sur les prédictions agrégées à l\'échelle de la parcelle (moyenne sur les images par parcelle). Lorsque le jeu de test ne contient qu\'une seule parcelle, le R² au niveau parcellaire est indéfini ; le R² de validation interne est alors affiché (*). La bande ombrée couvre le minimum et le maximum des prédictions par image dans chaque année, c\'est-à-dire la dispersion entre les dates d\'acquisition Sentinel-2 ; ce n\'est pas un intervalle d\'incertitude du modèle.',
       'som-help-scientist-gee':     'Données d\'entraînement via GEE : Sentinel-2 L2A, masque sol nu (BSI &gt; 0), filtre nuage &lt; 1 % au niveau de la tuile. Un faible nombre d\'images peut refléter un filtrage nuageux strict ou une exposition limitée au sol nu.',
       'aac-not-live':          'Note : La couche 2025 n\'est pas encore disponible sur Agriculture Canada.',
       'vector-none':           'Aucune collection vectorielle.',
@@ -692,6 +696,7 @@
       'vector-loading':        'Vector : chargement des collections…',
       'som-chart-predicted':   'MOS prédite (moy.)',
       'som-chart-measured':    'MOS mesurée (moy.)',
+      'som-chart-band':        'Min–max des prédictions par image dans l\'année',
       'som-pdf-unavailable':   'Export PDF indisponible (jsPDF non chargé).',
       'chat-backend-error':    'Erreur : impossible de joindre le serveur.',
       'chat-analysing':        'Analyse en cours…',
