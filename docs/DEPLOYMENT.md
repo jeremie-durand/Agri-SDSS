@@ -36,6 +36,20 @@ Notes:
 - Running Ollama inside the chatbot backend adds ~4 GiB during inference — the main reason to pick 16 GB for production.
 - Compose resource limits are ceilings, not reservations — idle usage of the whole stack is under 1 GiB.
 
+### Reference deployment
+
+The performance figures published for this platform were measured on this host.
+Service and library versions are pinned in each service's `Dockerfile.<service>`
+and `requirements-<service>.txt`; the host-side versions are not, so they are
+recorded here:
+
+| Item | Value |
+| --- | --- |
+| Host | OVHcloud virtual private server, Ubuntu 26.04 |
+| CPU / RAM / storage | 6 vCPU, 11 GiB RAM, two 100 GB virtual disks |
+| Docker Engine | 29.2.1 |
+| Docker Compose | 5.0.2 |
+
 ---
 
 ## 1. Clone & configure
