@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 
 
 # Bumped whenever a change makes previously cached bundles wrong to serve
-# rather than merely stale. v2 introduced out-of-bag predictions and an
-# out-of-bag smearing factor; a v1 bundle carries in-sample values and a
-# smearing factor pinned near 1.0, so it must be retrained rather than reused.
-BUNDLE_FORMAT_VERSION = 2
+# rather than merely stale. v2 introduced out-of-bag predictions; v3 replaces
+# them with field-grouped cross-validated predictions, because an out-of-bag
+# estimate can still come from trees that saw other images of the same field.
+BUNDLE_FORMAT_VERSION = 3
 
 
 @dataclass
@@ -48,7 +48,7 @@ class SOMModelBundle:
     log_som_bounds: tuple[float, float]
     rf_production: RandomForestRegressor
     smearing_factor: float
-    oob_predictions: dict[tuple[int, str], float]
+    cv_predictions: dict[tuple[int, str], float]
     global_metrics: dict[str, Any]
     fingerprint: str
     trained_at: str
@@ -189,7 +189,7 @@ class SOMModelStore:
 
         production_metrics = artifacts.get("production_metrics")
         if production_metrics:
-            global_metrics["production_oob"] = production_metrics
+            global_metrics["production_cv"] = production_metrics
 
         return SOMModelBundle(
             scenario=scenario,
@@ -201,7 +201,7 @@ class SOMModelStore:
             log_som_bounds=result["log_som_bounds"],
             rf_production=artifacts["rf_production"],
             smearing_factor=artifacts["smearing_factor"],
-            oob_predictions=artifacts["oob_predictions"],
+            cv_predictions=artifacts["cv_predictions"],
             global_metrics=global_metrics,
             fingerprint=fingerprint,
             trained_at=datetime.now(timezone.utc).isoformat(),
@@ -243,19 +243,19 @@ class SOMModelStore:
 
         # A requested field is usually part of the production model's training
         # set, where predict() returns a near-memorised value. Swap in that
-        # row's out-of-bag prediction where one exists, so the served number is
-        # out-of-sample; rows genuinely unseen keep the ordinary prediction.
-        oob_map = getattr(bundle, "oob_predictions", None) or {}
-        oob_hits = 0
+        # row's field-grouped cross-validated prediction, whose RandomForest
+        # never saw the field (feature and image selection are shared across
+        # folds); rows of unseen fields keep the ordinary prediction.
+        cv_hits = 0
         for i, (_idx, row) in enumerate(data.iterrows()):
             key = (int(row["FIELD_ID"]), str(row["Image_ID"]))
-            if key in oob_map:
-                y_pred_log[i] = oob_map[key]
-                oob_hits += 1
+            if key in bundle.cv_predictions:
+                y_pred_log[i] = bundle.cv_predictions[key]
+                cv_hits += 1
         logger.info(
-            "Served %d of %d predictions from out-of-bag estimates for "
+            "Served %d of %d predictions from grouped cross-validation for "
             "scenario '%s'.",
-            oob_hits,
+            cv_hits,
             len(data),
             bundle.scenario,
         )
