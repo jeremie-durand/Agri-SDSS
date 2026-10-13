@@ -940,33 +940,45 @@ class PostGISManager:
         """Return True if table_name exists in the connected database."""
         return sqlalchemy.inspect(self.engine).has_table(table_name)
 
-    def stamp_gee_flags(self, table_name: str, gee_field_ids: set[int]) -> None:
-        """Ensure has_gee_data column exists and stamp TRUE for fields with GEE data.
+    def stamp_gee_flags(self, table_name: str, gid_to_field_id: dict[int, int]) -> None:
+        """Stamp gee_field_id and has_gee_data on every row of table_name.
 
         Idempotent: safe to call on every pipeline run. Runs ADD COLUMN + one
-        UPDATE in a single transaction. If gee_field_ids is empty, ANY('{}') is
-        FALSE for every row, so all rows get has_gee_data=FALSE.
+        UPDATE in a single transaction. Rows whose gid is not in
+        gid_to_field_id get gee_field_id = NULL and has_gee_data = FALSE, so an
+        empty mapping clears every stale flag.
 
         Args:
             table_name: Target PostGIS table (e.g. 'som_field_boundaries').
-            gee_field_ids: Set of integer gid values that have GEE Sentinel-2 data.
+            gid_to_field_id: gid -> GEE FIELD_ID for the fields with GEE data.
         """
         try:
             with self.engine.begin() as conn:
                 conn.execute(
                     sqlalchemy.text(
                         f'ALTER TABLE "{table_name}" '
-                        "ADD COLUMN IF NOT EXISTS has_gee_data BOOLEAN DEFAULT FALSE"
+                        "ADD COLUMN IF NOT EXISTS has_gee_data BOOLEAN DEFAULT FALSE, "
+                        "ADD COLUMN IF NOT EXISTS gee_field_id INTEGER"
                     )
                 )
                 conn.execute(
                     sqlalchemy.text(
-                        f'UPDATE "{table_name}" ' "SET has_gee_data = (gid = ANY(:ids))"
+                        f'UPDATE "{table_name}" AS t '
+                        "SET gee_field_id = m.field_id, "
+                        "has_gee_data = (m.field_id IS NOT NULL) "
+                        f'FROM "{table_name}" AS s '
+                        "LEFT JOIN unnest(CAST(:gids AS integer[]), "
+                        "CAST(:field_ids AS integer[])) AS m(gid, field_id) "
+                        "ON m.gid = s.gid "
+                        "WHERE t.gid = s.gid"
                     ),
-                    {"ids": list(gee_field_ids)},
+                    {
+                        "gids": list(gid_to_field_id),
+                        "field_ids": list(gid_to_field_id.values()),
+                    },
                 )
             logger.info(
-                "gee_flags_stamped", table=table_name, flagged=len(gee_field_ids)
+                "gee_flags_stamped", table=table_name, flagged=len(gid_to_field_id)
             )
         except sqlalchemy.exc.SQLAlchemyError as exc:
             logger.error("gee_flags_stamp_failed", table=table_name, error=str(exc))

@@ -9,8 +9,9 @@ folder) and writes to data/input/vector/ by default:
 Run once from the host before executing the gis-pipeline:
   python gis-pipeline/scripts/prepare_som_data.py /path/to/FieldBoundariesandAnalysis
 
-The pipeline stamps has_gee_data on som_field_boundaries itself at the end of
-every run; no post-step is needed.
+The pipeline stamps gee_field_id and has_gee_data on som_field_boundaries
+itself at the end of every run, from the lookup table that
+build_field_id_map.py writes; no post-step is needed.
 """
 
 from __future__ import annotations
@@ -28,10 +29,11 @@ TARGET_CRS = "EPSG:4326"
 
 
 def prepare_field_boundaries(source_dir: Path, output_dir: Path) -> None:
-    """Add gid = OGR FID to field boundaries so FIELD_ID in GEE CSVs is preserved.
+    """Add gid = OGR FID (shapefile row order, from 0) to field boundaries.
 
-    The has_gee_data column is added by the gis-pipeline after it ingests this
-    shapefile into PostGIS.
+    gid is not the GEE FIELD_ID: build_field_id_map.py maps one to the other,
+    and the gis-pipeline stamps gee_field_id and has_gee_data from that table
+    after it ingests this shapefile into PostGIS.
     """
     src = source_dir / "champs_boundary_luzerne_lcc_200322_REPROJECT.shp"
     dst = output_dir / "som_field_boundaries.shp"

@@ -903,9 +903,7 @@ def test_insert_cog_metadata_new_table_real_column_mapping(
         "gis_pipeline.modules.db.pg_utils.sqlalchemy.inspect",
         return_value=mock_inspector,
     ):
-        with patch.object(
-            postgis_manager, "_create_table_from_mapping"
-        ) as mock_create:
+        with patch.object(postgis_manager, "_create_table_from_mapping") as mock_create:
             postgis_manager.insert_cog_metadata(
                 metadata=cog_metadata_simple, table_name=table_name
             )
@@ -1777,37 +1775,51 @@ def test_add_fk_constraints_skips_unique_violation(postgis_manager):
 
 @pytest.mark.unit
 class TestStampGeeFlags:
-    def test_add_column_then_one_combined_update(self, postgis_manager, mock_engine):
-        """ADD COLUMN + a single UPDATE that both sets and clears the flag."""
+    def test_add_columns_then_one_combined_update(self, postgis_manager, mock_engine):
+        """ADD COLUMN for both columns + a single UPDATE that sets and clears."""
         mock_conn = mock_engine.begin.return_value
         mock_conn.execute.reset_mock()
-        postgis_manager.stamp_gee_flags("som_field_boundaries", {1, 42})
+        postgis_manager.stamp_gee_flags("som_field_boundaries", {4: 753, 853: 391})
 
         assert mock_conn.execute.call_count == 2
         statements = [str(call.args[0]) for call in mock_conn.execute.call_args_list]
         assert "ADD COLUMN IF NOT EXISTS has_gee_data" in statements[0]
-        assert "SET has_gee_data = (gid = ANY(:ids))" in statements[1]
+        assert "ADD COLUMN IF NOT EXISTS gee_field_id INTEGER" in statements[0]
+        assert "SET gee_field_id = m.field_id" in statements[1]
+        assert "has_gee_data = (m.field_id IS NOT NULL)" in statements[1]
+        assert "LEFT JOIN unnest" in statements[1]
 
-    def test_empty_id_set_still_clears_every_row(self, postgis_manager, mock_engine):
-        """An empty set must still run the UPDATE, so stale TRUE flags are cleared.
+    def test_gids_and_field_ids_are_passed_in_matching_order(
+        self, postgis_manager, mock_engine
+    ):
+        """unnest pairs the two arrays by position, so their order must match."""
+        mock_conn = mock_engine.begin.return_value
+        mock_conn.execute.reset_mock()
+        postgis_manager.stamp_gee_flags("som_field_boundaries", {4: 753, 853: 391})
 
-        ANY('{}') is FALSE for every row, so the combined statement covers the
-        empty case without a separate reset pass.
+        params = mock_conn.execute.call_args_list[-1].args[1]
+        assert dict(zip(params["gids"], params["field_ids"])) == {4: 753, 853: 391}
+
+    def test_empty_mapping_still_clears_every_row(self, postgis_manager, mock_engine):
+        """An empty mapping must still run the UPDATE, so stale flags are cleared.
+
+        The LEFT JOIN leaves every row unmatched, so each one gets
+        gee_field_id = NULL and has_gee_data = FALSE without a separate reset.
         """
         mock_conn = mock_engine.begin.return_value
         mock_conn.execute.reset_mock()
-        postgis_manager.stamp_gee_flags("som_field_boundaries", set())
+        postgis_manager.stamp_gee_flags("som_field_boundaries", {})
 
         assert mock_conn.execute.call_count == 2
         update = mock_conn.execute.call_args_list[-1]
-        assert "SET has_gee_data = (gid = ANY(:ids))" in str(update.args[0])
-        assert update.args[1] == {"ids": []}
+        assert "SET gee_field_id = m.field_id" in str(update.args[0])
+        assert update.args[1] == {"gids": [], "field_ids": []}
 
     def test_db_error_raises_runtime_error(self, postgis_manager, mock_engine):
         """A PostGIS error must surface as RuntimeError so the pipeline notices."""
         mock_engine.begin.side_effect = sqlalchemy.exc.SQLAlchemyError("DB gone")
         with pytest.raises(RuntimeError, match="Failed to stamp GEE flags"):
-            postgis_manager.stamp_gee_flags("som_field_boundaries", {1})
+            postgis_manager.stamp_gee_flags("som_field_boundaries", {4: 753})
 
 
 # ------------------------------------------

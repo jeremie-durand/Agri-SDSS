@@ -12,10 +12,6 @@ import numpy as np
 import pandas as pd
 import rasterio
 import structlog
-from rasterio.coords import BoundingBox
-from rasterio.warp import transform_bounds
-from shapely import get_dimensions, get_parts, make_valid
-from shapely.ops import unary_union
 from gis_pipeline.core.config import (
     Config,
     public_cog_url,
@@ -27,9 +23,6 @@ from gis_pipeline.core.logging_setup import handle_error
 from gis_pipeline.core.utils import add_process_to_logger, harmonize_name
 from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
 from gis_pipeline.modules.db.materialize_trigger import trigger_materialize_and_notify
-from pyproj import CRS
-from pyproj.exceptions import CRSError
-
 from gis_pipeline.modules.db.pg_utils import PostGISManager
 from gis_pipeline.modules.io_tools.input_data import read_csv_file
 from gis_pipeline.modules.processing.processing_stac import (
@@ -45,6 +38,12 @@ from gis_pipeline.services.mapping import (
     QGISInternalLayers,
     RasterTargetCRSOverrides,
 )
+from pyproj import CRS
+from pyproj.exceptions import CRSError
+from rasterio.coords import BoundingBox
+from rasterio.warp import transform_bounds
+from shapely import get_dimensions, get_parts, make_valid
+from shapely.ops import unary_union
 
 logger = structlog.get_logger()
 
@@ -659,6 +658,27 @@ def _process_non_spatial_table(
 
 
 GEE_TABLE_NAME = "som_field_boundaries"
+FIELD_ID_MAP_PATH = (
+    Path(__file__).resolve().parents[2] / "resources" / "som_field_id_to_gid.csv"
+)
+
+
+def load_field_id_to_gid(path: Path = FIELD_ID_MAP_PATH) -> dict[int, int]:
+    """Return the GEE FIELD_ID -> som_field_boundaries gid lookup.
+
+    GEE numbers fields by the order of ``fields.toList()``, a block permutation
+    of the shapefile row order that the platform uses as gid, so the two
+    identifiers differ. The table is built by
+    ``gis-pipeline/scripts/build_field_id_map.py``.
+
+    Args:
+        path: CSV with ``FIELD_ID`` and ``gid`` columns.
+
+    Returns:
+        Mapping of FIELD_ID to gid.
+    """
+    df = pd.read_csv(path, usecols=["FIELD_ID", "gid"])
+    return dict(zip(df["FIELD_ID"].astype(int), df["gid"].astype(int)))
 
 
 def get_gee_field_ids(duckdb_data_dir: str) -> set[int]:
@@ -686,20 +706,52 @@ def get_gee_field_ids(duckdb_data_dir: str) -> set[int]:
         return set()
 
 
+def get_gee_gid_map(duckdb_data_dir: str) -> dict[int, int]:
+    """Return gid -> FIELD_ID for the fields that have GEE data.
+
+    FIELD_IDs present in the BareSoil parquet files but missing from the lookup
+    table are logged and left out.
+
+    Args:
+        duckdb_data_dir: Directory containing BareSoil_TOPCLI_*.parquet files.
+
+    Returns:
+        Mapping of som_field_boundaries gid to GEE FIELD_ID.
+    """
+    field_ids = get_gee_field_ids(duckdb_data_dir)
+    field_id_to_gid = load_field_id_to_gid()
+    unmapped = field_ids - field_id_to_gid.keys()
+    if unmapped:
+        logger.warning(
+            "gee_field_ids_unmapped", count=len(unmapped), field_ids=sorted(unmapped)
+        )
+    return {field_id_to_gid[fid]: fid for fid in field_ids & field_id_to_gid.keys()}
+
+
 def stamp_gee_flags_on_field_boundaries() -> None:
-    """Stamp has_gee_data on som_field_boundaries and refresh its GeoParquet.
+    """Stamp gee_field_id and has_gee_data, then refresh the GeoParquet.
 
     Called once after all vector tables are loaded (end of process_vector_pipeline).
     Skipped quietly when som_field_boundaries has not been ingested yet. Fully
-    non-fatal: any failure is logged as a warning and does not abort the pipeline.
+    non-fatal: any failure is logged and does not abort the pipeline. An
+    unreadable FIELD_ID lookup still stamps the columns, with no field flagged,
+    so som-predict-soil reports missing GEE data instead of a missing column.
     """
     try:
         with PostGISManager() as pg_manager:
             if not pg_manager.has_table(GEE_TABLE_NAME):
                 logger.info("gee_flags_table_missing", table=GEE_TABLE_NAME)
                 return
-            field_ids = get_gee_field_ids(Config.DUCKDB_DATA_DIR)
-            pg_manager.stamp_gee_flags(GEE_TABLE_NAME, field_ids)
+            try:
+                gid_to_field_id = get_gee_gid_map(Config.DUCKDB_DATA_DIR)
+            except (OSError, ValueError) as exc:
+                logger.error(
+                    "gee_field_id_map_unreadable",
+                    path=str(FIELD_ID_MAP_PATH),
+                    error=str(exc),
+                )
+                gid_to_field_id = {}
+            pg_manager.stamp_gee_flags(GEE_TABLE_NAME, gid_to_field_id)
     except Exception as exc:
         logger.warning("gee_stamp_postgis_failed", error=str(exc))
         return
@@ -1298,13 +1350,17 @@ class GeoprocessingRaster:
                     "raster_bands": raster_bands,
                 },
                 "preview": {
-                    "href": public_preview_url(cog_file_path, rescale=rescale, bidx=bidx),
+                    "href": public_preview_url(
+                        cog_file_path, rescale=rescale, bidx=bidx
+                    ),
                     "type": "image/png",
                     "roles": ["overview"],
                     "title": "PNG preview",
                 },
                 "tilejson": {
-                    "href": public_tilejson_url(cog_file_path, rescale=rescale, bidx=bidx),
+                    "href": public_tilejson_url(
+                        cog_file_path, rescale=rescale, bidx=bidx
+                    ),
                     "type": "application/json",
                     "roles": ["tiles"],
                     "title": "TileJSON (XYZ tiles)",
