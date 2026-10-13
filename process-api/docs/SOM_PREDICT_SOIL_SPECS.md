@@ -18,11 +18,17 @@ SOM data first:
 
 | Store | Content | Requirement |
 | --- | --- | --- |
-| PostGIS | `som_field_boundaries` table | Polygon geometries; `gid` matches the `FIELD_ID` values in the GEE data |
+| PostGIS | `som_field_boundaries` table | Polygon geometries keyed by `gid`; `gee_field_id` holds the GEE `FIELD_ID` of each field with GEE data (stamped by gis-pipeline) |
 | DuckDB | `BareSoil_TOPCLI_*.parquet` files in `DUCKDB_DATA_DIR` | GEE feature rows (spectral, topographic, climate) queryable by `FIELD_ID` |
 
-If the Parquet files are missing or contain no rows for the requested IDs, the
-process returns a descriptive `ProcessorExecuteError`.
+`gid` and the GEE `FIELD_ID` are different identifiers: GEE numbered the fields in
+another order. The process translates the requested `gid` values through
+`gee_field_id` before reading the Parquet files.
+
+If none of the requested `gid` values has a `gee_field_id`, or if the Parquet files
+are missing or contain no rows for the resolved IDs, the process returns a
+descriptive `ProcessorExecuteError`. Requested `gid` values without GEE data are
+skipped with a warning when at least one other value has data.
 
 ---
 
@@ -44,7 +50,7 @@ By default all three scenarios run; pass a subset to run fewer.
 
 | Parameter | Type | Required | Default | Constraints |
 | --- | --- | --- | --- | --- |
-| `field_ids` | array of integers | yes | — | ≥ 1 ID; must match `gid` values in `som_field_boundaries` |
+| `field_ids` | array of integers | yes | — | ≥ 1 ID; `gid` values of `som_field_boundaries` (not GEE `FIELD_ID`) |
 | `scenarios` | array of strings | no | all three | values from the scenarios table |
 
 ### How predictions are produced
@@ -70,7 +76,7 @@ curl -s -X POST https://<host>/process-api/processes/som-predict-soil/execution 
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
-      "field_ids": [416, 417, 475, 476],
+      "field_ids": [195, 196, 48, 49],
       "scenarios": ["S3_spec_soil_topo_clim"]
     }
   }' | python3 -m json.tool
@@ -103,6 +109,7 @@ curl -s -X POST https://<host>/process-api/processes/som-predict-soil/execution 
         "geometry": {"type": "Polygon", "coordinates": ["..."]},
         "properties": {
           "row_id": 0,
+          "gid": 195,
           "FIELD_ID": 416,
           "Image_ID": "20210514T154911",
           "y_true_lin": 3.1, "y_pred_lin": 2.9,
@@ -117,8 +124,9 @@ curl -s -X POST https://<host>/process-api/processes/som-predict-soil/execution 
 ```
 
 - One Feature per image-level prediction (a field usually has several images).
-- Geometries come from `som_field_boundaries`; a field ID with no matching polygon
-  gets `"geometry": null` and a warning is logged.
+- Each Feature carries both identifiers: `gid` (the polygon in
+  `som_field_boundaries`, as requested) and `FIELD_ID` (the GEE field).
+- Geometries come from the `som_field_boundaries` row of that `gid`.
 - When a field has too few test images for a defined R², `R2_lin` falls back to the
   scenario validation R² and `r2_source` is set to `"val"` instead of `"test"`.
 
@@ -132,7 +140,7 @@ curl -s -X POST https://<host>/process-api/processes/som-predict-soil/execution 
 | Out-of-bag estimates | Reported values are out-of-bag, not held-out-set, predictions. They are out-of-sample per row but come from a model fitted on the full labelled dataset. |
 | NaN handling | All NaN/Inf values in the response are converted to JSON `null`. |
 | No plots | Matplotlib runs with the `Agg` backend — the process never writes plot files. |
-| Data coverage | Only fields present in the GEE feature Parquet files can be predicted — requesting unknown IDs raises an error listing them. |
+| Data coverage | Only `gid` values with a `gee_field_id` can be predicted. Others are skipped with a warning; if none has one, the process raises an error listing them. |
 
 ---
 

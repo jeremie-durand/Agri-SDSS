@@ -2,11 +2,12 @@
 
 from unittest.mock import patch
 
-import agri_i18n
 import pandas as pd
 import pytest
 from processes.som_predict_soil import SOMPredictSoilProcessor
 from pygeoapi.process.base import ProcessorExecuteError
+
+import agri_i18n
 
 
 @pytest.fixture(autouse=True)
@@ -14,7 +15,6 @@ def _english_messages():
     """Assert against the English msgids rather than the French default."""
     with agri_i18n.use_locale("en"):
         yield
-
 
 
 def _make_processor() -> SOMPredictSoilProcessor:
@@ -99,7 +99,7 @@ class TestSOMPredictSoilProcessorValidation:
             proc, "_load_features_from_duckdb", return_value=_minimal_feature_df()
         ):
             with pytest.raises(ProcessorExecuteError, match="Unknown scenarios"):
-                proc.execute({"field_ids": [416], "scenarios": ["invalid"]})
+                proc.execute({"field_ids": [195], "scenarios": ["invalid"]})
 
     def test_non_integer_field_ids_raises(self):
         proc = _make_processor()
@@ -109,11 +109,20 @@ class TestSOMPredictSoilProcessorValidation:
 
 @pytest.mark.mocked
 class TestSOMPredictSoilProcessorDuckDB:
+    @pytest.fixture(autouse=True)
+    def _resolved_field(self):
+        with patch.object(
+            SOMPredictSoilProcessor,
+            "_resolve_fields",
+            return_value={195: (416, None)},
+        ):
+            yield
+
     def test_missing_parquet_files_raises(self, tmp_path):
         proc = _make_processor()
         with patch.dict("os.environ", {"DUCKDB_DATA_DIR": str(tmp_path)}):
             with pytest.raises(ProcessorExecuteError, match="No GEE feature Parquet"):
-                proc.execute({"field_ids": [416]})
+                proc.execute({"field_ids": [195]})
 
     def test_duckdb_error_does_not_leak_internal_detail(self, tmp_path):
         """A DuckDB failure yields a generic message, not the raw driver error."""
@@ -128,11 +137,11 @@ class TestSOMPredictSoilProcessorDuckDB:
             with pytest.raises(
                 ProcessorExecuteError, match="Could not read the GEE feature data"
             ) as excinfo:
-                proc.execute({"field_ids": [416]})
+                proc.execute({"field_ids": [195]})
 
-        assert "0xdeadbeef" not in str(excinfo.value), (
-            "internal DuckDB error must not reach the user"
-        )
+        assert "0xdeadbeef" not in str(
+            excinfo.value
+        ), "internal DuckDB error must not reach the user"
 
     def test_no_matching_rows_raises(self, tmp_path):
         proc = _make_processor()
@@ -147,7 +156,7 @@ class TestSOMPredictSoilProcessorDuckDB:
         con.close()
         with patch.dict("os.environ", {"DUCKDB_DATA_DIR": str(tmp_path)}):
             with pytest.raises(ProcessorExecuteError, match="No feature data found"):
-                proc.execute({"field_ids": [416]})
+                proc.execute({"field_ids": [195]})
 
 
 @pytest.mark.mocked
@@ -185,11 +194,11 @@ class TestSOMPredictSoilProcessorHappyPath:
         ), patch.object(
             proc._model_store, "predict", return_value=preds
         ), patch.object(
-            proc, "_fetch_field_geometries", return_value={416: None}
+            proc, "_resolve_fields", return_value={195: (416, None)}
         ):
 
             mime, result = proc.execute(
-                {"field_ids": [416], "scenarios": ["S1_spec_soil"]}
+                {"field_ids": [195], "scenarios": ["S1_spec_soil"]}
             )
 
         assert mime == "application/geo+json"
@@ -212,11 +221,11 @@ class TestSOMPredictSoilProcessorHappyPath:
         ), patch.object(
             proc._model_store, "predict", return_value=preds
         ), patch.object(
-            proc, "_fetch_field_geometries", return_value={416: None}
+            proc, "_resolve_fields", return_value={195: (416, None)}
         ):
 
             _, result = proc.execute(
-                {"field_ids": [416], "scenarios": ["S1_spec_soil"]}
+                {"field_ids": [195], "scenarios": ["S1_spec_soil"]}
             )
 
         assert result["value"]["field_summary"] == [bundle.global_metrics]
@@ -233,10 +242,10 @@ class TestSOMPredictSoilProcessorHappyPath:
         ) as mock_get_or_train, patch.object(
             proc._model_store, "predict", return_value=preds
         ), patch.object(
-            proc, "_fetch_field_geometries", return_value={416: None}
+            proc, "_resolve_fields", return_value={195: (416, None)}
         ):
 
-            proc.execute({"field_ids": [416], "scenarios": ["S1_spec_soil"]})
+            proc.execute({"field_ids": [195], "scenarios": ["S1_spec_soil"]})
 
         mock_get_or_train.assert_called_once()
         assert mock_get_or_train.call_args.args[0] == "S1_spec_soil"
@@ -257,12 +266,12 @@ class TestSOMPredictSoilProcessorHappyPath:
         ) as mock_get_or_train, patch.object(
             proc._model_store, "predict", return_value=preds
         ), patch.object(
-            proc, "_fetch_field_geometries", return_value={416: None}
+            proc, "_resolve_fields", return_value={195: (416, None)}
         ):
 
             _, result = proc.execute(
                 {
-                    "field_ids": [416],
+                    "field_ids": [195],
                     "scenarios": ["S1_spec_soil", "S2_spec_soil_topo"],
                 }
             )
@@ -294,12 +303,12 @@ class TestSOMPredictSoilProcessorHappyPath:
         ), patch.object(
             proc._model_store, "predict", return_value=preds
         ), patch.object(
-            proc, "_fetch_field_geometries", return_value={416: None}
+            proc, "_resolve_fields", return_value={195: (416, None)}
         ):
 
             _, result = proc.execute(
                 {
-                    "field_ids": [416],
+                    "field_ids": [195],
                     "scenarios": ["S1_spec_soil", "S2_spec_soil_topo"],
                 }
             )
@@ -320,13 +329,13 @@ class TestSOMPredictSoilProcessorHappyPath:
             "get_or_train",
             side_effect=ValueError("no data for any scenario"),
         ), patch.object(
-            proc, "_fetch_field_geometries", return_value={416: None}
+            proc, "_resolve_fields", return_value={195: (416, None)}
         ):
 
             with pytest.raises(ProcessorExecuteError, match="No predictions"):
                 proc.execute(
                     {
-                        "field_ids": [416],
+                        "field_ids": [195],
                         "scenarios": ["S1_spec_soil", "S2_spec_soil_topo"],
                     }
                 )
@@ -343,17 +352,123 @@ class TestSOMPredictSoilProcessorHappyPath:
         ), patch.object(
             proc._model_store, "predict", return_value=preds
         ), patch.object(
-            proc, "_fetch_field_geometries", return_value={416: None}
+            proc, "_resolve_fields", return_value={195: (416, None)}
         ):
 
             _, result = proc.execute(
-                {"field_ids": [416], "scenarios": ["S1_spec_soil"]}
+                {"field_ids": [195], "scenarios": ["S1_spec_soil"]}
             )
 
         feature = result["value"]["features"][0]
         props = feature["properties"]
         for key in (
-            "FIELD_ID", "Image_ID", "y_true_lin", "y_pred_lin",
-            "y_true_log", "y_pred_log", "algo", "scenario",
+            "gid",
+            "FIELD_ID",
+            "Image_ID",
+            "y_true_lin",
+            "y_pred_lin",
+            "y_true_log",
+            "y_pred_log",
+            "algo",
+            "scenario",
         ):
             assert key in props, f"Missing property: {key}"
+
+
+def _mock_psycopg_rows(mock_connect, rows):
+    conn = mock_connect.return_value.__enter__.return_value
+    cursor = conn.cursor.return_value.__enter__.return_value
+    cursor.fetchall.return_value = rows
+    return cursor
+
+
+@pytest.mark.mocked
+class TestSOMPredictSoilFieldResolution:
+    """Requested gids are translated to GEE FIELD_IDs through gee_field_id."""
+
+    @pytest.fixture(autouse=True)
+    def _db_config(self):
+        with patch("processes.som_predict_soil.DatabaseConfig"):
+            yield
+
+    def test_resolves_gid_to_field_id_and_geometry(self):
+        proc = _make_processor()
+        with patch("processes.som_predict_soil.psycopg.connect") as mock_connect:
+            cursor = _mock_psycopg_rows(
+                mock_connect, [(195, 416, '{"type": "Point", "coordinates": [0, 0]}')]
+            )
+            fields = proc._resolve_fields([195, 999])
+
+        assert fields == {195: (416, {"type": "Point", "coordinates": [0, 0]})}
+        sql, params = cursor.execute.call_args.args
+        assert "gee_field_id IS NOT NULL" in sql
+        assert params == ([195, 999],)
+
+    def test_no_gid_with_gee_data_raises(self):
+        proc = _make_processor()
+        with patch("processes.som_predict_soil.psycopg.connect") as mock_connect:
+            _mock_psycopg_rows(mock_connect, [])
+            with pytest.raises(ProcessorExecuteError, match="has GEE training data"):
+                proc._resolve_fields([999])
+
+    def test_database_error_does_not_leak_internal_detail(self):
+        import psycopg
+
+        proc = _make_processor()
+        with patch(
+            "processes.som_predict_soil.psycopg.connect",
+            side_effect=psycopg.OperationalError("password authentication failed"),
+        ):
+            with pytest.raises(
+                ProcessorExecuteError, match="Could not read the SOM field boundaries"
+            ) as excinfo:
+                proc._resolve_fields([195])
+
+        assert "password" not in str(excinfo.value)
+
+    def test_execute_reads_gee_data_by_field_id_and_reports_gid(self):
+        """The GEE data are filtered by FIELD_ID, never by the requested gid."""
+        proc = _make_processor()
+        preds = _minimal_preds_df().to_dict(orient="records")
+        bundle = TestSOMPredictSoilProcessorHappyPath()._mock_bundle()
+        geometry = {"type": "Point", "coordinates": [0, 0]}
+
+        with patch.object(
+            proc, "_resolve_fields", return_value={195: (416, geometry)}
+        ), patch.object(
+            proc, "_load_features_from_duckdb", return_value=_minimal_feature_df()
+        ) as mock_load, patch.object(
+            proc._model_store, "get_or_train", return_value=bundle
+        ), patch.object(
+            proc._model_store, "predict", return_value=preds
+        ) as mock_predict:
+            _, result = proc.execute(
+                {"field_ids": [195], "scenarios": ["S1_spec_soil"]}
+            )
+
+        mock_load.assert_called_once_with([416], [195])
+        predicted_fields = set(mock_predict.call_args.args[1]["FIELD_ID"])
+        assert predicted_fields == {416.0}
+        props = result["value"]["features"][0]["properties"]
+        assert props["gid"] == 195
+        assert props["FIELD_ID"] == 416
+        assert result["value"]["features"][0]["geometry"] == geometry
+
+
+@pytest.mark.mocked
+def test_no_matching_rows_error_names_the_requested_gids(tmp_path):
+    """The caller sent gid 195; GEE FIELD_ID 416 would mean nothing to them."""
+    import duckdb
+
+    proc = _make_processor()
+    con = duckdb.connect()
+    con.execute(
+        f"COPY (SELECT 999.0 AS FIELD_ID, '2019_0505' AS Image_ID) "
+        f"TO '{tmp_path}/BareSoil_TOPCLI_2019_Part01.parquet' (FORMAT PARQUET)"
+    )
+    con.close()
+    with patch.dict("os.environ", {"DUCKDB_DATA_DIR": str(tmp_path)}):
+        with pytest.raises(ProcessorExecuteError, match=r"\[195\]") as excinfo:
+            proc._load_features_from_duckdb([416], [195])
+
+    assert "416" not in str(excinfo.value)
