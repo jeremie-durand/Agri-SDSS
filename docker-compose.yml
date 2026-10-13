@@ -273,6 +273,11 @@ services:
       - DUCKDB_DATA_DIR=/data/duckdb
       - VECTOR_API_CORS_ORIGINS=${VECTOR_API_CORS_ORIGINS:-${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}}
       - PEDO_TABLE_NAME=${PEDO_TABLE_NAME:-public.pedo_coverage}
+      - PEDO_POLYGON_TABLE_NAME=${PEDO_POLYGON_TABLE_NAME:-public.couverture_pedologique_2026_01_couverture_p_cbc3c8}
+      - PEDO_COMPONENTS_COLLECTION=${PEDO_COMPONENTS_COLLECTION:-couverture_pedologique_2026_01_couverture_pps}
+      - PEDO_HYDRO_COLLECTION=${PEDO_HYDRO_COLLECTION:-couverture_pedologique_2026_01_bdhp_2026}
+      - PEDO_BULK_DENSITY_COLLECTION=${PEDO_BULK_DENSITY_COLLECTION:-couverture_pedologique_2026_01_ppc_eessaq}
+      - PEDO_BULK_DENSITY_1990_COLLECTION=${PEDO_BULK_DENSITY_1990_COLLECTION:-couverture_pedologique_2026_01_ppc_inventaire_1990}
       - SOM_TABLE_NAME=${SOM_TABLE_NAME:-public.som_field_boundaries}
       - WATER_TABLE_NAME=${WATER_TABLE_NAME:-public.grhq_water_union}
     working_dir: /app

@@ -360,6 +360,23 @@ class DuckDBManager:
             raise FileNotFoundError(f"Collection not found: {collection_id}")
         return parquet_path
 
+    def parquet_source(self, collection_id: str) -> str:
+        """Return a ``read_parquet(...)`` SQL expression for a collection.
+
+        Raises:
+            FileNotFoundError: If the collection does not exist.
+            ValueError: If collection_id contains invalid characters.
+        """
+        path = self._get_validated_parquet_path(collection_id)
+        return f"read_parquet('{self._escape_sql_string(str(path))}')"
+
+    def query_rows(
+        self, query: str, params: Optional[list] = None
+    ) -> List[Dict[str, Any]]:
+        """Run a read query on the shared connection and return rows as dicts."""
+        rows, columns = self._fetchall(query, params)
+        return [dict(zip(columns, row)) for row in rows]
+
     def _get_materialized_connection(
         self, collection_id: str
     ) -> Optional[Tuple[duckdb.DuckDBPyConnection, threading.Lock]]:

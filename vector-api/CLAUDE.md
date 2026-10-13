@@ -14,6 +14,7 @@ one FastAPI app on port 8083 (`expose:` only). Public prefix: `/vector-api`.
 | `/postgis/*` | PostGIS via TiPg (mounted sub-app) | `app.py` |
 | `/parquet/*` | GeoParquet via DuckDB | `parquet_router.py`, `duckdb_manager.py` |
 | `POST /water-distance`, `/pedo-coverage`, `/som-field-match` | PostGIS via asyncpg | `*_router.py`, `db_pool.py` |
+| `POST /pedo-properties` | PostGIS overlap + GeoParquet joins | `pedo_properties_router.py` |
 | `POST /parquet/collections/{id}/invalidate` | DuckDB cache | `parquet_router.py` |
 
 - Endpoint list, output formats, configuration:
@@ -117,6 +118,15 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   so queries are read-only DML.
 - `som_field_boundaries.has_gee_data` is stamped by gis-pipeline at the end of
   each run; `/som-field-match` depends on it.
+- `/pedo-properties` is the one mixed endpoint: PostGIS only computes which IRDA
+  polygons (`PEDO_POLYGON_TABLE_NAME`) the parcel overlaps and by how much; the
+  component, hydrologic-group and bulk-density joins run in DuckDB on the
+  GeoParquet tables named by the `PEDO_*_COLLECTION` variables, through
+  `DuckDBManager.parquet_source()` / `query_rows()`. Missing tables return 503.
+- The IRDA `couverture_pps` table currently lacks every `numero_composante = 1`
+  row (each polygon's dominant soil), so `described_pct` is low and the dominant
+  hydrologic group can be wrong until it is re-imported. The endpoint reports
+  the gap rather than hiding it; do not rescale `share_pct` to 100.
 
 ## Cross-Service Coupling
 
