@@ -11,12 +11,12 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import rasterio
-from rasterio.transform import from_origin
 from processes.lidar_backend.quebec_lidar_config import PRODUCT_COLUMN, VALID_PRODUCTS
 from processes.lidar_backend.quebec_lidar_tile_index import LidarTileIndex
 from processes.quebec_lidar_fetch import LidarFetchProcessor
 from processes.quebec_lidar_fetch_metadata import PROCESS_METADATA
 from pygeoapi.process.base import ProcessorExecuteError
+from rasterio.transform import from_origin
 
 import agri_i18n
 
@@ -327,15 +327,14 @@ def test_masked_zonal_values_excludes_pixels_outside_polygon(
 
 
 @pytest.mark.unit
-def test_slope_statistics_uses_per_pixel_percent_conversion(
-    processor_instance, tmp_path
-):
-    """mean_percent must be the average of per-pixel tan(radians(deg))*100,
-    not tan(radians(mean_degrees))*100 — the two differ for non-uniform
-    input, and only the per-pixel version is numerically correct."""
+def test_slope_statistics_treats_raster_as_percent(processor_instance, tmp_path):
+    """MRNF's Pentes product is in percent, so mean_percent is the plain mean
+    and mean_degrees averages the per-pixel degrees(atan(percent / 100)) —
+    not a conversion of the mean percent, which differs for non-uniform
+    input."""
     raster_path = tmp_path / "slope.tif"
-    degrees = [[10.0, 20.0], [30.0, 40.0]]
-    _write_test_raster(raster_path, degrees)
+    percent = [[10.0, 20.0], [30.0, 150.0]]
+    _write_test_raster(raster_path, percent)
     full_coverage = {
         "type": "Polygon",
         "coordinates": [
@@ -351,16 +350,15 @@ def test_slope_statistics_uses_per_pixel_percent_conversion(
 
     stats = processor_instance._slope_statistics(str(raster_path), full_coverage)
 
-    flat_degrees = np.array([10.0, 20.0, 30.0, 40.0])
-    expected_mean_degrees = float(flat_degrees.mean())
-    expected_mean_percent = float(
-        (np.tan(np.radians(flat_degrees)) * 100.0).mean()
-    )
-    wrong_way_percent = math.tan(math.radians(expected_mean_degrees)) * 100.0
+    flat_percent = np.array([10.0, 20.0, 30.0, 150.0])
+    expected_mean_percent = float(flat_percent.mean())
+    expected_mean_degrees = float(np.degrees(np.arctan(flat_percent / 100.0)).mean())
+    wrong_way_degrees = math.degrees(math.atan(expected_mean_percent / 100.0))
 
-    assert stats["mean_degrees"] == pytest.approx(expected_mean_degrees)
-    assert stats["mean_percent"] == pytest.approx(expected_mean_percent, abs=1e-3)
-    assert stats["mean_percent"] != pytest.approx(wrong_way_percent, abs=0.5)
+    assert stats["mean_percent"] == pytest.approx(expected_mean_percent)
+    assert stats["mean_degrees"] == pytest.approx(expected_mean_degrees, abs=1e-3)
+    assert stats["mean_degrees"] != pytest.approx(wrong_way_degrees, abs=0.5)
+    assert stats["mean_degrees"] < 90.0
 
 
 @pytest.mark.unit
@@ -371,7 +369,13 @@ def test_slope_statistics_empty_polygon_returns_none(processor_instance, tmp_pat
     outside_polygon = {
         "type": "Polygon",
         "coordinates": [
-            [[-60.0, 50.0], [-59.99, 50.0], [-59.99, 50.01], [-60.0, 50.01], [-60.0, 50.0]]
+            [
+                [-60.0, 50.0],
+                [-59.99, 50.0],
+                [-59.99, 50.01],
+                [-60.0, 50.01],
+                [-60.0, 50.0],
+            ]
         ],
     }
 
@@ -443,9 +447,7 @@ def test_aspect_statistics_excludes_nodata_flat_cells(processor_instance, tmp_pa
     """gdaldem aspect marks flat/edge cells as nodata (-9999) — those must
     not pollute the circular mean."""
     raster_path = tmp_path / "aspect_nodata.tif"
-    _write_test_raster(
-        raster_path, [[45.0, -9999.0], [90.0, -9999.0]], nodata=-9999.0
-    )
+    _write_test_raster(raster_path, [[45.0, -9999.0], [90.0, -9999.0]], nodata=-9999.0)
     full_coverage = {
         "type": "Polygon",
         "coordinates": [
@@ -472,7 +474,13 @@ def test_aspect_statistics_empty_polygon_returns_none(processor_instance, tmp_pa
     outside_polygon = {
         "type": "Polygon",
         "coordinates": [
-            [[-60.0, 50.0], [-59.99, 50.0], [-59.99, 50.01], [-60.0, 50.01], [-60.0, 50.0]]
+            [
+                [-60.0, 50.0],
+                [-59.99, 50.0],
+                [-59.99, 50.01],
+                [-60.0, 50.01],
+                [-60.0, 50.0],
+            ]
         ],
     }
 
@@ -505,9 +513,7 @@ def test_compute_aspect_cog_raises_on_gdal_failure(processor_instance, tmp_path)
     """A non-zero gdaldem exit code raises a generic ProcessorExecuteError,
     keeping the stderr output in the logs, matching the gdalwarp pattern."""
     with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(
-            returncode=1, stderr="gdaldem: some error"
-        )
+        mock_run.return_value = MagicMock(returncode=1, stderr="gdaldem: some error")
         with pytest.raises(
             ProcessorExecuteError, match="Could not compute the aspect raster"
         ) as excinfo:
@@ -515,9 +521,77 @@ def test_compute_aspect_cog_raises_on_gdal_failure(processor_instance, tmp_path)
                 str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif")
             )
 
-    assert "gdaldem: some error" not in str(excinfo.value), (
-        "gdaldem stderr must stay in the logs, not reach the caller"
+    assert "gdaldem: some error" not in str(
+        excinfo.value
+    ), "gdaldem stderr must stay in the logs, not reach the caller"
+
+
+@pytest.mark.unit
+def test_clip_uses_nearest_resampling_for_warp_and_overviews(
+    processor_instance, tmp_path
+):
+    """gdalwarp -of COG defaults to cubic for both the warp and the overviews,
+    and cubic overshoots at sharp edges (negative slopes, aspect past 360)."""
+    with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        processor_instance._clip_and_convert_to_cog(
+            ["/vsicurl/https://example/Pentes.tif"],
+            str(tmp_path / "slope.tif"),
+            (-72.0, 45.98, -71.98, 46.0),
+        )
+
+    args = mock_run.call_args.args[0]
+    assert args[args.index("-r") + 1] == "near"
+    assert "OVERVIEW_RESAMPLING=NEAREST" in args
+
+
+@pytest.mark.unit
+def test_aspect_cog_overviews_use_nearest_resampling(processor_instance, tmp_path):
+    """Aspect wraps at 360/0, so any interpolating overview is wrong."""
+    with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        processor_instance._compute_aspect_cog(
+            str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif")
+        )
+
+    assert "OVERVIEW_RESAMPLING=NEAREST" in mock_run.call_args.args[0]
+
+
+@pytest.mark.unit
+def test_clip_keeps_values_within_source_range(processor_instance, tmp_path):
+    """Real gdalwarp on a 0/100 step raster, clipped to an off-grid extent:
+    neither the COG nor any overview may leave the source range."""
+    source = tmp_path / "step.tif"
+    data = np.zeros((200, 200), dtype="float32")
+    data[:, 100:] = 100.0
+    with rasterio.open(
+        source,
+        "w",
+        driver="GTiff",
+        height=200,
+        width=200,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_origin(-72.0, 46.0, 1e-4, 1e-4),
+        nodata=-9999,
+    ) as dst:
+        dst.write(data, 1)
+    output = tmp_path / "clipped.tif"
+
+    processor_instance._clip_and_convert_to_cog(
+        [str(source)], str(output), (-71.99873, 45.98127, -71.98127, 45.99873)
     )
+
+    with rasterio.open(output) as src:
+        levels = [src.read(1, masked=True)]
+        overview_count = len(src.overviews(1))
+    for level in range(overview_count):
+        with rasterio.open(output, overview_level=level) as overview:
+            levels.append(overview.read(1, masked=True))
+    for band in levels:
+        assert band.min() >= 0.0
+        assert band.max() <= 100.0
 
 
 # ---------------------------------------------------------------------------
@@ -666,9 +740,7 @@ def test_execute_default_products_excludes_aspect(
         patch(
             "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
         ),
-        patch.object(
-            processor_instance, "_compute_aspect_cog"
-        ) as mock_compute_aspect,
+        patch.object(processor_instance, "_compute_aspect_cog") as mock_compute_aspect,
         patch.object(
             processor_instance,
             "_slope_statistics",
@@ -943,9 +1015,9 @@ def test_execute_gdal_failure_raises(
                 {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
             )
 
-    assert "gdalwarp: some error" not in str(excinfo.value), (
-        "gdalwarp stderr must stay in the logs, not reach the caller"
-    )
+    assert "gdalwarp: some error" not in str(
+        excinfo.value
+    ), "gdalwarp stderr must stay in the logs, not reach the caller"
 
 
 # ---------------------------------------------------------------------------
@@ -1328,9 +1400,7 @@ def test_preview_rescale_is_none_when_values_are_not_finite(tmp_path):
 def test_preview_rescale_ignores_unmasked_nan(tmp_path):
     """NaN sits outside the nodata mask; the range must come from real pixels."""
     cog_path = tmp_path / "partial_nan.tif"
-    _write_test_raster(
-        str(cog_path), [[float("nan"), 20.0], [30.0, float("nan")]]
-    )
+    _write_test_raster(str(cog_path), [[float("nan"), 20.0], [30.0, float("nan")]])
 
     assert LidarFetchProcessor._preview_rescale(str(cog_path)) == "20.0,30.0"
 

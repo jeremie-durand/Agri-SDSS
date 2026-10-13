@@ -22,10 +22,11 @@ import numpy as np
 import psycopg
 import rasterio
 import requests
-from agri_i18n import _
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 from rasterio.features import geometry_mask
 from shapely.geometry import shape
+
+from agri_i18n import _
 
 from .asset_url_utils import cog_href, preview_href, tilejson_href
 from .config import ApiConfig, DatabaseConfig, FarmConfig, StorageConfig
@@ -71,6 +72,10 @@ class LidarFetchProcessor(BaseProcessor):
     COG_COMPRESSION: str = "DEFLATE"
     COG_BLOCKSIZE: int = 512
     COG_OVERVIEWS: str = "AUTO"
+    # gdalwarp -of COG otherwise resamples cubically, which overshoots at sharp
+    # edges: negative slopes, and aspect overviews past 0-360.
+    WARP_RESAMPLING: str = "near"
+    COG_OVERVIEW_RESAMPLING: str = "NEAREST"
 
     # STAC settings
     STAC_COLLECTION_ID: str = "lidar_quebec"
@@ -156,9 +161,9 @@ class LidarFetchProcessor(BaseProcessor):
             unknown = set(products) - set(VALID_PRODUCTS)
             if unknown:
                 raise ProcessorExecuteError(
-                    _(
-                        "Unknown product(s): {products}. Valid values: {valid}"
-                    ).format(products=sorted(unknown), valid=VALID_PRODUCTS)
+                    _("Unknown product(s): {products}. Valid values: {valid}").format(
+                        products=sorted(unknown), valid=VALID_PRODUCTS
+                    )
                 )
 
             # ----------------------------------------------------------
@@ -190,9 +195,7 @@ class LidarFetchProcessor(BaseProcessor):
                     _(
                         "Farm area ({area} km²) exceeds maximum allowed "
                         "({maximum} km²)"
-                    ).format(
-                        area=f"{area_km2:.1f}", maximum=self.MAX_FARM_AREA_KM2
-                    )
+                    ).format(area=f"{area_km2:.1f}", maximum=self.MAX_FARM_AREA_KM2)
                 )
 
             # ----------------------------------------------------------
@@ -286,9 +289,7 @@ class LidarFetchProcessor(BaseProcessor):
             # ----------------------------------------------------------
             if self.ASPECT_PRODUCT in products:
                 dtm_cog_path = cog_paths[self.ASPECT_SOURCE_PRODUCT]
-                aspect_filename = (
-                    f"lidar_{self.ASPECT_PRODUCT}_{farm_identifier}.tif"
-                )
+                aspect_filename = f"lidar_{self.ASPECT_PRODUCT}_{farm_identifier}.tif"
                 aspect_cog_path = os.path.join(self.output_dir, aspect_filename)
 
                 self._get_or_build_cog(
@@ -316,9 +317,7 @@ class LidarFetchProcessor(BaseProcessor):
             if "slope" in assets:
                 summary["slope"] = assets["slope"]["statistics"]
             if self.ASPECT_PRODUCT in assets:
-                summary[self.ASPECT_PRODUCT] = assets[self.ASPECT_PRODUCT][
-                    "statistics"
-                ]
+                summary[self.ASPECT_PRODUCT] = assets[self.ASPECT_PRODUCT]["statistics"]
 
             return mimetype, {
                 "stac_items": [item["id"] for item in stac_items],
@@ -465,6 +464,8 @@ class LidarFetchProcessor(BaseProcessor):
             self.DEFAULT_CRS,
             "-t_srs",
             self.DEFAULT_CRS,
+            "-r",
+            self.WARP_RESAMPLING,
             "-of",
             "COG",
             "-co",
@@ -473,6 +474,8 @@ class LidarFetchProcessor(BaseProcessor):
             "NUM_THREADS=ALL_CPUS",
             "-co",
             f"OVERVIEWS={self.COG_OVERVIEWS}",
+            "-co",
+            f"OVERVIEW_RESAMPLING={self.COG_OVERVIEW_RESAMPLING}",
             "-co",
             f"BLOCKSIZE={self.COG_BLOCKSIZE}",
             "-dstnodata",
@@ -511,6 +514,8 @@ class LidarFetchProcessor(BaseProcessor):
             "-co",
             f"OVERVIEWS={self.COG_OVERVIEWS}",
             "-co",
+            f"OVERVIEW_RESAMPLING={self.COG_OVERVIEW_RESAMPLING}",
+            "-co",
             f"BLOCKSIZE={self.COG_BLOCKSIZE}",
         ]
         result: subprocess.CompletedProcess = subprocess.run(
@@ -548,15 +553,19 @@ class LidarFetchProcessor(BaseProcessor):
     def _slope_statistics(
         self, cog_path: str, geometry: Dict[str, Any]
     ) -> Dict[str, Optional[float]]:
-        """Mean slope in degrees and percent, over the exact farm polygon."""
+        """Mean slope in percent and degrees, over the exact farm polygon.
+
+        MRNF's Pentes product stores slope in percent (rise / run × 100), so
+        values above 90 are legitimate steep slopes, not errors.
+        """
         values = self._masked_zonal_values(cog_path, geometry)
         if values.size == 0:
             return {"mean_degrees": None, "mean_percent": None}
-        mean_degrees = float(values.mean())
-        # Percent must be averaged per-pixel (tan is nonlinear) — converting
-        # the mean degrees value afterward would be mathematically wrong.
-        percent_values = np.tan(np.radians(values)) * 100.0
-        mean_percent = float(percent_values.mean())
+        mean_percent = float(values.mean())
+        # Degrees must be averaged per-pixel (atan is nonlinear) — converting
+        # the mean percent value afterward would be mathematically wrong.
+        degree_values = np.degrees(np.arctan(values / 100.0))
+        mean_degrees = float(degree_values.mean())
         return {"mean_degrees": mean_degrees, "mean_percent": mean_percent}
 
     def _aspect_statistics(
@@ -913,7 +922,7 @@ class LidarFetchProcessor(BaseProcessor):
             "dtm": "Digital Terrain Model (DTM)",
             "chm": "Canopy Height Model (CHM)",
             "hillshade": "Hillshade (Shaded Relief)",
-            "slope": "Slope (degrees and percent)",
+            "slope": "Slope (percent)",
             "aspect": "Aspect (compass bearing, degrees)",
         }
         return titles.get(product, product.upper())
@@ -925,7 +934,10 @@ class LidarFetchProcessor(BaseProcessor):
             "dtm": "Bare-ground elevation in metres above sea level (1 m resolution)",
             "chm": "Vegetation height in metres derived as DSM − DTM (1 m resolution)",
             "hillshade": "Shaded relief computed from DTM (2 m resolution)",
-            "slope": "Terrain slope in degrees computed from DTM (2 m resolution)",
+            "slope": (
+                "Terrain slope in percent (rise / run × 100) computed from DTM "
+                "(2 m resolution)"
+            ),
             "aspect": (
                 "Downslope compass bearing in degrees (0=North, clockwise), "
                 "derived from DTM via gdaldem aspect (1 m resolution); not a "

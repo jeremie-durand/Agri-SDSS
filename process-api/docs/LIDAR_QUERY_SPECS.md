@@ -37,21 +37,34 @@ Produits_derives_LiDAR/Produit_derive_lidar/03-Telechargement/URL_Lidar.geojson
 | `dtm` | `MNT` | Digital Terrain Model — bare ground elevation | 1 m | metres ASL |
 | `chm` | `MHC` | Canopy Height Model — vegetation height (DSM − DTM) | 1 m | metres |
 | `hillshade` | `MNT_Ombre` | Shaded relief derived from DTM | 2 m | — |
-| `slope` | `Pentes` | Slope gradient derived from DTM | 2 m | degrees, percent |
+| `slope` | `Pentes` | Slope gradient derived from DTM | 2 m | percent (rise / run × 100) |
 | `aspect` | *(derived)* | Downslope compass bearing, derived locally from DTM via `gdaldem aspect` — not an MRNF product | 1 m | degrees (0=North) |
 
 > **Note:** The MRNF dataset does not include a Digital Surface Model (DSM) or aspect
 > raster as standalone products. The CHM implicitly encodes the DSM−DTM difference.
 > `aspect` is computed on demand from the fetched DTM; requesting it also fetches DTM
 > internally even if `dtm` is not itself in `products`.
+>
+> **Slope is in percent, not degrees.** MRNF's `Pentes` raster stores rise / run × 100,
+> so values above 90 are real steep slopes (100 % = 45°, 155 % ≈ 57°), not errors. Do not
+> clip the raster to [0, 90].
+
+### Resampling
+
+Every product is clipped with nearest-neighbour resampling (`gdalwarp -r near`) and its
+COG overviews are built with `OVERVIEW_RESAMPLING=NEAREST`. `gdalwarp -of COG` otherwise
+defaults to cubic for both, which overshoots at sharp edges: it produced negative
+slopes and aspect overviews outside 0–360°. Pixel values in a COG are therefore always
+values from the MRNF source (or, for aspect, from `gdaldem`).
 
 ### Statistics
 
 `dtm`, `chm`, and `hillshade` statistics are a **bounding-box mean** (the COG's full
 extent, i.e. the farm's rectangular bounding box). `slope` and `aspect` statistics are
 computed over the **exact farm polygon** (pixels outside the polygon, and nodata
-pixels, are excluded). `slope`'s percent value is the average of the per-pixel percent
-conversion (`tan(radians(degrees)) * 100`), not a conversion of the mean degrees value.
+pixels, are excluded). `slope`'s `mean_percent` is the plain mean of the raster;
+`mean_degrees` is the average of the per-pixel conversion
+(`degrees(atan(percent / 100))`), not a conversion of the mean percent value.
 `aspect`'s mean is a circular mean (vector average), since aspect wraps at 360/0 degrees.
 
 ### Agricultural relevance
@@ -91,21 +104,21 @@ Exactly one of `farm_id` or `farm_geometry` must be provided.
   ],
   "assets": {
     "dtm": {
-      "href": "/data/lidar_dtm_farm_4_abc123.tif",
+      "href": "https://<host>/cog/lidar_dtm_farm_4_abc123.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "title": "Digital Terrain Model (DTM)",
       "roles": ["data"],
       "statistics": { "mean": 312.4 }
     },
     "slope": {
-      "href": "/data/lidar_slope_farm_4_def456.tif",
+      "href": "https://<host>/cog/lidar_slope_farm_4_def456.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-      "title": "Slope (degrees and percent)",
+      "title": "Slope (percent)",
       "roles": ["data"],
       "statistics": { "mean_degrees": 4.2, "mean_percent": 7.3 }
     },
     "aspect": {
-      "href": "/data/lidar_aspect_farm_4_ghi789.tif",
+      "href": "https://<host>/cog/lidar_aspect_farm_4_ghi789.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "title": "Aspect (compass bearing, degrees)",
       "roles": ["data"],
@@ -118,6 +131,11 @@ Exactly one of `farm_id` or `farm_geometry` must be provided.
   "aspect": { "mean_degrees": 187.5 }
 }
 ```
+
+`assets.<product>.href` is the public download URL (`https://<host>/cog/<file>.tif`,
+byte-range capable, so GDAL `/vsicurl` and rasterio read only the blocks they need).
+The `/data/<file>.tif` path that appears in the `url=` parameter of preview and TileJSON
+links is raster-api's internal container path and is not downloadable (404).
 
 ---
 
