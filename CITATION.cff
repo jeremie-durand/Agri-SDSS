@@ -1,0 +1,44 @@
+cff-version: 1.2.0
+title: "Agri-SDSS"
+message: "If you use this software, please cite it as below."
+type: software
+version: 2.0.0
+license: MIT
+repository-code: "https://github.com/jeremie-durand/Agri-SDSS"
+abstract: >-
+  Geospatial data platform for sustainable agriculture research in Quebec.
+  Automated pipeline from raw geodata to OGC-compliant APIs, a STAC catalog,
+  and an AI assistant, currently specialized for Soil Organic Matter (SOM)
+  potential mapping and decision support for Quebec agricultural parcels.
+keywords:
+  - geospatial
+  - spatial decision support system
+  - sustainable agriculture
+  - soil organic matter
+  - STAC
+  - OGC API
+  - Quebec
+authors:
+  - family-names: Durand
+    given-names: Jérémie
+    orcid: "https://orcid.org/0009-0007-8942-1758"
+    affiliation: "Département de géomatique appliquée, University of Sherbrooke, Sherbrooke, QC, Canada"
+  - family-names: Germain
+    given-names: Mickaël
+    orcid: "https://orcid.org/0000-0003-1867-7530"
+    affiliation: "Département de géomatique appliquée, University of Sherbrooke, Sherbrooke, QC, Canada"
+  - family-names: Bouroubi
+    given-names: Yacine
+    orcid: "https://orcid.org/0000-0003-1487-2945"
+    affiliation: "Département de géomatique appliquée, University of Sherbrooke, Sherbrooke, QC, Canada"
+  - family-names: Leduc
+    given-names: Maxime
+    orcid: "https://orcid.org/0000-0001-7097-1636"
+    affiliation: "Mon Système Fourrager, Montreal, QC, Canada"
+  - family-names: Albasha
+    given-names: Rami
+    orcid: "https://orcid.org/0000-0001-5709-3760"
+    affiliation: "Mon Système Fourrager, Montreal, QC, Canada; Institut national de recherche pour l'agriculture, l'alimentation et l'environnement, Montpellier, Occitanie, France"
+  - family-names: Robichaud-Gagnon
+    given-names: Jules
+    affiliation: "Mon Système Fourrager, Montreal, QC, Canada; TLM, Saguenay, QC, Canada"
