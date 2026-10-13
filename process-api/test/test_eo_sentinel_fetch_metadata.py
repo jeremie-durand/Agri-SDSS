@@ -40,7 +40,7 @@ def test_job_control_options_sync():
 
 
 @pytest.mark.unit
-def test_all_six_inputs_present():
+def test_all_seven_inputs_present():
     expected = {
         "farm_geometry",
         "farm_id",
@@ -48,6 +48,7 @@ def test_all_six_inputs_present():
         "output_products",
         "aggregation_method",
         "cloud_cover_max",
+        "cloud_mask",
     }
     assert expected == set(PROCESS_METADATA["inputs"].keys())
 

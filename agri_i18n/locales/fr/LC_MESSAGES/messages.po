@@ -151,6 +151,10 @@ msgstr "Méthode d'agrégation invalide « {method} ». Valeurs acceptées : {me
 msgid "Could not convert the raster to Cloud Optimized GeoTIFF."
 msgstr "Impossible de convertir le raster en Cloud Optimized GeoTIFF."
 
+#: process-api/processes/eo_sentinel_fetch.py:1176
+#, python-brace-format
+msgid "'cloud_mask' must be true or false, got: {value}"
+msgstr "« cloud_mask » doit valoir true ou false, reçu : {value}"
 
 #: process-api/processes/eo_sentinel_fetch.py:1184
 #, python-brace-format
