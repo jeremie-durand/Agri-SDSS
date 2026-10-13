@@ -1058,10 +1058,11 @@ export async function somAutoGenCec() {
 // Search STAC by bbox intersection, optionally filter by start/end date prefix.
 // The datetime query param is not supported on the pgSTAC items endpoint, so we
 // fetch up to 20 intersecting items and match dates client-side.
-async function _searchStacItem(collection, bb, startDate, endDate) {
-    var url = '/stac-api/collections/' + collection + '/items?bbox='
-        + bb.map(function(v) { return (+v).toFixed(4); }).join(',')
-        + '&limit=20';
+async function _searchStacItem(collection, bb, startDate, endDate, sentinelParcel) {
+    var bboxKey = bb.map(function(v) { return (+v).toFixed(4); }).join(',');
+    var url = '/stac-api/collections/' + collection + '/items?bbox=' + bboxKey
+        + (startDate ? '&datetime=' + startDate + 'T00:00:00Z/' + endDate + 'T23:59:59Z' : '')
+        + '&limit=100';
     var r = await apiFetch(url);
     if (!r.ok) return null;
     var fc = await r.json();
@@ -1069,6 +1070,15 @@ async function _searchStacItem(collection, bb, startDate, endDate) {
     if (!startDate) return items.length > 0 ? items[0] : null;
     return items.find(function(item) {
         var p = item.properties || {};
+        if (sentinelParcel) {
+            // Items published before SCL masking existed lack the property.
+            if (p['agri_sdss:cloud_mask'] !== true) return false;
+            // sentinel-fetch names a parcel by its bbox rounded to 4 decimals, so
+            // an equal rounded bbox is the same parcel; a mere intersection can
+            // be a neighbour.
+            var itemKey = (item.bbox || []).map(function(v) { return (+v).toFixed(4); }).join(',');
+            if (itemKey !== bboxKey) return false;
+        }
         return p.start_datetime && p.start_datetime.startsWith(startDate)
             && p.end_datetime   && p.end_datetime.startsWith(endDate);
     }) || null;
@@ -1091,7 +1101,7 @@ export async function somAutoGenScenes() {
         var year = ym ? ym[1] : String(new Date().getFullYear());
         var startDate = year + '-06-01';
         var endDate = year + '-08-31';
-        var cachedItem = await _searchStacItem('sentinel2_eo_products', _geomBbox(geom), startDate, endDate);
+        var cachedItem = await _searchStacItem('sentinel2_eo_products', _geomBbox(geom), startDate, endDate, true);
         var mean;
         if (cachedItem) {
             mean = cachedItem.assets &&
