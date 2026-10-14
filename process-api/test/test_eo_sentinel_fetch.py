@@ -4,6 +4,7 @@ Tests the eo_sentinel_fetch.py module functionality.
 """
 
 import hashlib
+import json
 import os
 from unittest.mock import MagicMock, patch
 
@@ -13,11 +14,13 @@ import pytest
 import rasterio
 import requests
 import requests.exceptions
+from openeo.rest.datacube import DataCube
 from processes.asset_url_utils import cog_href
 from processes.eo_sentinel_fetch import PROCESS_METADATA, SentinelFetchProcessor
 from pygeoapi.process.base import ProcessorExecuteError
 from rasterio.transform import from_origin
 from shapely.geometry import shape
+
 import agri_i18n
 
 pytestmark = pytest.mark.unit
@@ -521,9 +524,9 @@ def test_convert_to_cog_failure(processor_instance, tmp_path):
         ) as excinfo:
             processor_instance._convert_to_cog(str(input_file), str(output_file))
 
-    assert "GDAL error: invalid file" not in str(excinfo.value), (
-        "gdalwarp stderr must stay in the logs, not reach the caller"
-    )
+    assert "GDAL error: invalid file" not in str(
+        excinfo.value
+    ), "gdalwarp stderr must stay in the logs, not reach the caller"
 
 
 # ------------------------------------------
@@ -639,6 +642,34 @@ def test_create_stac_item_structure(
     assert "datetime" in item["properties"]
     assert "eo:cloud_cover" in item["properties"]
     assert item["properties"]["platform"] == "sentinel-2"
+
+
+@pytest.mark.parametrize(
+    "cloud_mask, masked_classes", [(True, [3, 8, 9, 10]), (False, [])]
+)
+def test_create_stac_item_records_cloud_mask(
+    processor_instance,
+    sample_farm_geometry,
+    valid_temporal_extent,
+    tmp_path,
+    cloud_mask,
+    masked_classes,
+):
+    """Clients reusing published items (the SOM form) filter on this
+    property, so unmasked items published before masking are not reused."""
+    item = processor_instance._create_stac_item(
+        item_id="test_item",
+        geometry=sample_farm_geometry,
+        bbox=(-71.5, 45.5, -71.4, 45.6),
+        temporal_extent=valid_temporal_extent,
+        assets=_make_assets(("ndvi",)),
+        cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_item.stac.json"),
+        cloud_mask=cloud_mask,
+    )
+
+    assert item["properties"]["agri_sdss:cloud_mask"] is cloud_mask
+    assert item["properties"]["agri_sdss:scl_masked_classes"] == masked_classes
 
 
 def test_create_stac_item_temporal_properties(
@@ -773,7 +804,9 @@ def test_write_and_load_stac_marker_round_trip(processor_instance, tmp_path):
 def test_stac_marker_path_derived_from_output_dir(processor_instance, tmp_path):
     """The marker path lives under output_dir, keyed by the STAC item id."""
     processor_instance.output_dir = str(tmp_path)
-    marker_path = processor_instance._stac_marker_path("sentinel2_farm_1_2024-06-01_2024-08-31")
+    marker_path = processor_instance._stac_marker_path(
+        "sentinel2_farm_1_2024-06-01_2024-08-31"
+    )
     assert marker_path == str(
         tmp_path / "sentinel2_farm_1_2024-06-01_2024-08-31.stac.json"
     )
@@ -796,7 +829,7 @@ def test_execute_skips_stac_publish_when_all_products_cached_and_assets_match(
     # Pre-seed a marker matching this exact call's farm/date/product combo.
     geom_shape = shape(sample_farm_geometry_small)
     bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
-    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}_scl"
     stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
     marker_path = processor_instance._stac_marker_path(stac_item_id)
     # Seeded in the shape a publish actually leaves behind: the product asset
@@ -836,7 +869,7 @@ def test_execute_republishes_when_marker_asset_set_differs(
 
     geom_shape = shape(sample_farm_geometry_small)
     bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
-    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}_scl"
     stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
     marker_path = processor_instance._stac_marker_path(stac_item_id)
     # Marker only has "ndvi" published; this call also wants "true_color".
@@ -857,6 +890,132 @@ def test_execute_republishes_when_marker_asset_set_differs(
 
     mock_post.assert_called_once()
     assert set(envelope["value"]["assets"]) == {"ndvi", "true_color"}
+
+
+# ------------------------------------------
+# Per-pixel SCL cloud mask
+# ------------------------------------------
+def test_scl_invalid_mask_flags_only_cloud_and_shadow_classes():
+    """Classes 3, 8, 9 and 10 are masked; vegetation, bare soil, water and
+    unclassified (7) pixels are kept."""
+    scl = np.arange(12)
+    invalid = SentinelFetchProcessor._scl_invalid_mask(scl)
+    assert {int(c) for c in scl[invalid]} == {3, 8, 9, 10}
+    assert not invalid[[4, 5, 6, 7]].any()
+
+
+def _offline_load_collection(
+    collection_id, spatial_extent, temporal_extent, bands, **_kwargs
+):
+    return DataCube.load_collection(
+        collection_id,
+        connection=None,
+        spatial_extent=spatial_extent,
+        temporal_extent=temporal_extent,
+        bands=bands,
+    )
+
+
+def _load_offline_cube(processor_instance, cloud_mask):
+    connection = MagicMock()
+    connection.load_collection.side_effect = _offline_load_collection
+    cube = processor_instance._load_sentinel2_cube(
+        connection,
+        (-73.5, 45.4, -73.3, 45.6),
+        ["2024-06-01", "2024-08-31"],
+        {"B04", "B08"},
+        20,
+        cloud_mask,
+    )
+    return connection, cube.flat_graph()
+
+
+def _node_id(graph, process_id):
+    ids = [k for k, n in graph.items() if n["process_id"] == process_id]
+    assert len(ids) == 1, f"expected one {process_id} node, got {len(ids)}"
+    return ids[0]
+
+
+def test_load_cube_with_cloud_mask_masks_before_scaling(processor_instance):
+    connection, graph = _load_offline_cube(processor_instance, cloud_mask=True)
+
+    assert connection.load_collection.call_args.kwargs["bands"] == [
+        "B04",
+        "B08",
+        "SCL",
+    ]
+    filter_id = _node_id(graph, "filter_bands")
+    mask_id = _node_id(graph, "mask")
+    apply_id = _node_id(graph, "apply")
+    assert graph[filter_id]["arguments"]["bands"] == ["B04", "B08"]
+    assert graph[mask_id]["arguments"]["data"] == {"from_node": filter_id}
+    assert graph[apply_id]["arguments"]["data"] == {"from_node": mask_id}
+
+    serialized = json.dumps(graph)
+    for scl_class in (3, 8, 9, 10):
+        assert f'"y": {scl_class}' in serialized
+
+
+def test_load_cube_without_cloud_mask_has_no_mask(processor_instance):
+    connection, graph = _load_offline_cube(processor_instance, cloud_mask=False)
+
+    assert connection.load_collection.call_args.kwargs["bands"] == ["B04", "B08"]
+    assert not any(n["process_id"] == "mask" for n in graph.values())
+
+
+@pytest.mark.parametrize(
+    "cloud_mask, masked", [(None, True), (True, True), (False, False)]
+)
+def test_execute_names_masked_products_apart(
+    processor_instance, sample_farm_geometry_small, cloud_mask, masked
+):
+    """Masked COGs and STAC items get their own names, so an unmasked COG
+    cached before masking existed is never served for a masked request."""
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+    }
+    if cloud_mask is not None:
+        data["cloud_mask"] = cloud_mask
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi",)), False),
+        ) as mock_process,
+        patch.object(processor_instance, "_post_to_stac_api", return_value=True),
+    ):
+        _mimetype, envelope = processor_instance.execute(data)
+
+    kwargs = mock_process.call_args.kwargs
+    assert kwargs["cloud_mask"] is masked
+    assert kwargs["farm_identifier"].endswith("_scl") is masked
+    assert envelope["value"]["stac_item_id"] == (
+        f"sentinel2_{kwargs['farm_identifier']}_2024-06-01_2024-08-31"
+    )
+
+
+def test_execute_rejects_non_boolean_cloud_mask(
+    processor_instance, sample_farm_geometry_small
+):
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+        "cloud_mask": "yes",
+    }
+    with pytest.raises(
+        ProcessorExecuteError, match="'cloud_mask' must be true or false"
+    ):
+        processor_instance.execute(data)
+
+
+def test_cloud_mask_input_defaults_to_true():
+    cloud_mask = PROCESS_METADATA["inputs"]["cloud_mask"]
+    assert cloud_mask["schema"] == {"type": "boolean", "default": True}
+    assert cloud_mask["minOccurs"] == 0
 
 
 # ------------------------------------------
@@ -1601,9 +1760,9 @@ def test_database_connection_failure(processor_instance):
                 ) as excinfo:
                     processor_instance._get_geometry_from_db(4)
 
-    assert "Connection refused" not in str(excinfo.value), (
-        "internal database error must not reach the user"
-    )
+    assert "Connection refused" not in str(
+        excinfo.value
+    ), "internal database error must not reach the user"
 
 
 def test_malformed_geometry_from_database(processor_instance):
@@ -1630,9 +1789,9 @@ def test_malformed_geometry_from_database(processor_instance):
             ) as excinfo:
                 processor_instance._get_geometry_from_db(4)
 
-    assert "Expecting value" not in str(excinfo.value), (
-        "The JSON decoder detail must stay in the logs, not reach the caller"
-    )
+    assert "Expecting value" not in str(
+        excinfo.value
+    ), "The JSON decoder detail must stay in the logs, not reach the caller"
 
 
 @pytest.mark.parametrize(
@@ -1843,9 +2002,9 @@ def test_cog_conversion_with_nonexistent_file(processor_instance, tmp_path):
         ) as excinfo:
             processor_instance._convert_to_cog(str(input_file), str(output_file))
 
-    assert "Input file does not exist" not in str(excinfo.value), (
-        "gdalwarp stderr must stay in the logs, not reach the caller"
-    )
+    assert "Input file does not exist" not in str(
+        excinfo.value
+    ), "gdalwarp stderr must stay in the logs, not reach the caller"
 
 
 def test_long_temporal_extent(processor_instance, sample_farm_geometry):
@@ -1955,9 +2114,9 @@ def test_openeo_connection_failure(processor_instance, sample_farm_geometry):
             ) as excinfo:
                 processor_instance.execute(data)
 
-    assert "Connection failed" not in str(excinfo.value), (
-        "The raw connection error must stay in the logs, not reach the caller"
-    )
+    assert "Connection failed" not in str(
+        excinfo.value
+    ), "The raw connection error must stay in the logs, not reach the caller"
 
 
 def test_sentinel_data_load_failure(processor_instance, sample_farm_geometry):
@@ -2824,9 +2983,7 @@ def test_generate_assets_fresh_download_publishes_a_public_href(
 # ------------------------------------------
 def _render_assets_item(processor, assets, tmp_path):
     """Build a STAC item without publishing, and return its assets."""
-    with patch.object(
-        SentinelFetchProcessor, "_post_to_stac_api", return_value=False
-    ):
+    with patch.object(SentinelFetchProcessor, "_post_to_stac_api", return_value=False):
         item = processor._create_stac_item(
             item_id="sentinel2_render_test",
             geometry={
@@ -3008,7 +3165,9 @@ def test_render_assets_of_a_single_band_product_select_no_band(
     """A greyscale render needs no band selection; only the value range."""
     monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
 
-    rendered = _render_assets_item(processor_instance, _make_assets(("ndvi",)), tmp_path)
+    rendered = _render_assets_item(
+        processor_instance, _make_assets(("ndvi",)), tmp_path
+    )
 
     assert "bidx=" not in rendered["ndvi_preview"]["href"]
     assert "rescale=" in rendered["ndvi_preview"]["href"]
@@ -3074,7 +3233,7 @@ def test_execute_republishes_when_marker_predates_the_render_assets(
 
     geom_shape = shape(sample_farm_geometry_small)
     bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
-    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}_scl"
     stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
     marker_path = processor_instance._stac_marker_path(stac_item_id)
     # Pre-fix marker: products only, no preview/tilejson siblings.

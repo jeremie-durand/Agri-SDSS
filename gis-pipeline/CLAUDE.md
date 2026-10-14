@@ -62,8 +62,10 @@ src/gis_pipeline/
     db/materialize.py     RTree-indexed .duckdb build from a GeoParquet file
     db/materialize_trigger.py  Build + notify vector-api after a GeoParquet write
   services/mapping.py     Enums: formats, column aliases, nulls, CRS overrides, …
+  resources/              som_field_id_to_gid.csv (GEE FIELD_ID -> gid lookup)
 test/                     Mirrors src/ layout; conftest.py holds shared fixtures
-scripts/                  entrypoint.sh, prepare_som_data.py (host-side data prep),
+scripts/                  entrypoint.sh, prepare_som_data.py and
+                          build_field_id_map.py (host-side data prep),
                           gee_sentinel2_feature_extraction.js (GEE Code Editor)
 config.yaml               Pipeline defaults: GLOBAL_CRS, collection ID, paths
 ```
@@ -106,8 +108,11 @@ Keep these invariants when changing processing code.
   `trigger_materialize_and_notify`.
 - QGIS internal layers (`QGISInternalLayers`) are skipped. GPKG foreign keys
   are re-applied after all layers of the file are loaded.
-- After all vectors, `stamp_gee_flags_on_field_boundaries()` sets `has_gee_data`
-  on `som_field_boundaries` and rewrites its GeoParquet so both stores agree.
+- After all vectors, `stamp_gee_flags_on_field_boundaries()` sets `gee_field_id`
+  and `has_gee_data` on `som_field_boundaries` and rewrites its GeoParquet so
+  both stores agree. GEE `FIELD_ID` is **not** the platform `gid`: the two are
+  translated through `resources/som_field_id_to_gid.csv`, which
+  `scripts/build_field_id_map.py` regenerates from the source layers.
 - Tables are **replaced** each run, not upserted.
 
 ### Raster

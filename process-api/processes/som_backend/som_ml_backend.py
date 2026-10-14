@@ -37,6 +37,7 @@ TEST_FIELD_RATIO = 0.2
 DROP_THRESHOLD = 0.01
 MIN_INNER_TRAIN_ROWS = 30
 MIN_IMAGE_ROWS = 10
+CV_FOLDS = 5
 
 BARESAIL_GLOB = "BareSoil_TOPCLI_*.parquet"
 
@@ -269,19 +270,25 @@ class SOMMLBackend:
 
         Also fits a second, separate model — rf_production — trained on
         train_final (the same noise-filtered "good" images used for
-        rf_final) plus ALL of test_data, unconditionally. rf_production is
-        the model actually served to real prediction requests; rf_final
-        exists purely to produce an honest held-out evaluation score before
+        rf_final) plus ALL of test_data, unconditionally. rf_production
+        answers rows of fields never seen at training time; rf_final exists
+        purely to produce an honest held-out evaluation score before
         test_data gets folded into the production training set. Because
         rf_production has seen test_data during training, `summary`'s
         metrics describe rf_final's accuracy, not rf_production's — they
         should not be re-interpreted as rf_production's expected accuracy.
 
+        Every labelled row of a known field is instead answered with its
+        field-grouped cross-validated prediction (_grouped_cv_predictions),
+        whose RandomForest never saw that field. The scaler, LASSO feature
+        subset and image selection are shared across folds, so they were
+        fitted with the held-out fields that were in train_data.
+
         Returns (summary, preds, artifacts) — artifacts bundles everything
-        needed to serve predictions from rf_production later without
-        retraining: scaler, selected_features, feat_idx, col_means,
-        rf_production, smearing_factor (rf_production's own, independently
-        computed — not rf_final's), and n_test_fields.
+        needed to serve predictions later without retraining: scaler,
+        selected_features, feat_idx, col_means, rf_production,
+        cv_predictions, smearing_factor (from the cross-validated residuals,
+        not rf_final's), production_metrics and n_test_fields.
         """
         col_means = train_data[independent_vars].mean()
 
@@ -505,53 +512,50 @@ class SOMMLBackend:
         y_production = production_data["log_SOM"].values
 
         rf_production = RandomForestRegressor(
-            n_estimators=200, random_state=RANDOM_STATE, n_jobs=1, oob_score=True
+            n_estimators=200, random_state=RANDOM_STATE, n_jobs=1
         )
         rf_production.fit(X_production, y_production)
 
-        # A row bootstrapped into every tree has no OOB estimate. With 200 trees
-        # that is rare, but it yields NaN rather than an error, so fall back to
-        # the in-sample value for those rows only.
-        oob_pred = np.asarray(rf_production.oob_prediction_, dtype=float)
-        in_sample_pred = rf_production.predict(X_production)
-        missing_oob = np.isnan(oob_pred)
-        if missing_oob.any():
-            logger.warning(
-                "%d of %d production rows had no out-of-bag estimate; "
-                "falling back to in-sample predictions for those rows.",
-                int(missing_oob.sum()),
-                oob_pred.size,
-            )
-            oob_pred[missing_oob] = in_sample_pred[missing_oob]
+        labelled_data = pd.concat([train_data, test_data], ignore_index=False)
+        cv_pred, cv_folds = self._grouped_cv_predictions(
+            production_data,
+            labelled_data,
+            independent_vars,
+            scaler,
+            feat_idx,
+            col_means,
+        )
+        production_cv_pred = cv_pred.loc[production_data.index].to_numpy()
 
         production_smearing_factor = float(
-            np.mean(10.0 ** (y_production - oob_pred))
+            np.mean(10.0 ** (y_production - production_cv_pred))
         )
 
-        # Compute metrics for the production model's out-of-bag predictions, which are
-        # the only honest evaluation we can do without leaking test_data into the
-        # training set.
         y_production_lin = 10.0**y_production
-        oob_pred_lin = (10.0**oob_pred) * production_smearing_factor
+        production_cv_pred_lin = (10.0**production_cv_pred) * production_smearing_factor
         production_metrics = {
-            "MAE_log": float(mean_absolute_error(y_production, oob_pred)),
-            "RMSE_log": float(root_mean_squared_error(y_production, oob_pred)),
-            "R2_log": float(r2_score(y_production, oob_pred)),
-            "MAE_lin": float(mean_absolute_error(y_production_lin, oob_pred_lin)),
-            "RMSE_lin": float(
-                root_mean_squared_error(y_production_lin, oob_pred_lin)
+            "MAE_log": float(mean_absolute_error(y_production, production_cv_pred)),
+            "RMSE_log": float(
+                root_mean_squared_error(y_production, production_cv_pred)
             ),
-            "R2_lin": float(r2_score(y_production_lin, oob_pred_lin)),
+            "R2_log": float(r2_score(y_production, production_cv_pred)),
+            "MAE_lin": float(
+                mean_absolute_error(y_production_lin, production_cv_pred_lin)
+            ),
+            "RMSE_lin": float(
+                root_mean_squared_error(y_production_lin, production_cv_pred_lin)
+            ),
+            "R2_lin": float(r2_score(y_production_lin, production_cv_pred_lin)),
             "n_rows": int(y_production.size),
-            "estimate": "out_of_bag",
+            "n_fields": int(production_data["FIELD_ID"].nunique()),
+            "n_folds": len(cv_folds),
+            "estimate": "grouped_cv",
         }
 
-        # Keyed by the row identity the serving path can reconstruct, so a
-        # request for a field the model trained on is answered with that row's
-        # out-of-bag prediction instead of its memorised one.
-        oob_predictions = {
-            (int(row["FIELD_ID"]), str(row["Image_ID"])): float(oob_pred[i])
-            for i, (_idx, row) in enumerate(production_data.iterrows())
+        # Keyed by the row identity the serving path can reconstruct.
+        cv_predictions = {
+            (int(row["FIELD_ID"]), str(row["Image_ID"])): float(cv_pred.loc[idx])
+            for idx, row in labelled_data.iterrows()
         }
 
         artifacts = {
@@ -561,11 +565,86 @@ class SOMMLBackend:
             "col_means": col_means,
             "rf_production": rf_production,
             "smearing_factor": production_smearing_factor,
-            "oob_predictions": oob_predictions,
+            "cv_predictions": cv_predictions,
             "production_metrics": production_metrics,
             "n_test_fields": int(test_data["FIELD_ID"].nunique()),
             "_x_production": X_production,
             "_y_production": y_production,
+            "_cv_folds": cv_folds,
         }
 
         return summary, preds, artifacts
+
+    @staticmethod
+    def _grouped_cv_predictions(
+        production_data: pd.DataFrame,
+        labelled_data: pd.DataFrame,
+        independent_vars: list[str],
+        scaler: StandardScaler,
+        feat_idx: list[int],
+        col_means: pd.Series,
+    ) -> tuple[pd.Series, list[dict[str, set[int]]]]:
+        """Field-grouped cross-validated log-SOM predictions for labelled rows.
+
+        Fields are split into CV_FOLDS groups with GroupKFold on FIELD_ID. For
+        each fold, a RandomForest with rf_production's settings is fitted on
+        the production_data rows of the other fields, then predicts every
+        labelled row of the held-out fields — including images the quality
+        filter left out of production_data. No returned value therefore comes
+        from a RandomForest that saw any image of its field.
+
+        The preprocessing is not re-fitted per fold: scaler, feat_idx,
+        col_means and the image selection come from the whole training split,
+        which includes the train_data fields being held out. The estimate is
+        therefore field-independent for the RandomForest but not for feature
+        and image selection, and may be slightly optimistic.
+
+        Args:
+            production_data: Rows rf_production is trained on.
+            labelled_data: Every labelled row (train_data and test_data).
+            independent_vars: Scenario feature columns, before selection.
+            scaler: Scaler fitted on the inner-train split.
+            feat_idx: Indices of the LASSO-selected features.
+            col_means: Column means used to fill missing values.
+
+        Returns:
+            (predictions indexed like labelled_data, one
+            {"held_out", "trained_on"} field-set dict per fold).
+
+        Raises:
+            ValueError: If fewer than two fields are labelled, or if
+                labelled_data has a duplicated row index.
+        """
+
+        def features(df: pd.DataFrame) -> np.ndarray:
+            return scaler.transform(df[independent_vars].fillna(col_means).values)[
+                :, feat_idx
+            ]
+
+        if not labelled_data.index.is_unique:
+            raise ValueError("Grouped cross-validation needs a unique row index.")
+        groups = labelled_data["FIELD_ID"].to_numpy()
+        n_splits = min(CV_FOLDS, len(np.unique(groups)))
+        if n_splits < 2:
+            raise ValueError("Grouped cross-validation needs at least two fields.")
+
+        X_labelled = features(labelled_data)
+        cv_pred = np.full(len(labelled_data), np.nan)
+        folds: list[dict[str, set[int]]] = []
+        for _fit_idx, held_idx in GroupKFold(n_splits=n_splits).split(
+            X_labelled, groups=groups
+        ):
+            held_out = set(groups[held_idx])
+            fit_rows = production_data[~production_data["FIELD_ID"].isin(held_out)]
+            rf_fold = RandomForestRegressor(
+                n_estimators=200, random_state=RANDOM_STATE, n_jobs=1
+            )
+            rf_fold.fit(features(fit_rows), fit_rows["log_SOM"].values)
+            cv_pred[held_idx] = rf_fold.predict(X_labelled[held_idx])
+            folds.append(
+                {
+                    "held_out": {int(f) for f in held_out},
+                    "trained_on": {int(f) for f in fit_rows["FIELD_ID"].unique()},
+                }
+            )
+        return pd.Series(cv_pred, index=labelled_data.index), folds

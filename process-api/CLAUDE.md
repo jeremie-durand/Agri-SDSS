@@ -137,6 +137,12 @@ Backends that call slow external services cache results in a module-level
 - `som-predict-soil` reads `BareSoil_TOPCLI_*.parquet` from `DUCKDB_DATA_DIR`
   (ingested by gis-pipeline). It caches trained models keyed by a fingerprint
   of those files (`som_model_store.py`).
+  - Callers send `som_field_boundaries.gid`; the process translates it to the
+    GEE `FIELD_ID` through `gee_field_id`, which gis-pipeline stamps. The two
+    identifiers differ, so never compare them directly.
+  - Known fields are served field-grouped cross-validated predictions, never
+    out-of-bag ones. Bump `BUNDLE_FORMAT_VERSION` whenever cached bundles
+    become wrong to serve.
 
 ## Internationalization
 

@@ -28,11 +28,28 @@ def _make_df(n_fields: int = 20, n_images_per_field: int = 5) -> pd.DataFrame:
                 "soilTypes": "[TILL Bon]",
             }
             for col in [
-                "BI_mean", "CI_mean", "NDMI_mean", "OMI_mean", "RI_mean",
-                "SI_mean", "EVI_mean", "SAVI_mean", "NDVI_mean", "BSI_mean",
-                "CAI_mean", "BI_stdDev", "CI_stdDev", "NDMI_stdDev",
-                "OMI_stdDev", "RI_stdDev", "SI_stdDev", "EVI_stdDev",
-                "SAVI_stdDev", "NDVI_stdDev", "BSI_stdDev", "CAI_stdDev",
+                "BI_mean",
+                "CI_mean",
+                "NDMI_mean",
+                "OMI_mean",
+                "RI_mean",
+                "SI_mean",
+                "EVI_mean",
+                "SAVI_mean",
+                "NDVI_mean",
+                "BSI_mean",
+                "CAI_mean",
+                "BI_stdDev",
+                "CI_stdDev",
+                "NDMI_stdDev",
+                "OMI_stdDev",
+                "RI_stdDev",
+                "SI_stdDev",
+                "EVI_stdDev",
+                "SAVI_stdDev",
+                "NDVI_stdDev",
+                "BSI_stdDev",
+                "CAI_stdDev",
             ]:
                 row[col] = float(rng.uniform(-1.0, 1.0))
             rows.append(row)
@@ -81,7 +98,9 @@ class TestSOMModelStoreGetOrTrain:
         assert (model_dir / "som_model_S1_spec_soil.joblib").exists()
         assert not (model_dir / "som_model_S1_spec_soil.tmp").exists()
 
-    def test_second_call_with_unchanged_fingerprint_does_not_retrain(self, tmp_path, monkeypatch):
+    def test_second_call_with_unchanged_fingerprint_does_not_retrain(
+        self, tmp_path, monkeypatch
+    ):
         model_dir = tmp_path / "som_models"
         data_dir = tmp_path / "data"
         data_dir.mkdir()
@@ -123,13 +142,17 @@ class TestSOMModelStoreGetOrTrain:
 
         assert first_bundle.fingerprint != second_bundle.fingerprint
 
-    def test_corrupt_bundle_on_disk_triggers_retrain_with_warning(self, tmp_path, caplog):
+    def test_corrupt_bundle_on_disk_triggers_retrain_with_warning(
+        self, tmp_path, caplog
+    ):
         model_dir = tmp_path / "som_models"
         model_dir.mkdir()
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         (data_dir / "BareSoil_TOPCLI_2019_Part01.parquet").write_bytes(b"abc")
-        (model_dir / "som_model_S1_spec_soil.joblib").write_bytes(b"not a valid joblib file")
+        (model_dir / "som_model_S1_spec_soil.joblib").write_bytes(
+            b"not a valid joblib file"
+        )
 
         store = SOMModelStore(SOMMLBackend(), model_dir)
         df = _make_df()
@@ -229,8 +252,14 @@ class TestSOMModelStorePredict:
         for pred in preds:
             assert pred["FIELD_ID"] == 0
             for key in (
-                "row_id", "Image_ID", "y_true_lin", "y_pred_lin",
-                "y_true_log", "y_pred_log", "algo", "scenario",
+                "row_id",
+                "Image_ID",
+                "y_true_lin",
+                "y_pred_lin",
+                "y_true_log",
+                "y_pred_log",
+                "algo",
+                "scenario",
             ):
                 assert key in pred
 
@@ -262,6 +291,52 @@ class TestSOMModelStorePredict:
         with pytest.raises(ValueError, match="missing columns"):
             store.predict(bundle, field_0_raw)
 
+    def test_predict_serves_grouped_cv_values_for_known_fields(self, tmp_path):
+        """A training field is answered by a fold RandomForest that never saw it."""
+        model_dir = tmp_path / "som_models"
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "BareSoil_TOPCLI_2019_Part01.parquet").write_bytes(b"abc")
+
+        store = SOMModelStore(SOMMLBackend(), model_dir)
+        df = _make_df()
+        bundle = store.get_or_train("S1_spec_soil", df, data_dir)
+
+        preds = store.predict(bundle, df[df["FIELD_ID"] == 0.0])
+
+        assert preds
+        for pred in preds:
+            key = (pred["FIELD_ID"], pred["Image_ID"])
+            assert pred["y_pred_log"] == pytest.approx(bundle.cv_predictions[key])
+
+    def test_v2_bundle_is_retrained(self, tmp_path):
+        """v2 bundles carry out-of-bag predictions and must not be served."""
+        import joblib
+
+        model_dir = tmp_path / "som_models"
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "BareSoil_TOPCLI_2019_Part01.parquet").write_bytes(b"abc")
+
+        store = SOMModelStore(SOMMLBackend(), model_dir)
+        df = _make_df()
+        bundle = store.get_or_train("S1_spec_soil", df, data_dir)
+        bundle.format_version = 2
+        joblib.dump(bundle, store._bundle_path("S1_spec_soil"))
+
+        original_train = store._train
+        calls: list[str] = []
+
+        def spy_train(scenario, all_data, fingerprint):
+            calls.append(scenario)
+            return original_train(scenario, all_data, fingerprint)
+
+        store._train = spy_train
+        retrained = store.get_or_train("S1_spec_soil", df, data_dir)
+
+        assert calls == ["S1_spec_soil"]
+        assert retrained.format_version == 3
+
 
 @pytest.mark.unit
 class TestGlobalMetricsShape:
@@ -275,9 +350,18 @@ class TestGlobalMetricsShape:
         bundle = store.get_or_train("S1_spec_soil", _make_df(), data_dir)
 
         for key in (
-            "Scenario", "Algo", "n_images_used", "n_fields", "val_r2",
-            "MAE_log", "RMSE_log", "R2_log", "MAE_lin", "RMSE_lin",
-            "R2_lin", "r2_source",
+            "Scenario",
+            "Algo",
+            "n_images_used",
+            "n_fields",
+            "val_r2",
+            "MAE_log",
+            "RMSE_log",
+            "R2_log",
+            "MAE_lin",
+            "RMSE_lin",
+            "R2_lin",
+            "r2_source",
         ):
             assert key in bundle.global_metrics, f"Missing key: {key}"
         assert bundle.global_metrics["r2_source"] in ("test", "val")

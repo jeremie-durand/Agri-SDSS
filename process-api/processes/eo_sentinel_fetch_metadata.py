@@ -80,6 +80,17 @@ PROCESS_METADATA = {
             "minOccurs": 0,
             "maxOccurs": 1,
         },
+        "cloud_mask": {
+            "title": "Per-pixel cloud mask",
+            "description": (
+                "Mask cloud shadow, medium- and high-probability cloud and thin "
+                "cirrus pixels (Sentinel-2 Scene Classification Layer classes 3, 8, "
+                "9 and 10) before temporal compositing"
+            ),
+            "schema": {"type": "boolean", "default": True},
+            "minOccurs": 0,
+            "maxOccurs": 1,
+        },
     },
     "outputs": {
         "result": {

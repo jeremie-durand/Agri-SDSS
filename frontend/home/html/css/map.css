@@ -597,6 +597,7 @@ main {
   display:flex; flex-direction:column; gap:.5rem; }
 .som-results__title { font-size:.78rem; font-weight:700;
   color:var(--text); text-transform:uppercase; letter-spacing:.06em; }
+.som-results__note { font-size:.7rem; color:#94a3b8; font-style:italic; }
 .som-chart-wrap { position:relative; height:180px; }
 
 .som-field--error .som-input    { border-color: #f87171; }
