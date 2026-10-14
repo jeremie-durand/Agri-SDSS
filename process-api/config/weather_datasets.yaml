@@ -1,0 +1,165 @@
+# Weather dataset registry for the weather-timeseries OGC process.
+#
+# All entries verified against the live PAVICS THREDDS NcML metadata:
+#   https://pavics.ouranos.ca/twitcher/ows/proxy/thredds/catalog/datasets/reanalyses/catalog.html
+#
+# The full OPeNDAP URL is constructed as:
+#   {WEATHER_PAVICS_TDS_BASE_URL}/dodsC/{opendap_path}
+#
+# Default base URL: https://pavics.ouranos.ca/twitcher/ows/proxy/thredds
+# Override with env var: WEATHER_PAVICS_TDS_BASE_URL
+#
+# Unit conversion per variable (applied by the backend before returning results):
+#   output_value = raw_value * scale_factor + add_offset
+#   Omit scale_factor / add_offset to return raw values unchanged.
+#
+# Reanalysis NetCDF files store temperatures in Kelvin and precipitation in kg m-2 s-1.
+# Conversions used below:
+#   temperatures: add_offset = -273.15  →  degC = K - 273.15
+#   precipitation (daily):  scale_factor = 86400.0  →  mm/day = kg m-2 s-1 × 86400
+#   precipitation (hourly): scale_factor = 3600.0   →  mm/hr  = kg m-2 s-1 × 3600
+#
+# standard_name values follow the CF Conventions standard name table:
+#   https://cfconventions.org/Data/cf-standard-names/current/build/cf-standard-name-table.html
+# ----------------------------------------------------------------------------
+
+era5_land:
+  title: "ERA5-Land Daily Reanalysis (PAVICS)"
+  description: >
+    ERA5-Land daily reanalysis from ECMWF hosted on the PAVICS THREDDS server.
+    Covers North America at ~0.1° (~9 km) resolution.
+    Verified: lat 10°N–90°N, lon 179.9°W–10°W, 1950-01-01 to present.
+    DOI: https://doi.org/10.24381/cds.e2161bac
+  rolling: true
+  rolling_lag_days: 90
+  provider: "pavics"
+  opendap_path: "datasets/reanalyses/day_ERA5-Land_NAM.ncml"
+  lat_dim: "lat"
+  lon_dim: "lon"
+  time_dim: "time"
+  spatial_coverage:
+    lat_min: 10.0
+    lat_max: 90.0
+    lon_min: -179.9
+    lon_max: -10.0
+  valid_time_range:
+    start: "1950-01-01"
+    end: "2026-02-28"
+  variables:
+    tasmin:
+      netcdf_name: "tasmin"
+      native_units: "K"
+      output_units: "degC"
+      add_offset: -273.15    # degC = K - 273.15
+      long_name: "Daily minimum 2-metre air temperature"
+      standard_name: "air_temperature"
+    tasmax:
+      netcdf_name: "tasmax"
+      native_units: "K"
+      output_units: "degC"
+      add_offset: -273.15
+      long_name: "Daily maximum 2-metre air temperature"
+      standard_name: "air_temperature"
+    tas:
+      netcdf_name: "tas"
+      native_units: "K"
+      output_units: "degC"
+      add_offset: -273.15
+      long_name: "Daily mean 2-metre air temperature"
+      standard_name: "air_temperature"
+    pr:
+      netcdf_name: "pr"
+      native_units: "kg m-2 s-1"
+      output_units: "mm/day"
+      scale_factor: 86400.0  # mm/day = kg m-2 s-1 * 86400
+      long_name: "Total precipitation"
+      standard_name: "precipitation_flux"
+
+era5_land_hourly:
+  title: "ERA5-Land Hourly Reanalysis (PAVICS)"
+  description: >
+    ERA5-Land hourly reanalysis from ECMWF hosted on the PAVICS THREDDS server.
+    Covers North America at ~0.1° resolution.
+  rolling: true
+  rolling_lag_days: 90
+  provider: "pavics"
+  opendap_path: "datasets/reanalyses/1hr_ERA5-Land_NAM.ncml"
+  lat_dim: "lat"
+  lon_dim: "lon"
+  time_dim: "time"
+  spatial_coverage:
+    lat_min: 10.0
+    lat_max: 90.0
+    lon_min: -179.9
+    lon_max: -10.0
+  valid_time_range:
+    start: "1950-01-01"
+    end: "2026-02-28"
+  variables:
+    tas:
+      netcdf_name: "tas"
+      native_units: "K"
+      output_units: "degC"
+      add_offset: -273.15
+      long_name: "2-metre air temperature"
+      standard_name: "air_temperature"
+    pr:
+      netcdf_name: "pr"
+      native_units: "kg m-2 s-1"
+      output_units: "mm/hr"
+      scale_factor: 3600.0   # mm/hr = kg m-2 s-1 * 3600
+      long_name: "Precipitation flux"
+      standard_name: "precipitation_flux"
+
+rdrs_v2_1:
+  title: "RDRSv2.1 Canadian Regional Reanalysis (PAVICS)"
+  description: >
+    Regional Deterministic Reforecast System v2.1 — daily, produced by Environment
+    and Climate Change Canada. Higher resolution (~10 km) over Canada and North
+    America, 1980–2018. Uses a rotated-pole grid; spatial subsetting is handled
+    via 2D lat/lon coordinate masking.
+  provider: "pavics"
+  opendap_path: "datasets/reanalyses/day_RDRSv2.1_NAM.ncml"
+  lat_dim: "rlat"
+  lon_dim: "rlon"
+  time_dim: "time"
+  rotated_pole: true
+  lat_2d_coord: "lat"
+  lon_2d_coord: "lon"
+  spatial_coverage:
+    lat_min: 5.76
+    lat_max: 83.98
+    lon_min: -179.99
+    lon_max: 179.97
+  valid_time_range:
+    start: "1980-01-01"
+    end: "2018-12-31"
+  variables:
+    tasmin:
+      netcdf_name: "tasmin"
+      native_units: "K"
+      output_units: "degC"
+      add_offset: -273.15
+      long_name: "Daily minimum 1.5-metre air temperature"
+      standard_name: "air_temperature"
+    tasmax:
+      netcdf_name: "tasmax"
+      native_units: "K"
+      output_units: "degC"
+      add_offset: -273.15
+      long_name: "Daily maximum 1.5-metre air temperature"
+      standard_name: "air_temperature"
+    tas:
+      netcdf_name: "tas"
+      native_units: "K"
+      output_units: "degC"
+      add_offset: -273.15
+      long_name: "Daily mean 1.5-metre air temperature"
+      standard_name: "air_temperature"
+    pr:
+      netcdf_name: "pr"
+      native_units: "kg m-2 s-1"
+      output_units: "mm/day"
+      scale_factor: 86400.0
+      long_name: "Total precipitation"
+      standard_name: "precipitation_flux"

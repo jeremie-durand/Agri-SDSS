@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agri-SDSS — Données sources</title>
+  <link rel="stylesheet" href="css/index.css" />
+  <style>
+    .data-section { margin-bottom: 3rem; }
+    .data-section:last-child { margin-bottom: 0; }
+
+    .section-header {
+      display: flex; align-items: center; gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .section-cat-label {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; padding: 0.2rem 0.65rem; border-radius: 4px;
+    }
+    .section-cat-label--crop    { background: #062318; color: #3ecf8e; }
+    .section-cat-label--soil    { background: #2a1a00; color: #f59e0b; }
+    .section-cat-label--climate { background: #0b1e28; color: #22d3ee; }
+    .section-cat-title {
+      font-size: 1rem; font-weight: 600; color: var(--text-primary);
+    }
+
+    .card-icon { font-size: 0.54rem; font-weight: 700; letter-spacing: 0.03em; text-align: center; }
+    .card-icon--crop    { background: #062318; color: #3ecf8e; }
+    .card-icon--soil    { background: #2a1a00; color: #f59e0b; }
+    .card-icon--climate { background: #0b1e28; color: #22d3ee; }
+
+    .card-badge--crop    { background: #062318; color: #3ecf8e; }
+    .card-badge--soil    { background: #2a1a00; color: #f59e0b; }
+    .card-badge--climate { background: #0b1e28; color: #22d3ee; }
+
+    .datasets { display: flex; flex-direction: column; gap: 0.8rem; }
+
+    .dataset-block { border-top: 1px solid var(--border); padding-top: 0.8rem; }
+    .dataset-block:first-child { border-top: none; padding-top: 0; }
+
+    .dataset-name {
+      font-size: 0.85rem; font-weight: 600;
+      color: var(--text-primary); margin-bottom: 0.4rem;
+    }
+    .dataset-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    .meta-years { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
+
+    .format-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+    .format-tag {
+      font-size: 0.63rem; font-weight: 700; letter-spacing: 0.05em;
+      text-transform: uppercase; padding: 0.12rem 0.42rem; border-radius: 3px;
+    }
+    .fmt-shp     { background: #1a0f35; color: #8b5cf6; }
+    .fmt-tif     { background: #2a1a00; color: #f59e0b; }
+    .fmt-csv     { background: #0f1e3d; color: #3b82f6; }
+    .fmt-geojson { background: #062318; color: #10b981; }
+    .fmt-nc      { background: #0b1e28; color: #38bdf8; }
+    .fmt-ogc     { background: #1e0f2a; color: #a78bfa; }
+    .fmt-arc     { background: #2a1500; color: #f97316; }
+    .fmt-pdf     { background: #1c1c24; color: #6b7280; }
+    .fmt-parquet { background: #0f3d33; color: #2dd4bf; }
+
+    .dataset-status { font-size: 0.72rem; margin-top: 0.4rem; color: var(--text-muted); }
+    .dataset-status--live     { color: #3ecf8e; }
+    .dataset-status--external { color: #38bdf8; }
+    .card-links { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.6rem; }
+    .card-links a { color: var(--text-muted); }
+    .section-cat-label--model,
+    .card-icon--model,
+    .card-badge--model { background: #1a0f35; color: #8b5cf6; }
+    .section-cat-label--other,
+    .card-icon--other,
+    .card-badge--other { background: #1c1c24; color: #9ca3af; }
+  </style>
+</head>
+<body>
+
+<nav class="unified-nav" role="navigation">
+  <a class="unified-nav__brand" href="/">Agri<span>-SDSS</span></a>
+  <div class="unified-nav__links">
+    <a class="unified-nav__link" href="/" data-nav="map">Map</a>
+    <a class="unified-nav__link" href="/services" data-nav="services">Services</a>
+    <a class="unified-nav__link active" href="/data" data-nav="data">Data</a>
+    <a class="unified-nav__link" href="/stac/" data-nav="stac">STAC</a>
+    <a class="unified-nav__link" href="/chatbot/" data-nav="chatbot">AI Assistant</a>
+    <a class="unified-nav__link" href="/report-bug" data-nav="report-bug">Report a bug</a>
+    <a class="unified-nav__link" href="/about" data-nav="about">About</a>
+  </div>
+  <button class="unified-nav__lang" id="langToggle" type="button" aria-label="Switch to English">EN</button>
+</nav>
+
+<header aria-label="Agri-SDSS Data Sources">
+  <div class="header-left">
+    <div class="header-wordmark" aria-hidden="true">Agri<span>-SDSS</span></div>
+    <p data-i18n="header-desc">
+      Catalogue des données sources intégrées dans la plateforme Agri-SDSS.
+      Chaque source est ingérée, validée et publiée via le pipeline géospatial
+      vers les API PostGIS, Parquet et STAC.
+    </p>
+  </div>
+</header>
+
+<main>
+  <!-- Dataset cards are rendered by js/data-catalog.js from js/catalog.json
+       (curated metadata) joined with the live API collection lists. -->
+
+  <!-- ── Section 1 : Suivi des cultures ─────────────────────────────────── -->
+  <section class="data-section" aria-labelledby="section-crop-title">
+    <div class="section-header">
+      <span class="section-cat-label section-cat-label--crop" data-i18n="section-crop-badge">Suivi des cultures</span>
+      <h2 class="section-cat-title" id="section-crop-title" data-i18n="section-crop-title">Sources de données — Suivi des cultures</h2>
+    </div>
+    <div class="services-grid" id="grid-crop"></div>
+  </section>
+
+  <!-- ── Section 2 : Caractéristiques pédologiques ──────────────────────── -->
+  <section class="data-section" aria-labelledby="section-soil-title">
+    <div class="section-header">
+      <span class="section-cat-label section-cat-label--soil" data-i18n="section-soil-badge">Pédologie</span>
+      <h2 class="section-cat-title" id="section-soil-title" data-i18n="section-soil-title">Sources de données — Caractéristiques pédologiques</h2>
+    </div>
+    <div class="services-grid" id="grid-soil"></div>
+  </section>
+
+  <!-- ── Section 3 : Météorologie et climatologie ───────────────────────── -->
+  <section class="data-section" aria-labelledby="section-climate-title">
+    <div class="section-header">
+      <span class="section-cat-label section-cat-label--climate" data-i18n="section-climate-badge">Météorologie</span>
+      <h2 class="section-cat-title" id="section-climate-title" data-i18n="section-climate-title">Sources de données — Météorologie et climatologie</h2>
+    </div>
+    <div class="services-grid" id="grid-climate"></div>
+  </section>
+
+  <!-- ── Section 4 : Modèle de prédiction (MOS) ─────────────────────────── -->
+  <section class="data-section" aria-labelledby="section-model-title">
+    <div class="section-header">
+      <span class="section-cat-label section-cat-label--model" data-i18n="section-model-badge">Modèle</span>
+      <h2 class="section-cat-title" id="section-model-title" data-i18n="section-model-title">Sources de données — Modèle de prédiction</h2>
+    </div>
+    <div class="services-grid" id="grid-model"></div>
+  </section>
+
+  <!-- ── Section 5 : Autres jeux de données du backend (auto-générée) ───── -->
+  <section class="data-section" id="section-other" aria-labelledby="section-other-title" hidden>
+    <div class="section-header">
+      <span class="section-cat-label section-cat-label--other" data-i18n="section-other-badge">Backend</span>
+      <h2 class="section-cat-title" id="section-other-title" data-i18n="section-other-title">Autres jeux de données dans le backend</h2>
+    </div>
+    <div class="services-grid" id="grid-other"></div>
+  </section>
+
+</main>
+
+<footer>
+  <p data-i18n="footer-text">Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager</p>
+  <p><a href="https://github.com/jeremie-durand/Agri-SDSS" target="_blank" rel="noopener">GitHub →</a></p>
+</footer>
+
+<script>
+(function() {
+  var path = window.location.pathname;
+  document.querySelectorAll('.unified-nav__link').forEach(function(a) {
+    var nav = a.getAttribute('data-nav');
+    var isActive =
+      (nav === 'map'      && (path === '/' || path === '/map.html')) ||
+      (nav === 'services' && (path === '/services' || path === '/index.html')) ||
+      (nav === 'data'     && (path === '/data' || path === '/data.html')) ||
+      (nav === 'stac'     && path.startsWith('/stac/')) ||
+      (nav === 'chatbot'  && path.startsWith('/chatbot/')) ||
+      (nav === 'report-bug' && (path === '/report-bug' || path === '/report-bug.html')) ||
+      (nav === 'about'      && (path === '/about' || path === '/about.html'));
+    a.classList.toggle('active', isActive);
+  });
+
+  var T = {
+    en: {
+      'header-desc':           'Catalogue of data sources integrated into the Agri-SDSS platform. Each source is ingested, validated, and published through the geospatial pipeline to the PostGIS, Parquet, and STAC APIs.',
+      'section-crop-badge':    'Crop monitoring',
+      'section-crop-title':    'Data sources — Crop monitoring',
+      'section-soil-badge':    'Soil properties',
+      'section-soil-title':    'Data sources — Soil properties',
+      'section-climate-badge': 'Meteorology',
+      'section-climate-title': 'Data sources — Meteorology & climatology',
+      'section-model-badge':   'Model',
+      'section-model-title':   'Data sources — Prediction model',
+      'section-other-badge':   'Backend',
+      'section-other-title':   'Other datasets in the backend',
+      'footer-text':           'Agri-SDSS Geospatial Tools · Université de Sherbrooke · Mon Système Fourrager',
+      'nav-map': 'Map', 'nav-services': 'Services', 'nav-data': 'Data', 'nav-stac': 'STAC', 'nav-chatbot': 'AI Assistant', 'nav-report-bug': 'Report a bug', 'nav-about': 'About'
+    },
+    fr: {
+      'header-desc':           'Catalogue des données sources intégrées dans la plateforme Agri-SDSS. Chaque source est ingérée, validée et publiée via le pipeline géospatial vers les API PostGIS, Parquet et STAC.',
+      'section-crop-badge':    'Suivi des cultures',
+      'section-crop-title':    'Sources de données — Suivi des cultures',
+      'section-soil-badge':    'Pédologie',
+      'section-soil-title':    'Sources de données — Caractéristiques pédologiques',
+      'section-climate-badge': 'Météorologie',
+      'section-climate-title': 'Sources de données — Météorologie et climatologie',
+      'section-model-badge':   'Modèle',
+      'section-model-title':   'Sources de données — Modèle de prédiction',
+      'section-other-badge':   'Backend',
+      'section-other-title':   'Autres jeux de données dans le backend',
+      'footer-text':           'Outils géospatiaux Agri-SDSS · Université de Sherbrooke · Mon Système Fourrager',
+      'nav-map': 'Carte', 'nav-services': 'Services', 'nav-data': 'Données', 'nav-stac': 'STAC', 'nav-chatbot': 'Assistant IA', 'nav-report-bug': 'Signaler un bug', 'nav-about': 'À propos'
+    }
+  };
+
+  var lang = localStorage.getItem('sdss-lang') || 'fr';
+
+  function applyLang(l) {
+    lang = l;
+    document.documentElement.lang = l;
+    document.querySelectorAll('[data-i18n]').forEach(function(el) {
+      var k = el.getAttribute('data-i18n');
+      if (T[l][k] !== undefined) el.innerHTML = T[l][k];
+    });
+    document.querySelectorAll('[data-nav]').forEach(function(el) {
+      var k = 'nav-' + el.getAttribute('data-nav');
+      if (T[l][k] !== undefined) el.textContent = T[l][k];
+    });
+    var btn = document.getElementById('langToggle');
+    btn.textContent = l === 'en' ? 'FR' : 'EN';
+    btn.setAttribute('aria-label', l === 'en' ? 'Changer la langue en français' : 'Switch to English');
+    localStorage.setItem('sdss-lang', l);
+    document.dispatchEvent(new CustomEvent('sdss-lang-changed', { detail: l }));
+  }
+
+  document.getElementById('langToggle').addEventListener('click', function() {
+    applyLang(lang === 'en' ? 'fr' : 'en');
+  });
+
+  applyLang(lang);
+})();
+</script>
+<script type="module" src="js/data-catalog.js"></script>
+<script src="js/welcome-modal.js"></script>
+</body>
+</html>

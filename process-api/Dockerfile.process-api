@@ -1,0 +1,71 @@
+# Compile the gettext catalogs. Build-stage only: Babel never reaches runtime,
+# and the .mo files are gitignored so they must be produced here.
+FROM python:3.12-slim AS i18n
+RUN --mount=type=bind,source=agri_i18n/requirements-i18n.txt,target=/tmp/requirements-i18n.txt \
+    pip install --no-cache-dir -r /tmp/requirements-i18n.txt
+COPY agri_i18n/locales /build/locales
+RUN pybabel compile -d /build/locales -D messages --statistics
+
+FROM python:3.11-slim AS runtime
+
+ARG USER_GID=1000
+ARG USER_UID=1000
+
+# Set environment variables
+ENV PROCESS_API_PORT=5000
+ENV PYGEOAPI_API_HOST=0.0.0.0
+ENV PYGEOAPI_CONFIG=/app/config/pygeoapi-config.yaml
+ENV PYGEOAPI_OPENAPI=/app/openapi/openapi.yaml
+ENV PYTHONPATH=/app:${PYTHONPATH}
+
+WORKDIR /app
+
+# Copy files
+COPY process-api/config/pygeoapi-config.yaml /app/config/pygeoapi-config.yaml
+COPY process-api/config/weather_datasets.yaml /app/config/weather_datasets.yaml
+COPY process-api/config/climate_datasets.yaml /app/config/climate_datasets.yaml
+COPY process-api/processes /app/processes
+COPY process-api/scripts/start.sh /usr/local/bin/start.sh
+COPY process-api/scripts/generate_openapi.py /app/generate_openapi.py
+# Shared gettext helpers. Only the runtime pieces are copied —
+# babel.cfg and the .pot are authoring tools, and tests ship in the test stage.
+COPY agri_i18n/__init__.py agri_i18n/middleware.py /app/agri_i18n/
+COPY --from=i18n /build/locales /app/agri_i18n/locales
+# Install dependencies
+# NOTE: apt packages below are not version-pinned because Debian apt does not provide
+# stable cross-architecture pin strings and Dependabot cannot track them.
+RUN --mount=type=bind,source=process-api/requirements-process-api.txt,target=/tmp/requirements-process-api.txt \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        libgdal-dev \
+        gdal-bin \
+        libproj-dev \
+        libgeos-dev \
+        curl \
+        gettext-base && \
+    pip install --no-cache-dir -r /tmp/requirements-process-api.txt && \
+    mkdir -p /app/openapi && \
+    chmod +x /usr/local/bin/start.sh && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create non-root user and set ownership
+RUN groupadd --gid ${USER_GID} appuser \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} --no-create-home --shell /bin/bash appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE ${PROCESS_API_PORT}
+
+CMD ["/usr/local/bin/start.sh"]
+
+FROM runtime AS test
+USER root
+RUN --mount=type=bind,source=process-api/requirements-process-api-test.txt,target=/tmp/requirements-process-api-test.txt \
+    pip install --no-cache-dir -r /tmp/requirements-process-api-test.txt
+USER appuser
+COPY --chown=appuser:appuser process-api/test /app/process_api/test
+COPY --chown=appuser:appuser process-api/pytest.ini /app/pytest.ini
+COPY --chown=appuser:appuser agri_i18n/test /app/agri_i18n/test

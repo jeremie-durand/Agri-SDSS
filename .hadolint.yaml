@@ -1,0 +1,5 @@
+failure-threshold: warning
+ignore:
+  - DL3008   # apt-get version pinning acceptable in slim images
+  - DL3013   # pip version pinning
+  - DL3018   # apk version pinning
