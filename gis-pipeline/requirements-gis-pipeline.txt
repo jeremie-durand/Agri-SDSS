@@ -15,7 +15,7 @@ greenlet==3.1.1
 idna==3.18
 numpy==2.4.2 # numpy version here must match Dockerfile.gis-pipeline
 packaging==26.2
-pandas==3.0.3
+pandas==3.0.5
 psycopg[binary]==3.2.10
 pyarrow==25.0.0
 pydantic==2.11.9
