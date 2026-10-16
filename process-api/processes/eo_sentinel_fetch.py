@@ -119,6 +119,8 @@ class SentinelFetchProcessor(BaseProcessor):
     COG_COMPRESSION: str = "DEFLATE"
     COG_BLOCKSIZE: int = 512
     COG_OVERVIEWS: str = "AUTO"
+    # Not ".tif": raster-api's /collections lists every *.tif in /data.
+    PARTIAL_COG_SUFFIX: str = ".partial"
 
     # STAC configuration
     STAC_COLLECTION_ID: str = "sentinel2_eo_products"
@@ -741,7 +743,22 @@ class SentinelFetchProcessor(BaseProcessor):
         return cube
 
     def _convert_to_cog(self, input_path: str, output_path: str) -> None:
-        """Convert GeoTIFF to Cloud Optimized GeoTIFF using gdalwarp"""
+        """Convert GeoTIFF to Cloud Optimized GeoTIFF using gdalwarp.
+
+        gdalwarp writes to a temporary path that is renamed onto output_path
+        only once it succeeds, so an interrupted conversion never leaves a
+        truncated file that later calls would take for a cache hit.
+        """
+        partial_path = f"{output_path}{self.PARTIAL_COG_SUFFIX}"
+        try:
+            self._run_gdalwarp_to_cog(input_path, partial_path)
+            os.replace(partial_path, output_path)
+        finally:
+            if os.path.exists(partial_path):
+                os.remove(partial_path)
+
+    def _run_gdalwarp_to_cog(self, input_path: str, output_path: str) -> None:
+        """Run gdalwarp -of COG, raising ProcessorExecuteError on failure."""
         cmd: List[str] = [
             "gdalwarp",
             "-of",
