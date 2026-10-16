@@ -14,3 +14,10 @@ repos:
     hooks:
       - id: black
         language_version: python3
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.23.2
+    hooks:
+      - id: markdownlint-cli2
+        args: [--fix]
+        language_version: 22.23.2
+        exclude: ^(gis-pipeline/docs/ARGS\.md|docs/superpowers/)

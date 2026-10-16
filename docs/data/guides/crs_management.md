@@ -6,13 +6,14 @@ Guide to handling coordinate reference systems (CRS).
 
 Coordinate Reference Systems (CRS) define how geographic coordinates map to the Earth's surface. Different datasets may use different CRS, we must harmonize them for consistent analysis.
 
-**Default CRS: EPSG:4326 (WGS84 - latitude/longitude)**
+> **Default CRS:** EPSG:4326 (WGS84 - latitude/longitude)
 
 ## Understanding CRS
 
 ### What is a CRS?
 
 A CRS specifies:
+
 - **Datum**: Reference surface (spheroid) representing the Earth
 - **Projection**: Mathematical transformation from 3D sphere to 2D plane
 - **Units**: Typically degrees (geographic) or meters (projected)
@@ -20,7 +21,7 @@ A CRS specifies:
 ### CRS Types
 
 | Type | Definition | Example | Use Case |
-|------|-----------|---------|----------|
+| ------ | ----------- | --------- | ---------- |
 | **Geographic** | Uses lat/long on sphere | EPSG:4326 (WGS84) | Global, web APIs |
 | **Projected** | Transformed to flat plane | EPSG:32198 (UTM 18N) | Distance calculations |
 | **Local** | Regional custom projection | Various | Specialized survey work |
@@ -28,7 +29,7 @@ A CRS specifies:
 ### Common Quebec CRS
 
 | Code | Name | Type | Region | Accuracy |
-|------|------|------|--------|----------|
+| ------ | ------ | ------ | -------- | ---------- |
 | **4326** | WGS84 (lat/lon) | Geographic | Global | ±5m (web) |
 | **32198** | NAD83 / UTM Zone 18N | Projected | Quebec | ±1m (ground distances) |
 | **4617** | NAD83 (geographic) | Geographic | North America | Older system |
@@ -118,7 +119,7 @@ GROUP BY ST_SRID(geom);
 ### Quick Reference Table
 
 | From | To | Command | Notes |
-|------|-----|---------|-------|
+| ------ | ----- | --------- | ------- |
 | UTM 18N (32198) | WGS84 (4326) | `to_crs(4326)` | Most common |
 | NAD83 (4617) | WGS84 (4326) | `to_crs(4326)` | Legacy system |
 | Web Mercator (3857) | WGS84 (4326) | `to_crs(4326)` | From web maps |
@@ -221,17 +222,20 @@ assert gdf.crs.to_epsg() == 4326
 ## Best Practices
 
 ### 1. Always Store Primary Data in WGS84
+
 - Enables web API publishing
 - Supports STAC standard
 - Reduces transformation overhead
 
 ### 2. Validate CRS Before Processing
+
 ```python
 assert gdf.crs is not None, "Missing CRS"
 assert gdf.crs.to_epsg() in [4326, 4617, 32198], "Unsupported CRS"
 ```
 
 ### 3. Use Projected CRS for Measurements
+
 ```python
 # Distances/areas
 gdf_utm = gdf.to_crs(32198)
@@ -239,6 +243,7 @@ area_m2 = gdf_utm.geometry.area  # In square meters
 ```
 
 ### 4. Document Original CRS
+
 ```sql
 -- Store original CRS in metadata
 ALTER TABLE features ADD COLUMN original_crs VARCHAR(20);
@@ -246,6 +251,7 @@ UPDATE features SET original_crs = '32198' WHERE ST_SRID(geom) = 4326;
 ```
 
 ### 5. Test Transformations
+
 ```python
 # Verify round-trip transformation
 gdf_4326 = gpd.read_file('data.shp')

@@ -14,4 +14,5 @@ if printf '%s' "${LLM_BASE_URL:-}" | grep -qE '(localhost|127\.0\.0\.1):11434'; 
         [ -n "${LLM_MODEL:-}" ] && ollama pull "$LLM_MODEL" >/dev/null 2>&1 || true
     ) &
 fi
-exec uvicorn sdss_main:app --host 0.0.0.0 --port 8000
+exec uvicorn sdss_main:app --host 0.0.0.0 --port 8000 \
+    --proxy-headers --forwarded-allow-ips="${FORWARDED_ALLOW_IPS:-*}"

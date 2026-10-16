@@ -9,7 +9,7 @@ Annual raster crop classification for Canada published by Agriculture and Agri-F
 ## Data Details
 
 | Property | Value |
-|----------|-------|
+| ---------- | ------- |
 | **Type** | Raster (ImageServer) |
 | **Format** | ArcGIS REST ImageServer (streamed — not ingested locally) |
 | **CRS** | Web Mercator (EPSG:3857) |
@@ -18,7 +18,7 @@ Annual raster crop classification for Canada published by Agriculture and Agri-F
 | **Years available** | 2016 – 2024 (2025 not yet live) |
 | **Update Frequency** | Annual |
 | **License** | Open Government Licence - Canada |
-| **Source URL** | https://agriculture.canada.ca/imagery-images/rest/services/inventaire_annuel_des_cultures/ |
+| **Source URL** | <https://agriculture.canada.ca/imagery-images/rest/services/inventaire_annuel_des_cultures/> |
 
 ## Integration
 
@@ -31,4 +31,4 @@ This dataset is **not ingested** by the pipeline — it is fetched live from the
 ## Metadata
 
 - **Publisher**: Agriculture and Agri-Food Canada (AAC / AAC)
-- **External Link**: https://open.canada.ca/data/en/dataset/ba2645d5-4458-414d-b196-6303ac06c1c9
+- **External Link**: <https://open.canada.ca/data/en/dataset/ba2645d5-4458-414d-b196-6303ac06c1c9>

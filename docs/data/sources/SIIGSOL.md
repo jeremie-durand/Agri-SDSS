@@ -36,23 +36,29 @@ Each soil property is a separate COG in `data/output/raster_cog/`:
 | `cec_fr_siigsol_cog.tif` | Cation Exchange Capacity | cmol/kg | 0-50 |
 
 **Band layout caveat**: each COG carries a float32 alpha band as its last band and no
-declared nodata value. For statistics or point queries via TiTiler, always pass
-`indexes=1` and `nodata=nan` — otherwise the alpha band skews the results.
+declared nodata value. For statistics, tiles or point queries via TiTiler, always pass
+`bidx=1` and `nodata=nan` — otherwise the alpha band skews the results, and a tile
+request fails outright because PNG cannot encode all six bands. Note the parameter is
+`bidx`; `indexes` is accepted but silently ignored by this TiTiler version, so a request
+using it returns 200 while reporting every band.
 
 ## Using SIIGSOL Data
 
 **Note**: The following examples require services to be running (`docker compose up`).
 Inside the raster-api container the COG directory is mounted at `/data`.
+All services are reached through the single public origin, never at a host port.
+Against a local deployment add `-k` (`curl -k https://localhost/...`) because the
+certificate is self-signed.
 
 ```bash
 # COG metadata (bounds, bands, CRS)
-curl "http://<host>:8082/cog/info?url=/data/ph_fr_siigsol_cog.tif"
+curl "https://<host>/raster-api/cog/info?url=/data/ph_fr_siigsol_cog.tif"
 
-# Band statistics — indexes=1 and nodata=nan required (alpha band)
-curl "http://<host>:8082/cog/statistics?url=/data/ph_fr_siigsol_cog.tif&indexes=1&nodata=nan"
+# Band statistics — bidx=1 and nodata=nan required (alpha band)
+curl "https://<host>/raster-api/cog/statistics?url=/data/ph_fr_siigsol_cog.tif&bidx=1&nodata=nan"
 
 # PNG tile (organic carbon, rescaled for display)
-curl "http://<host>:8082/cog/tiles/10/302/368.png?url=/data/corg_fr_siigsol_cog.tif&indexes=1&nodata=nan&rescale=0,15"
+curl "https://<host>/raster-api/cog/tiles/WebMercatorQuad/10/302/368.png?url=/data/corg_fr_siigsol_cog.tif&bidx=1&nodata=nan&rescale=0,15"
 ```
 
 ## Metadata
@@ -60,5 +66,5 @@ curl "http://<host>:8082/cog/tiles/10/302/368.png?url=/data/corg_fr_siigsol_cog.
 - **Publisher**: Ministère de l'Agriculture, des Pêcheries et de l'Alimentation du Québec (MAPAQ)
 - **Language**: French
 - **External Links**:
-  - Données Québec: https://www.donneesquebec.ca/recherche/dataset/siigsol-100m-carte-des-proprietes-du-sol
-  - MAPAQ Portal: https://www.mapaq.gouv.qc.ca/fr/Pages/Accueil.aspx
+  - Données Québec: <https://www.donneesquebec.ca/recherche/dataset/siigsol-100m-carte-des-proprietes-du-sol>
+  - MAPAQ Portal: <https://www.mapaq.gouv.qc.ca/fr/Pages/Accueil.aspx>

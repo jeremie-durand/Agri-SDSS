@@ -5,6 +5,7 @@ and MountRootPathMiddleware ASGI middleware.
 """
 
 import asyncio
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -75,7 +76,7 @@ def test_parquet_openapi_spec_includes_external_root_as_server(app_client):
     URLs to the domain root, stripping the reverse-proxy prefix
     (e.g. /vector-api) and producing 404s against the proxy.
     """
-    with patch("vector_api.app._EXTERNAL_ROOT", "/vector-api"):
+    with patch("vector_api.app.EXTERNAL_ROOT", "/vector-api"):
         resp = app_client.get("/parquet/openapi.json")
     assert resp.status_code == 200
     assert resp.json().get("servers") == [{"url": "/vector-api"}]
@@ -129,6 +130,117 @@ def test_mount_root_path_middleware_injects_root_path():
 
     assert captured[0]["root_path"] == "/postgis"
     assert captured[0]["app_root_path"] == "/postgis"
+
+
+def _run_middleware(middleware, body: bytes, content_type: bytes = b"application/json"):
+    """Drive the middleware with a stub app and capture the emitted body."""
+    sent = []
+
+    async def stub_app(scope, receive, send):
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", content_type), (b"content-length", b"999")],
+        })
+        await send({"type": "http.response.body", "body": body})
+
+    async def capture(message):
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "scheme": "http",
+        "path": "/collections",
+        "headers": [(b"host", b"example.org"), (b"x-forwarded-proto", b"https")],
+    }
+    middleware.app = stub_app
+    asyncio.run(middleware(scope, None, capture))
+    return sent
+
+
+@pytest.mark.unit
+def test_external_prefix_is_inserted_into_emitted_hrefs():
+    """Hrefs must carry the proxy prefix, or they 404 when followed."""
+    middleware = MountRootPathMiddleware(None, "/postgis", "/vector-api")
+    body = b'{"links":[{"href":"https://example.org/postgis/collections"}]}'
+
+    sent = _run_middleware(middleware, body)
+
+    assert b"https://example.org/vector-api/postgis/collections" in sent[-1]["body"]
+
+
+@pytest.mark.unit
+def test_rewrite_is_a_no_op_without_an_external_prefix():
+    """With APP_ROOT_PATH unset the body must pass through untouched."""
+    middleware = MountRootPathMiddleware(None, "/postgis", "")
+    body = b'{"links":[{"href":"https://example.org/postgis/collections"}]}'
+
+    sent = _run_middleware(middleware, body)
+
+    assert sent[-1]["body"] == body
+
+
+@pytest.mark.unit
+def test_non_json_responses_are_not_rewritten():
+    """Only JSON bodies are touched; tiles and HTML pass through."""
+    middleware = MountRootPathMiddleware(None, "/postgis", "/vector-api")
+    body = b"\x89PNG\r\n/postgis/not-a-link"
+
+    sent = _run_middleware(middleware, body, content_type=b"image/png")
+
+    assert sent[-1]["body"] == body
+
+
+@pytest.mark.unit
+def test_stale_content_length_is_dropped():
+    """Rewriting lengthens the body, so a stale Content-Length must not survive."""
+    middleware = MountRootPathMiddleware(None, "/postgis", "/vector-api")
+
+    sent = _run_middleware(middleware, b'{"href":"https://example.org/postgis/x"}')
+
+    header_names = [k.lower() for k, _ in sent[0]["headers"]]
+    assert b"content-length" not in header_names
+
+
+@pytest.mark.unit
+def test_request_path_is_never_altered_by_the_rewrite():
+    """Routing must be untouched.
+
+    Widening root_path to include the external prefix fixed the links and
+    broke the sub-app's own route resolution (/postgis/* returned 404).
+    The prefix is applied to the response instead, so scope['path'] and
+    root_path must stay exactly as Starlette's Mount set them.
+    """
+    captured = []
+
+    async def capture_app(scope, receive, send):
+        captured.append(scope)
+
+    middleware = MountRootPathMiddleware(capture_app, "/postgis", "/vector-api")
+    scope = {
+        "type": "http",
+        "scheme": "http",
+        "path": "/collections",
+        "headers": [(b"host", b"example.org")],
+    }
+    asyncio.run(middleware(scope, None, lambda m: asyncio.sleep(0)))
+
+    assert captured[0]["path"] == "/collections"
+    assert captured[0]["root_path"] == "/postgis"
+
+
+@pytest.mark.unit
+def test_postgis_mount_is_wired_with_the_external_prefix():
+    """The mount must pass APP_ROOT_PATH through to the middleware.
+
+    The middleware's own rewrite logic is tested above, but that passes even
+    if app.mount() forgets to supply the prefix -- which is the actual bug
+    this guards: links were emitted without /vector-api and 404'd.
+    """
+    external = os.getenv("APP_ROOT_PATH", "").rstrip("/")
+    mount = next(r for r in app.routes if getattr(r, "path", None) == "/postgis")
+
+    assert mount.app.external_root == external
 
 
 @pytest.mark.unit

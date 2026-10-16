@@ -26,12 +26,34 @@ from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 from rasterio.features import geometry_mask
 from shapely.geometry import shape
 
+from agri_i18n import _
+
+from .asset_url_utils import cog_href, preview_href, tilejson_href
 from .config import ApiConfig, DatabaseConfig, FarmConfig, StorageConfig
 from .lidar_backend.quebec_lidar_config import VALID_PRODUCTS
 from .lidar_backend.quebec_lidar_tile_index import LidarTileIndex
 from .quebec_lidar_fetch_metadata import PROCESS_METADATA
 
 logger = logging.getLogger(__name__)
+
+
+def _finite_range(band: "np.ma.MaskedArray") -> Optional[str]:
+    """Return the ``min,max`` of a band's real pixels, or None if unusable.
+
+    NaN is not covered by the nodata mask, so a single NaN pixel would make a
+    plain ``min()``/``max()`` return NaN and put ``rescale=nan,nan`` in a
+    published href. Non-finite values are dropped first. None is returned when
+    nothing is left, or when the range is constant — rio-tiler divides by the
+    span, so an equal min and max is a division by zero.
+    """
+    values = band.compressed()
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return None
+    low, high = float(values.min()), float(values.max())
+    if low == high:
+        return None
+    return f"{low},{high}"
 
 
 class LidarFetchProcessor(BaseProcessor):
@@ -50,10 +72,18 @@ class LidarFetchProcessor(BaseProcessor):
     COG_COMPRESSION: str = "DEFLATE"
     COG_BLOCKSIZE: int = 512
     COG_OVERVIEWS: str = "AUTO"
+    # gdalwarp -of COG otherwise resamples cubically, which overshoots at sharp
+    # edges: negative slopes, and aspect overviews past 0-360.
+    WARP_RESAMPLING: str = "near"
+    COG_OVERVIEW_RESAMPLING: str = "NEAREST"
 
     # STAC settings
     STAC_COLLECTION_ID: str = "lidar_quebec"
     STAC_VERSION: str = "1.0.0"
+
+    # Keys of the raster-api renderings published beside each product asset.
+    PREVIEW_ASSET_KEY: str = "preview"
+    TILEJSON_ASSET_KEY: str = "tilejson"
     # Quebec bounding box (west, south, east, north)
     STAC_SPATIAL_EXTENT_BBOX: List[float] = [-79.75, 41.75, -56.0, 63.0]
     # Approximate acquisition start; MRNF campaigns began ~2015
@@ -115,22 +145,25 @@ class LidarFetchProcessor(BaseProcessor):
             # ----------------------------------------------------------
             if farm_geometry is None and farm_id is None:
                 raise ProcessorExecuteError(
-                    "Either 'farm_geometry' or 'farm_id' must be provided"
+                    _("Either 'farm_geometry' or 'farm_id' must be provided")
                 )
             if farm_geometry is not None and farm_id is not None:
                 raise ProcessorExecuteError(
-                    "Provide only one of 'farm_geometry' or 'farm_id', not both"
+                    _("Provide only one of 'farm_geometry' or 'farm_id', not both")
                 )
             if farm_id is not None and farm_id <= 0:
                 raise ProcessorExecuteError(
-                    f"farm_id must be a positive integer, got: {farm_id}"
+                    _("'farm_id' must be a positive integer, got: {value}").format(
+                        value=farm_id
+                    )
                 )
 
             unknown = set(products) - set(VALID_PRODUCTS)
             if unknown:
                 raise ProcessorExecuteError(
-                    f"Unknown product(s): {sorted(unknown)}. "
-                    f"Valid values: {VALID_PRODUCTS}"
+                    _("Unknown product(s): {products}. Valid values: {valid}").format(
+                        products=sorted(unknown), valid=VALID_PRODUCTS
+                    )
                 )
 
             # ----------------------------------------------------------
@@ -159,8 +192,10 @@ class LidarFetchProcessor(BaseProcessor):
             area_km2 = self._calculate_area_km2(bbox)
             if area_km2 > self.MAX_FARM_AREA_KM2:
                 raise ProcessorExecuteError(
-                    f"Farm area ({area_km2:.1f} km²) exceeds maximum allowed "
-                    f"({self.MAX_FARM_AREA_KM2} km²)"
+                    _(
+                        "Farm area ({area} km²) exceeds maximum allowed "
+                        "({maximum} km²)"
+                    ).format(area=f"{area_km2:.1f}", maximum=self.MAX_FARM_AREA_KM2)
                 )
 
             # ----------------------------------------------------------
@@ -187,17 +222,22 @@ class LidarFetchProcessor(BaseProcessor):
                 )
             if not tile_urls:
                 raise ProcessorExecuteError(
-                    f"No LiDAR tiles found for the supplied geometry "
-                    f"(bbox={bbox}). The area may not be covered by MRNF LiDAR data."
+                    _(
+                        "No LiDAR tiles found for the supplied geometry "
+                        "(bbox={bbox}). The area may not be covered by MRNF "
+                        "LiDAR data."
+                    ).format(bbox=bbox)
                 )
             if (
                 self.ASPECT_PRODUCT in products
                 and self.ASPECT_SOURCE_PRODUCT not in tile_urls
             ):
                 raise ProcessorExecuteError(
-                    "Cannot compute 'aspect': no DTM tiles found for the "
-                    f"supplied geometry (bbox={bbox}). Aspect is derived "
-                    "from DTM."
+                    _(
+                        "Cannot compute 'aspect': no DTM tiles found for the "
+                        "supplied geometry (bbox={bbox}). Aspect is derived "
+                        "from DTM."
+                    ).format(bbox=bbox)
                 )
 
             # ----------------------------------------------------------
@@ -249,9 +289,7 @@ class LidarFetchProcessor(BaseProcessor):
             # ----------------------------------------------------------
             if self.ASPECT_PRODUCT in products:
                 dtm_cog_path = cog_paths[self.ASPECT_SOURCE_PRODUCT]
-                aspect_filename = (
-                    f"lidar_{self.ASPECT_PRODUCT}_{farm_identifier}.tif"
-                )
+                aspect_filename = f"lidar_{self.ASPECT_PRODUCT}_{farm_identifier}.tif"
                 aspect_cog_path = os.path.join(self.output_dir, aspect_filename)
 
                 self._get_or_build_cog(
@@ -279,9 +317,7 @@ class LidarFetchProcessor(BaseProcessor):
             if "slope" in assets:
                 summary["slope"] = assets["slope"]["statistics"]
             if self.ASPECT_PRODUCT in assets:
-                summary[self.ASPECT_PRODUCT] = assets[self.ASPECT_PRODUCT][
-                    "statistics"
-                ]
+                summary[self.ASPECT_PRODUCT] = assets[self.ASPECT_PRODUCT]["statistics"]
 
             return mimetype, {
                 "stac_items": [item["id"] for item in stac_items],
@@ -297,7 +333,9 @@ class LidarFetchProcessor(BaseProcessor):
             logger.error(
                 "Unexpected error in LidarFetchProcessor: %s", exc, exc_info=True
             )
-            raise ProcessorExecuteError(f"LiDAR fetch failed: {exc}") from exc
+            raise ProcessorExecuteError(
+                _("Unexpected error processing LiDAR data.")
+            ) from exc
 
     # ------------------------------------------------------------------
     # Geometry helpers
@@ -316,18 +354,18 @@ class LidarFetchProcessor(BaseProcessor):
                     geom_column: str = farm.FARM_GEOMETRY_COLUMN
                     id_column: str = farm.FARM_ID_COLUMN
 
-                    if not re.match(r"^[a-zA-Z0-9_.-]+$", table_name):
-                        raise ProcessorExecuteError(
-                            "Invalid table name format in FARM_TABLE_NAME"
-                        )
-                    if not re.match(r"^[a-zA-Z0-9_]+$", geom_column):
-                        raise ProcessorExecuteError(
-                            "Invalid geometry column name format in FARM_GEOMETRY_COLUMN"
-                        )
-                    if not re.match(r"^[a-zA-Z0-9_]+$", id_column):
-                        raise ProcessorExecuteError(
-                            "Invalid ID column name format in FARM_ID_COLUMN"
-                        )
+                    for _var, _value, _pattern in (
+                        ("FARM_TABLE_NAME", table_name, r"^[a-zA-Z0-9_.-]+$"),
+                        ("FARM_GEOMETRY_COLUMN", geom_column, r"^[a-zA-Z0-9_]+$"),
+                        ("FARM_ID_COLUMN", id_column, r"^[a-zA-Z0-9_]+$"),
+                    ):
+                        if not re.match(_pattern, _value):
+                            logger.error(
+                                "%s contains disallowed characters: %s", _var, _value
+                            )
+                            raise ProcessorExecuteError(
+                                _("Could not retrieve the farm geometry.")
+                            )
 
                     query: str = f"""
                         SELECT ST_AsGeoJSON({geom_column}) as geom
@@ -339,19 +377,30 @@ class LidarFetchProcessor(BaseProcessor):
 
                     if not result:
                         raise ProcessorExecuteError(
-                            f"Farm ID {farm_id} not found in database"
+                            _("Farm ID {farm_id} not found in database").format(
+                                farm_id=farm_id
+                            )
                         )
 
                     try:
                         return json.loads(result[0])
                     except json.JSONDecodeError as exc:
+                        logger.error(
+                            "Stored geometry for farm %s is not valid JSON: %s",
+                            farm_id,
+                            exc,
+                            exc_info=True,
+                        )
                         raise ProcessorExecuteError(
-                            f"Invalid geometry data for farm ID {farm_id}: {exc}"
+                            _("Invalid geometry data for farm ID {farm_id}").format(
+                                farm_id=farm_id
+                            )
                         ) from exc
 
         except psycopg.Error as exc:
+            logger.error("Farm geometry lookup failed: %s", exc, exc_info=True)
             raise ProcessorExecuteError(
-                f"Database error retrieving farm geometry: {exc}"
+                _("Could not retrieve the farm geometry.")
             ) from exc
 
     @staticmethod
@@ -377,6 +426,10 @@ class LidarFetchProcessor(BaseProcessor):
         Reuse an existing COG at cog_path, or build it via the supplied
         callback. Shared by the tile-fetch loop and the aspect-derivation
         step, which both cache by output path.
+
+        Rebuilding invalidates any cached STAC-publish marker for the same
+        path, so a stale item describing the previous raster isn't served
+        by _add_product_asset.
         """
         if os.path.exists(cog_path):
             logger.info(
@@ -384,6 +437,7 @@ class LidarFetchProcessor(BaseProcessor):
             )
         else:
             build()
+            self._invalidate_stac_marker(cog_path)
 
     def _clip_and_convert_to_cog(
         self,
@@ -410,6 +464,8 @@ class LidarFetchProcessor(BaseProcessor):
             self.DEFAULT_CRS,
             "-t_srs",
             self.DEFAULT_CRS,
+            "-r",
+            self.WARP_RESAMPLING,
             "-of",
             "COG",
             "-co",
@@ -418,6 +474,8 @@ class LidarFetchProcessor(BaseProcessor):
             "NUM_THREADS=ALL_CPUS",
             "-co",
             f"OVERVIEWS={self.COG_OVERVIEWS}",
+            "-co",
+            f"OVERVIEW_RESAMPLING={self.COG_OVERVIEW_RESAMPLING}",
             "-co",
             f"BLOCKSIZE={self.COG_BLOCKSIZE}",
             "-dstnodata",
@@ -430,8 +488,9 @@ class LidarFetchProcessor(BaseProcessor):
             cmd, capture_output=True, text=True
         )
         if result.returncode != 0:
+            logger.error("gdalwarp clip/COG conversion failed: %s", result.stderr)
             raise ProcessorExecuteError(
-                f"gdalwarp clip/COG conversion failed: {result.stderr}"
+                _("Could not clip and convert the LiDAR raster to COG format.")
             )
 
     def _compute_aspect_cog(self, dtm_path: str, output_path: str) -> None:
@@ -455,14 +514,17 @@ class LidarFetchProcessor(BaseProcessor):
             "-co",
             f"OVERVIEWS={self.COG_OVERVIEWS}",
             "-co",
+            f"OVERVIEW_RESAMPLING={self.COG_OVERVIEW_RESAMPLING}",
+            "-co",
             f"BLOCKSIZE={self.COG_BLOCKSIZE}",
         ]
         result: subprocess.CompletedProcess = subprocess.run(
             cmd, capture_output=True, text=True
         )
         if result.returncode != 0:
+            logger.error("gdaldem aspect computation failed: %s", result.stderr)
             raise ProcessorExecuteError(
-                f"gdaldem aspect computation failed: {result.stderr}"
+                _("Could not compute the aspect raster from the terrain model.")
             )
 
     # ------------------------------------------------------------------
@@ -491,15 +553,19 @@ class LidarFetchProcessor(BaseProcessor):
     def _slope_statistics(
         self, cog_path: str, geometry: Dict[str, Any]
     ) -> Dict[str, Optional[float]]:
-        """Mean slope in degrees and percent, over the exact farm polygon."""
+        """Mean slope in percent and degrees, over the exact farm polygon.
+
+        MRNF's Pentes product stores slope in percent (rise / run × 100), so
+        values above 90 are legitimate steep slopes, not errors.
+        """
         values = self._masked_zonal_values(cog_path, geometry)
         if values.size == 0:
             return {"mean_degrees": None, "mean_percent": None}
-        mean_degrees = float(values.mean())
-        # Percent must be averaged per-pixel (tan is nonlinear) — converting
-        # the mean degrees value afterward would be mathematically wrong.
-        percent_values = np.tan(np.radians(values)) * 100.0
-        mean_percent = float(percent_values.mean())
+        mean_percent = float(values.mean())
+        # Degrees must be averaged per-pixel (atan is nonlinear) — converting
+        # the mean percent value afterward would be mathematically wrong.
+        degree_values = np.degrees(np.arctan(values / 100.0))
+        mean_degrees = float(degree_values.mean())
         return {"mean_degrees": mean_degrees, "mean_percent": mean_percent}
 
     def _aspect_statistics(
@@ -536,8 +602,11 @@ class LidarFetchProcessor(BaseProcessor):
         farm_identifier: str,
     ) -> None:
         """
-        Build the STAC asset entry (with statistics) for one product and
-        publish its STAC item, appending both to the caller's accumulators.
+        Build the STAC asset entry (with statistics) for one product,
+        appending it to the caller's accumulators. Statistics are always
+        recomputed from the COG (a local read), but the STAC item itself is
+        only (re)published when there's no cached marker from a prior
+        successful publish for this cog_path — see _load_cached_stac_item.
         dtm/chm/hillshade keep the existing bounding-box mean; slope/aspect
         use the exact-polygon statistics added in Tasks 4-5.
         """
@@ -559,7 +628,7 @@ class LidarFetchProcessor(BaseProcessor):
             statistics = {"mean": mean_val}
 
         assets[product] = {
-            "href": cog_path,
+            "href": cog_href(cog_path),
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
             "roles": ["data"],
             "title": self._get_product_title(product),
@@ -573,14 +642,53 @@ class LidarFetchProcessor(BaseProcessor):
             ],
         }
 
+        marker_path = self._stac_marker_path(cog_path)
+        cached_item = self._load_cached_stac_item(marker_path)
+        expected_assets = {product, self.PREVIEW_ASSET_KEY, self.TILEJSON_ASSET_KEY}
+        if cached_item is not None and (
+            set(cached_item.get("assets", {})) == expected_assets
+        ):
+            logger.info(
+                "STAC cache hit: '%s' already published as %s",
+                product,
+                cached_item.get("id"),
+            )
+            stac_items.append(cached_item)
+            return
+
         stac_item = self._create_stac_item(
             item_id=f"lidar_{product}_{farm_identifier}",
             geometry=geometry_geojson,
             bbox=tuple(bbox),
             product=product,
             asset=assets[product],
+            cog_path=cog_path,
+            marker_path=marker_path,
         )
         stac_items.append(stac_item)
+
+    @staticmethod
+    def _preview_rescale(cog_path: str) -> Optional[str]:
+        """Return the ``min,max`` rescale for a COG's rendered assets, or None.
+
+        TiTiler casts a float band straight to uint8 when no rescale is given,
+        which renders every LiDAR product except hillshade as a flat image, so
+        the preview and TileJSON hrefs carry the raster's own value range.
+        Returns None when the file cannot be read or has no usable range,
+        leaving those hrefs unrescaled rather than failing the publish.
+        """
+        try:
+            with rasterio.open(cog_path) as src:
+                step = max(1, max(src.height, src.width) // 1024)
+                band = src.read(
+                    1,
+                    masked=True,
+                    out_shape=(src.height // step, src.width // step),
+                )
+                return _finite_range(band)
+        except (rasterio.errors.RasterioIOError, OSError) as exc:
+            logger.warning("Could not read %s for preview rescale: %s", cog_path, exc)
+            return None
 
     def _create_stac_item(
         self,
@@ -589,8 +697,26 @@ class LidarFetchProcessor(BaseProcessor):
         bbox: Tuple[float, float, float, float],
         product: str,
         asset: Dict[str, Any],
+        cog_path: str,
+        marker_path: str,
     ) -> Dict[str, Any]:
-        """Build a STAC item and publish it to the STAC API."""
+        """
+        Build a STAC item and publish it to the STAC API. On success, a
+        cache marker is written next to the COG so subsequent calls can
+        skip re-publishing; a failed publish leaves no marker, so the next
+        call retries it instead of the item staying unpublished forever.
+
+        Args:
+            item_id: STAC item identifier.
+            geometry: Item geometry (GeoJSON).
+            bbox: Item bounding box.
+            product: LiDAR product key (dtm, chm, hillshade, slope, aspect).
+            asset: Pre-built data asset dict for this product.
+            cog_path: Local path to the COG, used to build the public preview
+                and TileJSON URLs.
+            marker_path: Path to the cache marker for this COG.
+        """
+        rescale = self._preview_rescale(cog_path)
         stac_item: Dict[str, Any] = {
             "type": "Feature",
             "stac_version": self.STAC_VERSION,
@@ -614,12 +740,60 @@ class LidarFetchProcessor(BaseProcessor):
                 "lidar:source": "MRNF Quebec open data",
                 "proj:epsg": 4326,
             },
-            "assets": {product: asset},
+            "assets": {
+                product: asset,
+                self.PREVIEW_ASSET_KEY: {
+                    "href": preview_href(cog_path, rescale=rescale),
+                    "type": "image/png",
+                    "roles": ["overview"],
+                    "title": "PNG preview",
+                },
+                self.TILEJSON_ASSET_KEY: {
+                    "href": tilejson_href(cog_path, rescale=rescale),
+                    "type": "application/json",
+                    "roles": ["tiles"],
+                    "title": "TileJSON (XYZ tiles)",
+                },
+            },
             "links": [],
         }
 
-        self._post_to_stac_api(stac_item)
+        if self._post_to_stac_api(stac_item):
+            self._write_stac_marker(marker_path, stac_item)
         return stac_item
+
+    @staticmethod
+    def _stac_marker_path(cog_path: str) -> str:
+        """Path to the sidecar marker recording a successful STAC publish."""
+        return f"{cog_path}.stac.json"
+
+    @staticmethod
+    def _invalidate_stac_marker(cog_path: str) -> None:
+        """Remove a stale publish marker after the COG it describes is rebuilt."""
+        marker_path = LidarFetchProcessor._stac_marker_path(cog_path)
+        if os.path.exists(marker_path):
+            os.remove(marker_path)
+
+    @staticmethod
+    def _load_cached_stac_item(marker_path: str) -> Optional[Dict[str, Any]]:
+        """Return the previously-published STAC item, or None if unpublished."""
+        if not os.path.exists(marker_path):
+            return None
+        try:
+            with open(marker_path, "r") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not read STAC marker %s: %s", marker_path, exc)
+            return None
+
+    @staticmethod
+    def _write_stac_marker(marker_path: str, stac_item: Dict[str, Any]) -> None:
+        """Persist a successfully-published STAC item as a cache marker."""
+        try:
+            with open(marker_path, "w") as f:
+                json.dump(stac_item, f)
+        except OSError as exc:
+            logger.warning("Could not write STAC marker %s: %s", marker_path, exc)
 
     def _ensure_collection_exists(self) -> None:
         """Ensure the lidar_quebec collection exists in the STAC API."""
@@ -737,13 +911,6 @@ class LidarFetchProcessor(BaseProcessor):
             )
             return False
 
-    def _generate_preview_url(self, asset_href: str) -> str:
-        """Generate TiTiler preview URL for an asset."""
-        filename: str = os.path.basename(asset_href)
-        raster_api_port: int = ApiConfig().RASTER_API_PORT
-        raster_api_url: str = f"http://raster-api:{raster_api_port}"
-        return f"{raster_api_url}/cog/preview.png?url=/data/{filename}"
-
     # ------------------------------------------------------------------
     # Product metadata helpers
     # ------------------------------------------------------------------
@@ -755,7 +922,7 @@ class LidarFetchProcessor(BaseProcessor):
             "dtm": "Digital Terrain Model (DTM)",
             "chm": "Canopy Height Model (CHM)",
             "hillshade": "Hillshade (Shaded Relief)",
-            "slope": "Slope (degrees and percent)",
+            "slope": "Slope (percent)",
             "aspect": "Aspect (compass bearing, degrees)",
         }
         return titles.get(product, product.upper())
@@ -767,7 +934,10 @@ class LidarFetchProcessor(BaseProcessor):
             "dtm": "Bare-ground elevation in metres above sea level (1 m resolution)",
             "chm": "Vegetation height in metres derived as DSM − DTM (1 m resolution)",
             "hillshade": "Shaded relief computed from DTM (2 m resolution)",
-            "slope": "Terrain slope in degrees computed from DTM (2 m resolution)",
+            "slope": (
+                "Terrain slope in percent (rise / run × 100) computed from DTM "
+                "(2 m resolution)"
+            ),
             "aspect": (
                 "Downslope compass bearing in degrees (0=North, clockwise), "
                 "derived from DTM via gdaldem aspect (1 m resolution); not a "

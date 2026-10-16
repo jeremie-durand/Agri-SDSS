@@ -1,7 +1,9 @@
 """SOM Soil Prediction OGC API Process.
 
-Queries DuckDB for GEE-derived SOM features, runs the RandomForest pipeline,
-fetches field polygons from PostGIS, and returns a GeoJSON FeatureCollection.
+Resolves the requested som_field_boundaries gids to their GEE FIELD_IDs and
+polygons in PostGIS, queries DuckDB for the GEE-derived SOM features of those
+FIELD_IDs, runs the RandomForest pipeline, and returns a GeoJSON
+FeatureCollection.
 """
 
 from __future__ import annotations
@@ -17,14 +19,14 @@ import pandas as pd
 import psycopg
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 
+from agri_i18n import _
+
 from .config import DatabaseConfig, StorageConfig
-from .som_backend.som_field_backend import SOMFieldBackend
-from .som_backend.som_ml_backend import SOMMLBackend
+from .som_backend.som_ml_backend import BARESAIL_GLOB, SOMMLBackend
+from .som_backend.som_model_store import SOMModelStore
 from .som_predict_soil_metadata import PROCESS_METADATA
 
 logger = logging.getLogger(__name__)
-
-_BARESAIL_GLOB = "BareSoil_TOPCLI_*.parquet"
 
 
 def _sanitize_nan(obj: Any) -> Any:
@@ -44,7 +46,8 @@ class SOMPredictSoilProcessor(BaseProcessor):
     def __init__(self, processor_def: Dict[str, Any]) -> None:
         super().__init__(processor_def, PROCESS_METADATA)
         self._ml_backend = SOMMLBackend()
-        self._field_backend = SOMFieldBackend()
+        model_dir = Path(StorageConfig().DUCKDB_DATA_DIR) / "som_models"
+        self._model_store = SOMModelStore(self._ml_backend, model_dir)
 
     def execute(
         self, data: Dict[str, Any], outputs: Optional[Any] = None
@@ -62,38 +65,43 @@ class SOMPredictSoilProcessor(BaseProcessor):
             ProcessorExecuteError: On invalid inputs or backend failure.
         """
         try:
-            field_ids, scenarios = self._validate_inputs(data)
-            feature_df = self._load_features_from_duckdb(field_ids)
-            ml_result = self._ml_backend.run(
-                feature_df, scenarios=scenarios, target_field_ids=field_ids
-            )
-            if not ml_result["predictions"]:
-                raise ProcessorExecuteError(
-                    "No predictions were produced. Check that the requested field IDs "
-                    "have sufficient training data in the GEE feature Parquet files."
-                )
-            preds_df = pd.DataFrame(ml_result["predictions"])
-            field_result = self._field_backend.run(preds_df)
-            ml_metrics_by_scenario = {
-                m["scenario"]: m for m in ml_result.get("metrics", [])
-            }
-            for fm in field_result["field_metrics"]:
-                scenario = fm.get("Scenario")
-                if scenario in ml_metrics_by_scenario:
-                    ml_m = ml_metrics_by_scenario[scenario]
-                    fm["n_images_used"] = ml_m["n_images_used"]
-                    r2_lin = fm.get("R2_lin")
-                    r2_undefined = r2_lin is None or (
-                        isinstance(r2_lin, float) and math.isnan(r2_lin)
+            gids, scenarios = self._validate_inputs(data)
+            fields = self._resolve_fields(gids)
+            gee_field_ids = sorted(field_id for field_id, _geom in fields.values())
+            all_data = self._load_features_from_duckdb(gee_field_ids, sorted(fields))
+            data_dir = Path(StorageConfig().DUCKDB_DATA_DIR)
+
+            requested = {float(fid) for fid in gee_field_ids}
+            requested_data = all_data[all_data["FIELD_ID"].isin(requested)]
+
+            all_preds: List[Dict[str, Any]] = []
+            field_summary: List[Dict[str, Any]] = []
+            for scenario in scenarios:
+                try:
+                    bundle = self._model_store.get_or_train(
+                        scenario, all_data, data_dir
                     )
-                    if r2_undefined:
-                        fm["R2_lin"] = ml_m.get("val_r2")
-                        fm["r2_source"] = "val"
-                    else:
-                        fm["r2_source"] = "test"
-            geom_map = self._fetch_field_geometries(field_ids)
+                    preds = self._model_store.predict(bundle, requested_data)
+                except Exception as exc:
+                    logger.error("Scenario %s failed: %s", scenario, exc, exc_info=True)
+                    continue
+                all_preds.extend(preds)
+                field_summary.append(bundle.global_metrics)
+
+            if not all_preds:
+                raise ProcessorExecuteError(
+                    _(
+                        "No predictions were produced. Check that the requested "
+                        "field IDs have sufficient training data in the GEE "
+                        "feature Parquet files."
+                    )
+                )
+            preds_df = pd.DataFrame(all_preds)
+            by_field_id = {
+                field_id: (gid, geom) for gid, (field_id, geom) in fields.items()
+            }
             feature_collection = self._build_feature_collection(
-                preds_df, geom_map, field_result["field_metrics"]
+                preds_df, by_field_id, field_summary
             )
             return "application/geo+json", {
                 "id": "result",
@@ -106,7 +114,9 @@ class SOMPredictSoilProcessor(BaseProcessor):
             logger.error(
                 "Unexpected error in SOMPredictSoilProcessor: %s", exc, exc_info=True
             )
-            raise ProcessorExecuteError(f"Unexpected error: {exc}") from exc
+            raise ProcessorExecuteError(
+                _("An unexpected error occurred while running this process.")
+            ) from exc
 
     # ------------------------------------------------------------------
     # Input validation
@@ -120,13 +130,16 @@ class SOMPredictSoilProcessor(BaseProcessor):
         field_ids = data.get("field_ids")
         if not field_ids:
             raise ProcessorExecuteError(
-                "'field_ids' is required and must contain at least one integer field ID."
+                _(
+                    "'field_ids' is required and must contain at least one "
+                    "integer field ID."
+                )
             )
         try:
             field_ids = [int(fid) for fid in field_ids]
         except (TypeError, ValueError) as exc:
             raise ProcessorExecuteError(
-                f"'field_ids' must be a list of integers: {exc}"
+                _("'field_ids' must be a list of integers: {error}").format(error=exc)
             ) from exc
 
         valid_scenarios = {
@@ -138,8 +151,9 @@ class SOMPredictSoilProcessor(BaseProcessor):
         invalid = [s for s in scenarios if s not in valid_scenarios]
         if invalid:
             raise ProcessorExecuteError(
-                f"Unknown scenarios: {invalid}. "
-                f"Valid values: {sorted(valid_scenarios)}"
+                _("Unknown scenarios: {invalid}. Valid values: {valid}").format(
+                    invalid=invalid, valid=sorted(valid_scenarios)
+                )
             )
         return field_ids, scenarios
 
@@ -147,11 +161,16 @@ class SOMPredictSoilProcessor(BaseProcessor):
     # DuckDB feature loading
     # ------------------------------------------------------------------
 
-    def _load_features_from_duckdb(self, field_ids: List[int]) -> pd.DataFrame:
+    def _load_features_from_duckdb(
+        self, field_ids: List[int], reported_ids: list[int] | None = None
+    ) -> pd.DataFrame:
         """Query all BareSoil_TOPCLI_*.parquet files in DUCKDB_DATA_DIR for the given field IDs.
 
         Args:
             field_ids: List of FIELD_ID integer values to filter.
+            reported_ids: IDs named in the error message when no row matches;
+                the caller's gids, since GEE FIELD_IDs mean nothing to them.
+                Defaults to field_ids.
 
         Returns:
             DataFrame with GEE feature rows for the requested fields.
@@ -160,16 +179,22 @@ class SOMPredictSoilProcessor(BaseProcessor):
             ProcessorExecuteError: If no Parquet files found or no rows match.
         """
         data_dir = Path(StorageConfig().DUCKDB_DATA_DIR)
-        parquet_files = list(data_dir.glob(_BARESAIL_GLOB))
+        parquet_files = list(data_dir.glob(BARESAIL_GLOB))
         if not parquet_files:
             raise ProcessorExecuteError(
-                "No GEE feature Parquet files found. "
-                "Run the gis-pipeline to ingest the BareSoil_TOPCLI_*.csv files first."
+                _(
+                    "No GEE feature Parquet files found. Run the gis-pipeline to "
+                    "ingest the BareSoil_TOPCLI_*.csv files first."
+                )
             )
 
-        glob_pattern = str(data_dir / _BARESAIL_GLOB)
-        # Load all training data — field filtering happens in the ML backend
-        # (selected field_ids become the test set; all others are training)
+        glob_pattern = str(data_dir / BARESAIL_GLOB)
+        # Load all labeled data (needed for training, if a cache miss occurs
+        # downstream in SOMModelStore). This only confirms at least one
+        # requested field has SOME row in the raw Parquet data — the real
+        # prediction-time filtering (missing mean_SOM, outlier bounds) happens
+        # later in SOMMLBackend.preprocess_for_predict(), called from
+        # SOMModelStore.predict().
         # union_by_name=true handles schema differences across yearly CSV exports
         query = f"SELECT * FROM read_parquet('{glob_pattern}', union_by_name=true)"
 
@@ -178,22 +203,31 @@ class SOMPredictSoilProcessor(BaseProcessor):
             df = con.execute(query).df()
             con.close()
         except duckdb.Error as exc:
+            logger.error(
+                "DuckDB query on GEE feature Parquet files failed: %s",
+                exc,
+                exc_info=True,
+            )
             raise ProcessorExecuteError(
-                f"Failed to query GEE feature Parquet files: {exc}"
+                _("Could not read the GEE feature data.")
             ) from exc
 
         if df.empty:
             raise ProcessorExecuteError(
-                "GEE feature Parquet files are empty. "
-                "Run the gis-pipeline to ingest the BareSoil_TOPCLI_*.csv files."
+                _(
+                    "GEE feature Parquet files are empty. Run the gis-pipeline to "
+                    "ingest the BareSoil_TOPCLI_*.csv files."
+                )
             )
 
         df["FIELD_ID"] = df["FIELD_ID"].astype(float)
         requested = {float(fid) for fid in field_ids}
         if not df["FIELD_ID"].isin(requested).any():
             raise ProcessorExecuteError(
-                f"No feature data found for field IDs {field_ids} "
-                "in the GEE feature Parquet files."
+                _(
+                    "No feature data found for field IDs {field_ids} in the GEE "
+                    "feature Parquet files."
+                ).format(field_ids=reported_ids or field_ids)
             )
         logger.info(
             "Loaded %d rows for %d field IDs from DuckDB.",
@@ -203,45 +237,60 @@ class SOMPredictSoilProcessor(BaseProcessor):
         return df
 
     # ------------------------------------------------------------------
-    # PostGIS geometry fetch
+    # PostGIS field resolution
     # ------------------------------------------------------------------
 
-    def _fetch_field_geometries(self, field_ids: List[int]) -> Dict[int, Any]:
-        """Query som_field_boundaries for Polygon geometries by FIELD_ID (= gid).
+    def _resolve_fields(self, gids: list[int]) -> dict[int, tuple[int, Any]]:
+        """Map requested som_field_boundaries gids to GEE FIELD_IDs and polygons.
+
+        The platform gid and the GEE FIELD_ID are different identifiers;
+        gis-pipeline stores the FIELD_ID of each GEE field in gee_field_id.
+        Requested gids without a gee_field_id are logged and left out.
 
         Args:
-            field_ids: List of field IDs to look up.
+            gids: som_field_boundaries gid values sent by the caller.
 
         Returns:
-            Dict mapping FIELD_ID → GeoJSON geometry dict (or None if not found).
+            Dict mapping gid → (GEE FIELD_ID, GeoJSON geometry dict or None).
+
+        Raises:
+            ProcessorExecuteError: If PostGIS cannot be queried, or if none of
+                the requested gids has GEE data.
         """
         conn_params = DatabaseConfig().to_conn_params()
         sql = (
-            "SELECT gid, ST_AsGeoJSON(geometry)::text AS geom_json "
-            "FROM som_field_boundaries WHERE gid = ANY(%s)"
+            "SELECT gid, gee_field_id, ST_AsGeoJSON(geometry)::text AS geom_json "
+            "FROM som_field_boundaries "
+            "WHERE gid = ANY(%s) AND gee_field_id IS NOT NULL"
         )
-        geom_map: Dict[int, Any] = {fid: None for fid in field_ids}
+        fields: dict[int, tuple[int, Any]] = {}
         try:
             with psycopg.connect(**conn_params) as conn:
                 with conn.cursor() as cur:
-                    cur.execute(sql, (field_ids,))
-                    for gid, geom_json in cur.fetchall():
-                        geom_map[int(gid)] = (
-                            json.loads(geom_json) if geom_json else None
+                    cur.execute(sql, (gids,))
+                    for gid, field_id, geom_json in cur.fetchall():
+                        fields[int(gid)] = (
+                            int(field_id),
+                            json.loads(geom_json) if geom_json else None,
                         )
         except psycopg.Error as exc:
-            logger.warning(
-                "Could not fetch field geometries from PostGIS: %s. "
-                "Returning null geometries.",
-                exc,
+            logger.error(
+                "Could not resolve SOM fields from PostGIS: %s", exc, exc_info=True
             )
+            raise ProcessorExecuteError(
+                _("Could not read the SOM field boundaries.")
+            ) from exc
 
-        missing = [fid for fid, geom in geom_map.items() if geom is None]
-        if missing:
-            logger.warning(
-                "No geometry found in som_field_boundaries for field IDs: %s", missing
+        if not fields:
+            raise ProcessorExecuteError(
+                _("None of the field IDs {field_ids} has GEE training data.").format(
+                    field_ids=gids
+                )
             )
-        return geom_map
+        missing = sorted(set(gids) - fields.keys())
+        if missing:
+            logger.warning("Field IDs without GEE data were skipped: %s", missing)
+        return fields
 
     # ------------------------------------------------------------------
     # GeoJSON assembly
@@ -250,28 +299,30 @@ class SOMPredictSoilProcessor(BaseProcessor):
     @staticmethod
     def _build_feature_collection(
         preds_df: pd.DataFrame,
-        geom_map: Dict[int, Any],
+        by_field_id: dict[int, tuple[int, Any]],
         field_metrics: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Assemble a GeoJSON FeatureCollection from image-level predictions.
 
         Args:
             preds_df: DataFrame of image-level prediction rows.
-            geom_map: FIELD_ID → GeoJSON geometry dict.
+            by_field_id: GEE FIELD_ID → (gid, GeoJSON geometry dict or None).
             field_metrics: List of field-level metric dicts for the field_summary key.
 
         Returns:
             GeoJSON FeatureCollection dict.
         """
         features = []
-        for _, row in preds_df.iterrows():
+        for _idx, row in preds_df.iterrows():
             field_id = int(row["FIELD_ID"])
+            gid, geometry = by_field_id.get(field_id, (None, None))
             features.append(
                 {
                     "type": "Feature",
-                    "geometry": geom_map.get(field_id),
+                    "geometry": geometry,
                     "properties": {
                         "row_id": int(row.get("row_id", 0)),
+                        "gid": gid,
                         "FIELD_ID": field_id,
                         "Image_ID": str(row["Image_ID"]),
                         "y_true_lin": float(row["y_true_lin"]),

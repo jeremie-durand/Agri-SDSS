@@ -29,5 +29,5 @@ Data is automatically discovered, validated, reprojected, and ingested.
 ## Docs
 
 → [Data catalog](../docs/data/CATALOG.md) — integrated datasets and sources  
-→ [Adding new data](../docs/data/adding_new_data.md) — step-by-step guide  
+→ [Adding new data](../docs/data/guides/adding_new_data.md) — step-by-step guide  
 → [Data sources](../docs/data/sources/) — per-source documentation

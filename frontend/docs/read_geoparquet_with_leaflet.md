@@ -1,4 +1,5 @@
 # Read GeoParquet with Leaflet
+
 Leaflet does not natively support reading of GeoParquet. That's why we need to create a workflow for this task.
 Here is the workflow using [OGC API standards](https://ogcapi.ogc.org/), aligned with the current frontend logic in `frontend/home/html/map.html`.
 

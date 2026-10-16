@@ -6,6 +6,14 @@ and maintenance costs across the application and documentation.
 
 import os
 
+EXTERNAL_ROOT = os.getenv("APP_ROOT_PATH", "").rstrip("/")
+
+
+def external_base_url(request) -> str:
+    """Base URL for self-links, including the reverse proxy's path prefix."""
+    return f"{str(request.base_url).rstrip('/')}{EXTERNAL_ROOT}"
+
+
 # Endpoint prefixes
 POSTGIS_PREFIX = "/postgis"
 PARQUET_PREFIX = "/parquet"

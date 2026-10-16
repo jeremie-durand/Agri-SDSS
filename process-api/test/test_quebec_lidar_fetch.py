@@ -5,17 +5,31 @@ Tests quebec_lidar_fetch.py and lidar_backend/quebec_lidar_tile_index.py.
 
 import json
 import math
+import os
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import rasterio
-from rasterio.transform import from_origin
 from processes.lidar_backend.quebec_lidar_config import PRODUCT_COLUMN, VALID_PRODUCTS
 from processes.lidar_backend.quebec_lidar_tile_index import LidarTileIndex
 from processes.quebec_lidar_fetch import LidarFetchProcessor
 from processes.quebec_lidar_fetch_metadata import PROCESS_METADATA
 from pygeoapi.process.base import ProcessorExecuteError
+from rasterio.transform import from_origin
+
+import agri_i18n
+
+
+@pytest.fixture(autouse=True)
+def _english_messages():
+    """Assert against the English msgids rather than the French default.
+
+    Message content is localised, so these tests pin the source language.
+    French rendering is covered in agri_i18n/test and vector-api/test.
+    """
+    with agri_i18n.use_locale("en"):
+        yield
 
 
 def _write_test_raster(path, values, nodata=None):
@@ -313,15 +327,14 @@ def test_masked_zonal_values_excludes_pixels_outside_polygon(
 
 
 @pytest.mark.unit
-def test_slope_statistics_uses_per_pixel_percent_conversion(
-    processor_instance, tmp_path
-):
-    """mean_percent must be the average of per-pixel tan(radians(deg))*100,
-    not tan(radians(mean_degrees))*100 — the two differ for non-uniform
-    input, and only the per-pixel version is numerically correct."""
+def test_slope_statistics_treats_raster_as_percent(processor_instance, tmp_path):
+    """MRNF's Pentes product is in percent, so mean_percent is the plain mean
+    and mean_degrees averages the per-pixel degrees(atan(percent / 100)) —
+    not a conversion of the mean percent, which differs for non-uniform
+    input."""
     raster_path = tmp_path / "slope.tif"
-    degrees = [[10.0, 20.0], [30.0, 40.0]]
-    _write_test_raster(raster_path, degrees)
+    percent = [[10.0, 20.0], [30.0, 150.0]]
+    _write_test_raster(raster_path, percent)
     full_coverage = {
         "type": "Polygon",
         "coordinates": [
@@ -337,16 +350,15 @@ def test_slope_statistics_uses_per_pixel_percent_conversion(
 
     stats = processor_instance._slope_statistics(str(raster_path), full_coverage)
 
-    flat_degrees = np.array([10.0, 20.0, 30.0, 40.0])
-    expected_mean_degrees = float(flat_degrees.mean())
-    expected_mean_percent = float(
-        (np.tan(np.radians(flat_degrees)) * 100.0).mean()
-    )
-    wrong_way_percent = math.tan(math.radians(expected_mean_degrees)) * 100.0
+    flat_percent = np.array([10.0, 20.0, 30.0, 150.0])
+    expected_mean_percent = float(flat_percent.mean())
+    expected_mean_degrees = float(np.degrees(np.arctan(flat_percent / 100.0)).mean())
+    wrong_way_degrees = math.degrees(math.atan(expected_mean_percent / 100.0))
 
-    assert stats["mean_degrees"] == pytest.approx(expected_mean_degrees)
-    assert stats["mean_percent"] == pytest.approx(expected_mean_percent, abs=1e-3)
-    assert stats["mean_percent"] != pytest.approx(wrong_way_percent, abs=0.5)
+    assert stats["mean_percent"] == pytest.approx(expected_mean_percent)
+    assert stats["mean_degrees"] == pytest.approx(expected_mean_degrees, abs=1e-3)
+    assert stats["mean_degrees"] != pytest.approx(wrong_way_degrees, abs=0.5)
+    assert stats["mean_degrees"] < 90.0
 
 
 @pytest.mark.unit
@@ -357,7 +369,13 @@ def test_slope_statistics_empty_polygon_returns_none(processor_instance, tmp_pat
     outside_polygon = {
         "type": "Polygon",
         "coordinates": [
-            [[-60.0, 50.0], [-59.99, 50.0], [-59.99, 50.01], [-60.0, 50.01], [-60.0, 50.0]]
+            [
+                [-60.0, 50.0],
+                [-59.99, 50.0],
+                [-59.99, 50.01],
+                [-60.0, 50.01],
+                [-60.0, 50.0],
+            ]
         ],
     }
 
@@ -429,9 +447,7 @@ def test_aspect_statistics_excludes_nodata_flat_cells(processor_instance, tmp_pa
     """gdaldem aspect marks flat/edge cells as nodata (-9999) — those must
     not pollute the circular mean."""
     raster_path = tmp_path / "aspect_nodata.tif"
-    _write_test_raster(
-        raster_path, [[45.0, -9999.0], [90.0, -9999.0]], nodata=-9999.0
-    )
+    _write_test_raster(raster_path, [[45.0, -9999.0], [90.0, -9999.0]], nodata=-9999.0)
     full_coverage = {
         "type": "Polygon",
         "coordinates": [
@@ -458,7 +474,13 @@ def test_aspect_statistics_empty_polygon_returns_none(processor_instance, tmp_pa
     outside_polygon = {
         "type": "Polygon",
         "coordinates": [
-            [[-60.0, 50.0], [-59.99, 50.0], [-59.99, 50.01], [-60.0, 50.01], [-60.0, 50.0]]
+            [
+                [-60.0, 50.0],
+                [-59.99, 50.0],
+                [-59.99, 50.01],
+                [-60.0, 50.01],
+                [-60.0, 50.0],
+            ]
         ],
     }
 
@@ -488,21 +510,120 @@ def test_compute_aspect_cog_invokes_gdaldem(processor_instance, tmp_path):
 
 @pytest.mark.unit
 def test_compute_aspect_cog_raises_on_gdal_failure(processor_instance, tmp_path):
-    """A non-zero gdaldem exit code raises ProcessorExecuteError with the
-    stderr output, matching the gdalwarp failure pattern."""
+    """A non-zero gdaldem exit code raises a generic ProcessorExecuteError,
+    keeping the stderr output in the logs, matching the gdalwarp pattern."""
     with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(
-            returncode=1, stderr="gdaldem: some error"
-        )
-        with pytest.raises(ProcessorExecuteError, match="gdaldem aspect"):
+        mock_run.return_value = MagicMock(returncode=1, stderr="gdaldem: some error")
+        with pytest.raises(
+            ProcessorExecuteError, match="Could not compute the aspect raster"
+        ) as excinfo:
             processor_instance._compute_aspect_cog(
                 str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif")
             )
+
+    assert "gdaldem: some error" not in str(
+        excinfo.value
+    ), "gdaldem stderr must stay in the logs, not reach the caller"
+
+
+@pytest.mark.unit
+def test_clip_uses_nearest_resampling_for_warp_and_overviews(
+    processor_instance, tmp_path
+):
+    """gdalwarp -of COG defaults to cubic for both the warp and the overviews,
+    and cubic overshoots at sharp edges (negative slopes, aspect past 360)."""
+    with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        processor_instance._clip_and_convert_to_cog(
+            ["/vsicurl/https://example/Pentes.tif"],
+            str(tmp_path / "slope.tif"),
+            (-72.0, 45.98, -71.98, 46.0),
+        )
+
+    args = mock_run.call_args.args[0]
+    assert args[args.index("-r") + 1] == "near"
+    assert "OVERVIEW_RESAMPLING=NEAREST" in args
+
+
+@pytest.mark.unit
+def test_aspect_cog_overviews_use_nearest_resampling(processor_instance, tmp_path):
+    """Aspect wraps at 360/0, so any interpolating overview is wrong."""
+    with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        processor_instance._compute_aspect_cog(
+            str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif")
+        )
+
+    assert "OVERVIEW_RESAMPLING=NEAREST" in mock_run.call_args.args[0]
+
+
+@pytest.mark.unit
+def test_clip_keeps_values_within_source_range(processor_instance, tmp_path):
+    """Real gdalwarp on a 0/100 step raster, clipped to an off-grid extent:
+    neither the COG nor any overview may leave the source range."""
+    source = tmp_path / "step.tif"
+    data = np.zeros((200, 200), dtype="float32")
+    data[:, 100:] = 100.0
+    with rasterio.open(
+        source,
+        "w",
+        driver="GTiff",
+        height=200,
+        width=200,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_origin(-72.0, 46.0, 1e-4, 1e-4),
+        nodata=-9999,
+    ) as dst:
+        dst.write(data, 1)
+    output = tmp_path / "clipped.tif"
+
+    processor_instance._clip_and_convert_to_cog(
+        [str(source)], str(output), (-71.99873, 45.98127, -71.98127, 45.99873)
+    )
+
+    with rasterio.open(output) as src:
+        levels = [src.read(1, masked=True)]
+        overview_count = len(src.overviews(1))
+    for level in range(overview_count):
+        with rasterio.open(output, overview_level=level) as overview:
+            levels.append(overview.read(1, masked=True))
+    for band in levels:
+        assert band.min() >= 0.0
+        assert band.max() <= 100.0
 
 
 # ---------------------------------------------------------------------------
 # LidarFetchProcessor input validation tests
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.mocked
+@pytest.mark.parametrize(
+    ("env_var", "value"),
+    [
+        ("FARM_GEOMETRY_COLUMN", "geom-1"),
+        ("FARM_GEOMETRY_COLUMN", "t.geom"),
+        ("FARM_ID_COLUMN", "gid-1"),
+        ("FARM_TABLE_NAME", "farms;drop"),
+    ],
+)
+def test_get_geometry_from_db_rejects_unsafe_identifiers(
+    mock_db_connection, monkeypatch, env_var, value
+):
+    """Farm table/column names outside their allowed pattern are never queried."""
+    monkeypatch.setenv(env_var, value)
+    with patch(
+        "processes.quebec_lidar_fetch.psycopg.connect",
+        return_value=mock_db_connection,
+    ):
+        with pytest.raises(
+            ProcessorExecuteError, match="Could not retrieve the farm geometry"
+        ):
+            LidarFetchProcessor._get_geometry_from_db(1)
+
+    mock_db_connection.cursor.return_value.execute.assert_not_called()
 
 
 @pytest.mark.unit
@@ -599,11 +720,15 @@ def test_execute_default_products_excludes_aspect(
     mock_band = MagicMock()
     mock_band.count.return_value = 100
     mock_band.mean.return_value = 1.5
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
 
     with (
@@ -615,9 +740,7 @@ def test_execute_default_products_excludes_aspect(
         patch(
             "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
         ),
-        patch.object(
-            processor_instance, "_compute_aspect_cog"
-        ) as mock_compute_aspect,
+        patch.object(processor_instance, "_compute_aspect_cog") as mock_compute_aspect,
         patch.object(
             processor_instance,
             "_slope_statistics",
@@ -658,12 +781,16 @@ def test_execute_success_with_geometry(
     mock_band = MagicMock()
     mock_band.count.return_value = 100
     mock_band.mean.return_value = 1.5
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.bounds = MagicMock(left=-71.5, bottom=45.5, right=-71.4, top=45.6)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
 
     with (
@@ -698,11 +825,19 @@ def test_execute_success_with_farm_id(processor_instance, mock_db_connection, tm
 
     tile_urls = {"slope": ["https://example.com/Pentes_31H05NE.tif"]}
 
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
+
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.bounds = MagicMock(left=-71.5, bottom=45.5, right=-71.4, top=45.6)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
+    mock_rasterio_ds.read.return_value = mock_band
 
     with (
         patch(
@@ -748,10 +883,18 @@ def test_execute_aspect_only_fetches_dtm_as_dependency(
 
     tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
 
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
+
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
+    mock_rasterio_ds.read.return_value = mock_band
 
     with (
         patch(
@@ -803,9 +946,13 @@ def test_execute_dtm_and_aspect_both_explicitly_requested(
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
     mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
     mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
     mock_band = MagicMock()
     mock_band.count.return_value = 100
     mock_band.mean.return_value = 312.4
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
     mock_rasterio_ds.read.return_value = mock_band
 
     with (
@@ -860,10 +1007,245 @@ def test_execute_gdal_failure_raises(
     ):
         mock_run.return_value = MagicMock(returncode=1, stderr="gdalwarp: some error")
 
-        with pytest.raises(ProcessorExecuteError, match="gdalwarp"):
+        with pytest.raises(
+            ProcessorExecuteError,
+            match="Could not clip and convert the LiDAR raster",
+        ) as excinfo:
             processor_instance.execute(
                 {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
             )
+
+    assert "gdalwarp: some error" not in str(
+        excinfo.value
+    ), "gdalwarp stderr must stay in the logs, not reach the caller"
+
+
+# ---------------------------------------------------------------------------
+# STAC publish caching tests (marker written after a successful publish;
+# skips republishing on a warm COG cache; retries after a failed publish;
+# invalidated when the COG is rebuilt)
+# ---------------------------------------------------------------------------
+
+
+def _fake_gdalwarp(cmd, capture_output, text):
+    """subprocess.run stand-in that actually writes the output COG file, so
+    the on-disk cache check in _get_or_build_cog behaves realistically
+    across repeated execute() calls."""
+    output_path = cmd[-1]
+    with open(output_path, "wb") as f:
+        f.write(b"fake")
+    return MagicMock(returncode=0, stderr="")
+
+
+@pytest.mark.mocked
+def test_execute_second_call_skips_stac_publish_on_warm_cache(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """A second call against an already-cached COG must not re-publish the
+    STAC item — this is the warm-cache latency the hotfix targets."""
+    processor_instance.output_dir = str(tmp_path)
+
+    tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
+
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.mean.return_value = 1.5
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
+
+    mock_rasterio_ds = MagicMock()
+    mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
+    mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
+    mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
+    mock_rasterio_ds.read.return_value = mock_band
+
+    with (
+        patch(
+            "processes.quebec_lidar_fetch.LidarTileIndex.get_tile_urls",
+            return_value=tile_urls,
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.subprocess.run", side_effect=_fake_gdalwarp
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=True
+        ) as mock_post,
+        patch.object(processor_instance, "_ensure_collection_exists"),
+    ):
+        processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
+        )
+        assert mock_post.call_count == 1
+
+        mimetype, result = processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
+        )
+
+    assert mock_post.call_count == 1  # not called again on the warm-cache run
+    assert "dtm" in result["assets"]
+    assert len(result["stac_items"]) == 1
+
+
+@pytest.mark.mocked
+def test_execute_retries_stac_publish_after_previous_failure(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """If _post_to_stac_api fails, no marker is written, so a later call —
+    even with a warm COG cache — retries the publish instead of the item
+    staying unpublished forever."""
+    processor_instance.output_dir = str(tmp_path)
+
+    tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
+
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.mean.return_value = 1.5
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
+
+    mock_rasterio_ds = MagicMock()
+    mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
+    mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
+    mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
+    mock_rasterio_ds.read.return_value = mock_band
+
+    with (
+        patch(
+            "processes.quebec_lidar_fetch.LidarTileIndex.get_tile_urls",
+            return_value=tile_urls,
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.subprocess.run", side_effect=_fake_gdalwarp
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=False
+        ) as mock_post,
+        patch.object(processor_instance, "_ensure_collection_exists"),
+    ):
+        processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
+        )
+        assert mock_post.call_count == 1
+
+        processor_instance.execute(
+            {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
+        )
+
+    assert mock_post.call_count == 2  # retried since no marker was written
+
+
+@pytest.mark.unit
+def test_get_or_build_cog_invalidates_stale_marker_on_rebuild(
+    processor_instance, tmp_path
+):
+    """Rebuilding a COG (cache miss) must delete any leftover STAC marker
+    from a previous version of the raster, so a stale item isn't served."""
+    cog_path = str(tmp_path / "lidar_dtm_test.tif")
+    marker_path = cog_path + ".stac.json"
+
+    with open(marker_path, "w") as f:
+        json.dump({"id": "stale"}, f)
+
+    build_called = []
+
+    def fake_build():
+        build_called.append(True)
+        with open(cog_path, "wb") as f:
+            f.write(b"fake")
+
+    processor_instance._get_or_build_cog(cog_path, "dtm", fake_build)
+
+    assert build_called == [True]
+    assert not os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_get_or_build_cog_keeps_marker_on_cache_hit(processor_instance, tmp_path):
+    """A COG cache hit (no rebuild) must leave an existing marker intact."""
+    cog_path = str(tmp_path / "lidar_dtm_test.tif")
+    marker_path = cog_path + ".stac.json"
+    with open(cog_path, "wb") as f:
+        f.write(b"fake")
+    with open(marker_path, "w") as f:
+        json.dump({"id": "cached"}, f)
+
+    build_called = []
+    processor_instance._get_or_build_cog(
+        cog_path, "dtm", lambda: build_called.append(True)
+    )
+
+    assert build_called == []
+    assert os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_write_and_load_stac_marker_round_trip(processor_instance, tmp_path):
+    """A written marker can be read back as the same STAC item dict."""
+    marker_path = str(tmp_path / "lidar_dtm_test.tif.stac.json")
+    stac_item = {"id": "lidar_dtm_test", "type": "Feature"}
+
+    processor_instance._write_stac_marker(marker_path, stac_item)
+    loaded = processor_instance._load_cached_stac_item(marker_path)
+
+    assert loaded == stac_item
+
+
+@pytest.mark.unit
+def test_load_cached_stac_item_missing_returns_none(processor_instance, tmp_path):
+    """No marker file means no cached item — must not raise."""
+    marker_path = str(tmp_path / "does_not_exist.stac.json")
+    assert processor_instance._load_cached_stac_item(marker_path) is None
+
+
+@pytest.mark.unit
+def test_create_stac_item_writes_marker_only_on_publish_success(
+    processor_instance, tmp_path
+):
+    """A successful publish leaves a marker behind for future cache hits."""
+    marker_path = str(tmp_path / "lidar_dtm_test.tif.stac.json")
+
+    with patch.object(processor_instance, "_post_to_stac_api", return_value=True):
+        processor_instance._create_stac_item(
+            item_id="lidar_dtm_test",
+            geometry={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0, 0, 1, 1),
+            product="dtm",
+            asset={"href": "x"},
+            cog_path="x.tif",
+            marker_path=marker_path,
+        )
+
+    assert os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_create_stac_item_no_marker_on_publish_failure(processor_instance, tmp_path):
+    """A failed publish must not leave a marker — otherwise the item would
+    never get (re)published."""
+    marker_path = str(tmp_path / "lidar_dtm_test.tif.stac.json")
+
+    with patch.object(processor_instance, "_post_to_stac_api", return_value=False):
+        processor_instance._create_stac_item(
+            item_id="lidar_dtm_test",
+            geometry={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0, 0, 1, 1),
+            product="dtm",
+            asset={"href": "x"},
+            cog_path="x.tif",
+            marker_path=marker_path,
+        )
+
+    assert not os.path.exists(marker_path)
 
 
 # ---------------------------------------------------------------------------
@@ -876,3 +1258,229 @@ def test_product_title_and_description_defined_for_aspect():
     """aspect has the same title/description coverage as the other products."""
     assert LidarFetchProcessor._get_product_title("aspect") != "ASPECT"
     assert "DTM" in LidarFetchProcessor._get_product_description("aspect")
+
+
+# ---------------------------------------------------------------------------
+# Public asset href tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_create_stac_item_publishes_absolute_hrefs(monkeypatch):
+    """Every asset href in a published item must be an absolute public URL."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+    asset = {
+        "href": "https://agri-sdss.duckdns.org/cog/lidar_dtm_geom_abc123.tif",
+        "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+        "roles": ["data"],
+        "title": "Digital Terrain Model (DTM)",
+        "statistics": {"mean": 147.3},
+        "raster:bands": [],
+    }
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=False):
+        item = processor._create_stac_item(
+            item_id="lidar_dtm_geom_abc123",
+            geometry={
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+            },
+            bbox=(0.0, 0.0, 1.0, 1.0),
+            product="dtm",
+            asset=asset,
+            cog_path="/data/lidar_dtm_geom_abc123.tif",
+            marker_path="/data/lidar_dtm_geom_abc123.tif.stac.json",
+        )
+
+    assert set(item["assets"]) == {"dtm", "preview", "tilejson"}
+    for key, published in item["assets"].items():
+        assert published["href"].startswith("https://agri-sdss.duckdns.org/"), key
+    assert item["assets"]["preview"]["roles"] == ["overview"]
+    assert item["assets"]["tilejson"]["roles"] == ["tiles"]
+    assert "/cog/preview.png?url=" in item["assets"]["preview"]["href"]
+    assert "/tilejson.json?url=" in item["assets"]["tilejson"]["href"]
+    assert item["assets"]["preview"]["type"] == "image/png"
+    assert item["assets"]["tilejson"]["type"] == "application/json"
+    assert "rescale" not in item["assets"]["preview"]["href"]
+
+
+@pytest.mark.unit
+def test_add_product_asset_href_is_public(tmp_path, monkeypatch):
+    """The data asset href is the public COG URL, not the container path."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[1.0, 2.0], [3.0, 4.0]])
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+    assets: dict = {}
+    stac_items: list = []
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=False):
+        processor._add_product_asset(
+            assets=assets,
+            stac_items=stac_items,
+            product="dtm",
+            cog_path=str(cog_path),
+            geometry_geojson={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-72.0, 46.0], [-71.9, 46.0], [-71.9, 45.9], [-72.0, 46.0]]
+                ],
+            },
+            bbox=(-72.0, 45.9, -71.9, 46.0),
+            farm_identifier="geom_abc123",
+        )
+
+    assert assets["dtm"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog/lidar_dtm_geom_abc123.tif"
+    )
+
+
+@pytest.mark.unit
+def test_preview_asset_carries_the_raster_value_range(tmp_path, monkeypatch):
+    """A float product's preview must be rescaled, or it renders blank."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[10.0, 20.0], [30.0, 40.0]])
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=False):
+        item = processor._create_stac_item(
+            item_id="lidar_dtm_geom_abc123",
+            geometry={
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+            },
+            bbox=(0.0, 0.0, 1.0, 1.0),
+            product="dtm",
+            asset={"href": "x"},
+            cog_path=str(cog_path),
+            marker_path=str(cog_path) + ".stac.json",
+        )
+
+    assert "&rescale=10.0,40.0" in item["assets"]["preview"]["href"]
+    assert "&rescale=10.0,40.0" in item["assets"]["tilejson"]["href"]
+
+
+@pytest.mark.unit
+def test_preview_rescale_is_none_for_an_unreadable_file():
+    """A missing COG must not break publishing; the preview goes unrescaled."""
+    assert LidarFetchProcessor._preview_rescale("/nonexistent/x.tif") is None
+
+
+@pytest.mark.unit
+def test_preview_rescale_is_none_for_a_flat_raster(tmp_path):
+    """A constant band gives no usable range; rio-tiler would divide by zero."""
+    cog_path = tmp_path / "flat.tif"
+    _write_test_raster(str(cog_path), [[5.0, 5.0], [5.0, 5.0]])
+
+    assert LidarFetchProcessor._preview_rescale(str(cog_path)) is None
+
+
+@pytest.mark.unit
+def test_preview_rescale_is_none_when_values_are_not_finite(tmp_path):
+    """Unmasked NaN must not reach the href as rescale=nan,nan."""
+    cog_path = tmp_path / "nan.tif"
+    _write_test_raster(
+        str(cog_path), [[float("nan"), float("nan")], [float("nan"), float("nan")]]
+    )
+
+    assert LidarFetchProcessor._preview_rescale(str(cog_path)) is None
+
+
+@pytest.mark.unit
+def test_preview_rescale_ignores_unmasked_nan(tmp_path):
+    """NaN sits outside the nodata mask; the range must come from real pixels."""
+    cog_path = tmp_path / "partial_nan.tif"
+    _write_test_raster(str(cog_path), [[float("nan"), 20.0], [30.0, float("nan")]])
+
+    assert LidarFetchProcessor._preview_rescale(str(cog_path)) == "20.0,30.0"
+
+
+@pytest.mark.unit
+def test_stale_marker_without_render_assets_is_republished(tmp_path, monkeypatch):
+    """A marker written before the raster-api assets existed carries only the
+    product key — and the broken href of that era. Trusting it would leave the
+    item unfixed forever, so it must not count as a cache hit."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[10.0, 20.0], [30.0, 40.0]])
+    marker_path = str(cog_path) + ".stac.json"
+    with open(marker_path, "w") as f:
+        json.dump(
+            {"id": "lidar_dtm_geom_abc123", "assets": {"dtm": {"href": "/data/x.tif"}}},
+            f,
+        )
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+    assets: dict = {}
+    stac_items: list = []
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=True):
+        processor._add_product_asset(
+            assets=assets,
+            stac_items=stac_items,
+            product="dtm",
+            cog_path=str(cog_path),
+            geometry_geojson={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-72.0, 46.0], [-71.9, 46.0], [-71.9, 45.9], [-72.0, 46.0]]
+                ],
+            },
+            bbox=(-72.0, 45.9, -71.9, 46.0),
+            farm_identifier="geom_abc123",
+        )
+
+    assert set(stac_items[0]["assets"]) == {"dtm", "preview", "tilejson"}
+    assert stac_items[0]["assets"]["dtm"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog/lidar_dtm_geom_abc123.tif"
+    )
+
+
+@pytest.mark.unit
+def test_current_marker_is_a_cache_hit(tmp_path, monkeypatch):
+    """A marker holding exactly what a publish leaves behind is still trusted."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    cog_path = tmp_path / "lidar_dtm_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[10.0, 20.0], [30.0, 40.0]])
+    marker_path = str(cog_path) + ".stac.json"
+    cached = {
+        "id": "lidar_dtm_geom_abc123",
+        "assets": {"dtm": {}, "preview": {}, "tilejson": {}},
+    }
+    with open(marker_path, "w") as f:
+        json.dump(cached, f)
+
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+    stac_items: list = []
+
+    with patch.object(LidarFetchProcessor, "_post_to_stac_api") as mock_post:
+        processor._add_product_asset(
+            assets={},
+            stac_items=stac_items,
+            product="dtm",
+            cog_path=str(cog_path),
+            geometry_geojson={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-72.0, 46.0], [-71.9, 46.0], [-71.9, 45.9], [-72.0, 46.0]]
+                ],
+            },
+            bbox=(-72.0, 45.9, -71.9, 46.0),
+            farm_identifier="geom_abc123",
+        )
+
+    mock_post.assert_not_called()
+    assert stac_items == [cached]

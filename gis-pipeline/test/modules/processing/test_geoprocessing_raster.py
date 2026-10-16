@@ -1124,6 +1124,221 @@ def test_build_gdalwarp_command_complex_additional_options(
         assert option in command
 
 
+def test_build_gdalwarp_command_default_resampling_is_bilinear(
+    tmp_raster_valid_fixture: Path,
+):
+    """
+    Test that gdalwarp defaults to bilinear resampling (suited to continuous data)
+    instead of relying on GDAL's implicit nearest-neighbor default.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    command = processing_raster._build_gdalwarp_command(
+        input_raster_path=Path("/path/to/input.tif"),
+        output_path=Path("/path/to/output.tif"),
+        target_crs=4326,
+        cog_profile="default",
+    )
+
+    assert "-r" in command
+    resampling_index = command.index("-r")
+    assert command[resampling_index + 1] == "bilinear"
+
+
+def test_build_gdalwarp_command_custom_resampling_method(
+    tmp_raster_valid_fixture: Path,
+):
+    """
+    Test that an explicit resampling method (e.g. 'near' for categorical rasters)
+    overrides the bilinear default.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    command = processing_raster._build_gdalwarp_command(
+        input_raster_path=Path("/path/to/input.tif"),
+        output_path=Path("/path/to/output.tif"),
+        target_crs=4326,
+        cog_profile="default",
+        resampling_method="near",
+    )
+
+    resampling_index = command.index("-r")
+    assert command[resampling_index + 1] == "near"
+
+
+# ------------------------------------------
+# Test cases for GeoprocessingRaster._build_gdaltranslate_cog_command()
+# ------------------------------------------
+def test_build_gdaltranslate_cog_command_basic(tmp_raster_valid_fixture: Path):
+    """
+    Test basic gdal_translate command construction: no reprojection flags at all.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    input_raster = Path("/path/to/input.tif")
+    output_path = Path("/path/to/output.tif")
+
+    command = processing_raster._build_gdaltranslate_cog_command(
+        input_raster_path=input_raster,
+        output_path=output_path,
+        cog_profile="default",
+    )
+
+    assert command[0] == "gdal_translate"
+    assert "-of" in command
+    assert "COG" in command
+    assert "-t_srs" not in command
+    assert "-r" not in command
+    assert str(input_raster) in command
+    assert str(output_path) in command
+
+
+def test_build_gdaltranslate_cog_command_with_nodata(tmp_raster_valid_fixture: Path):
+    """
+    Test gdal_translate command with nodata value specified.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    command = processing_raster._build_gdaltranslate_cog_command(
+        input_raster_path=Path("/path/to/input.tif"),
+        output_path=Path("/path/to/output.tif"),
+        cog_profile="default",
+        reference_nodata=-9999.0,
+    )
+
+    assert "-a_nodata" in command
+    nodata_index = command.index("-a_nodata")
+    assert command[nodata_index + 1] == str(-9999.0)
+
+
+def test_build_gdaltranslate_cog_command_without_nodata(
+    tmp_raster_valid_fixture: Path,
+):
+    """
+    Test gdal_translate command without a nodata value.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    command = processing_raster._build_gdaltranslate_cog_command(
+        input_raster_path=Path("/path/to/input.tif"),
+        output_path=Path("/path/to/output.tif"),
+        cog_profile="default",
+        reference_nodata=None,
+    )
+
+    assert "-a_nodata" not in command
+
+
+def test_build_gdaltranslate_cog_command_default_profile(
+    tmp_raster_valid_fixture: Path,
+):
+    """
+    Test gdal_translate command carries the same COG creation profile options
+    as gdalwarp.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    command = processing_raster._build_gdaltranslate_cog_command(
+        input_raster_path=Path("/path/to/input.tif"),
+        output_path=Path("/path/to/output.tif"),
+        cog_profile="default",
+    )
+
+    assert "-co" in command
+    assert "COMPRESS=DEFLATE" in command
+    assert "NUM_THREADS=ALL_CPUS" in command
+    assert "BIGTIFF=YES" in command
+    assert "OVERVIEWS=AUTO" in command
+
+
+def test_build_gdaltranslate_cog_command_with_additional_options(
+    tmp_raster_valid_fixture: Path,
+):
+    """
+    Test gdal_translate command with additional custom options.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    additional_options = ["-scale", "0", "255"]
+
+    command = processing_raster._build_gdaltranslate_cog_command(
+        input_raster_path=Path("/path/to/input.tif"),
+        output_path=Path("/path/to/output.tif"),
+        cog_profile="default",
+        additional_options=additional_options,
+    )
+
+    for option in additional_options:
+        assert option in command
+
+
+# ------------------------------------------
+# Test cases for GeoprocessingRaster._resolve_target_crs()
+# ------------------------------------------
+def test_resolve_target_crs_no_override_returns_default(
+    tmp_raster_valid_fixture: Path,
+):
+    """
+    Test that a raster with no matching per-dataset override falls back to the
+    batch's global target CRS.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    result = processing_raster._resolve_target_crs(
+        raster_path=Path("/data/input/ndvi_2024.tif"), default_target_crs=4326
+    )
+
+    assert result == 4326
+
+
+def test_resolve_target_crs_siigsol_override(tmp_raster_valid_fixture: Path):
+    """
+    Test that a SIIGSOL raster resolves to its native CRS (EPSG:32198) instead
+    of the global target CRS.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    result = processing_raster._resolve_target_crs(
+        raster_path=Path("/data/input/ph_fr_siigsol.tif"), default_target_crs=4326
+    )
+
+    assert result == 32198
+
+
+def test_resolve_target_crs_override_is_case_insensitive(
+    tmp_raster_valid_fixture: Path,
+):
+    """
+    Test that the per-dataset override keyword match ignores filename case.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    result = processing_raster._resolve_target_crs(
+        raster_path=Path("/data/input/PH_FR_SIIGSOL.tif"), default_target_crs=4326
+    )
+
+    assert result == 32198
+
+
 # ------------------------------------------
 # Test cases for GeoprocessingRaster._restore_backup_file()
 # ------------------------------------------
@@ -2446,11 +2661,14 @@ def test_prepare_cog_metadata_for_stac_transform_precision(
 
 
 def test_prepare_cog_metadata_for_stac_file_url_format(
-    tmp_raster_valid_fixture: Path, tmp_path: Path
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """
-    Test that file_url is correctly formatted.
+    Test that file_url stays a local path and href carries the public URL.
     """
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
     processing_raster = GeoprocessingRaster(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
     )
@@ -2478,10 +2696,13 @@ def test_prepare_cog_metadata_for_stac_file_url_format(
     )
     metadata = _to_mapping(metadata_model)
 
-    # Verify file_url is correctly formatted
-    expected_url = f"file://{cog_file.absolute()}"
-    assert metadata["file_url"] == expected_url
-    assert metadata["assets"]["cog"]["href"] == expected_url
+    # file_url stays a plain local path (used for aux.xml lookup and the
+    # metadata table); the asset href is the public URL clients resolve.
+    assert metadata["file_url"] == str(cog_file.absolute())
+    assert metadata["assets"]["cog"]["href"] == (
+        f"https://agri-sdss.duckdns.org/cog/{cog_file.name}"
+    )
+    assert metadata["href"] == metadata["assets"]["cog"]["href"]
 
 
 def test_prepare_cog_metadata_for_stac_complex_crs(
@@ -2520,6 +2741,59 @@ def test_prepare_cog_metadata_for_stac_complex_crs(
 
     # Should correctly extract EPSG code
     assert metadata["properties"]["proj:epsg"] == 2154
+
+
+def test_prepare_cog_metadata_for_stac_bbox_reprojected_to_wgs84(
+    tmp_raster_valid_fixture: Path, tmp_path: Path
+):
+    """
+    Test that bbox/geometry are always WGS84 lon/lat, even when the COG stays
+    in its native projected CRS (e.g. EPSG:32198 for SIIGSOL). STAC's core
+    bbox/geometry fields are spec-required to be WGS84 regardless of the
+    asset's own CRS; proj:epsg carries the true native CRS separately.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    cog_file = tmp_path / "quebec_lambert_cog.tif"
+    data = np.ones((1, 10, 10), dtype=np.float32)
+    # A small extent well within EPSG:32198's (NAD83 / Quebec Lambert) domain.
+    valid_transform = from_origin(-200000, 300000, 10000, 10000)
+
+    with rasterio.open(
+        cog_file,
+        "w",
+        driver="GTiff",
+        height=10,
+        width=10,
+        count=1,
+        dtype=data.dtype,
+        crs="EPSG:32198",
+        transform=valid_transform,
+    ) as dst:
+        dst.write(data)
+
+    metadata_model = processing_raster.prepare_cog_metadata_for_stac(
+        original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+    )
+    metadata = _to_mapping(metadata_model)
+
+    bbox = metadata["bbox"]
+    assert -180 <= bbox[0] <= 180
+    assert -180 <= bbox[2] <= 180
+    assert -90 <= bbox[1] <= 90
+    assert -90 <= bbox[3] <= 90
+    assert bbox[0] < bbox[2]
+    assert bbox[1] < bbox[3]
+
+    # proj:epsg must still reflect the true native (non-WGS84) CRS
+    assert metadata["properties"]["proj:epsg"] == 32198
+
+    # geometry corners must match the transformed bbox, not raw src.bounds
+    coords = metadata["geometry"]["coordinates"][0]
+    assert coords[0] == [bbox[0], bbox[1]]
+    assert coords[2] == [bbox[2], bbox[3]]
 
 
 @pytest.mark.parametrize(
@@ -2786,7 +3060,7 @@ def test_process_raster_to_cog_with_nodata(
 
                 processing_raster.process_raster_to_cog(
                     output_path=output_path,
-                    target_crs=4326,
+                    target_crs=3857,  # differs from fixture's EPSG:4326 to force gdalwarp
                     reference_nodata=reference_nodata,
                 )
 
@@ -3128,8 +3402,14 @@ def test_process_raster_to_cog_backup_restore_on_error(
                             overwrite_existing=False,
                         )
 
-                    # Verify restore was called
+                    # Verify restore was called with the COG file itself, not the
+                    # output directory -- unlink() on a directory raises
+                    # IsADirectoryError, which _restore_backup_file swallows, so
+                    # the backup would never actually be restored.
                     mock_restore.assert_called_once()
+                    restore_target = mock_restore.call_args.args[1]
+                    assert restore_target == existing_cog
+                    assert restore_target.suffix == ".tif"
 
 
 def test_process_raster_to_cog_name_harmonization(
@@ -3344,12 +3624,15 @@ def test_process_raster_to_cog_special_characters_in_path(tmp_path: Path):
                 assert result[0][0] == special_raster
 
 
-@pytest.mark.parametrize("target_crs", [4326, 3857, 2154, 31370])
+@pytest.mark.parametrize("target_crs", [3857, 2154, 31370, 2955])
 def test_process_raster_to_cog_various_crs(
     tmp_raster_valid_fixture: Path, tmp_path: Path, target_crs: int
 ):
     """
-    Test processing with various CRS values.
+    Test processing with various CRS values that differ from the fixture's
+    source CRS (EPSG:4326), so gdalwarp is always exercised. The same-CRS
+    (no-op) case is covered separately by
+    test_process_raster_to_cog_same_crs_uses_gdal_translate.
     """
     processing_raster = GeoprocessingRaster(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
@@ -3478,6 +3761,147 @@ def test_process_raster_to_cog_large_raster(tmp_path: Path):
                 # Verify large raster was processed
                 assert len(result) == 1
                 assert result[0][0] == large_raster
+
+
+def test_process_raster_to_cog_same_crs_uses_gdal_translate(
+    tmp_raster_valid_fixture: Path, tmp_path: Path
+):
+    """
+    Test that a raster already in the target CRS is processed with gdal_translate
+    (no resampling) instead of gdalwarp.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    output_path = tmp_path / "output"
+    output_path.mkdir()
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
+        with patch.object(
+            processing_raster, "_build_gdaltranslate_cog_command"
+        ) as mock_translate:
+            with patch.object(
+                processing_raster, "_build_gdalwarp_command"
+            ) as mock_warp_cmd:
+                with patch.object(processing_raster, "_warp_raster") as mock_warp:
+
+                    def create_file(warp_cmd, raster_path, output_path):
+                        output_path.touch()
+
+                    mock_warp.side_effect = create_file
+                    mock_translate.return_value = ["gdal_translate", "test"]
+
+                    # Fixture raster is EPSG:4326; requesting the same target CRS
+                    # must skip reprojection entirely.
+                    result = processing_raster.process_raster_to_cog(
+                        output_path=output_path, target_crs=4326
+                    )
+
+                    mock_translate.assert_called_once()
+                    mock_warp_cmd.assert_not_called()
+                    assert len(result) == 1
+
+
+def test_process_raster_to_cog_different_crs_uses_gdalwarp(
+    tmp_raster_valid_fixture: Path, tmp_path: Path
+):
+    """
+    Test that a raster whose CRS differs from the target CRS is still
+    reprojected with gdalwarp, not gdal_translate.
+    """
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+
+    output_path = tmp_path / "output"
+    output_path.mkdir()
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="test_raster",
+    ):
+        with patch.object(
+            processing_raster, "_build_gdaltranslate_cog_command"
+        ) as mock_translate:
+            with patch.object(
+                processing_raster, "_build_gdalwarp_command"
+            ) as mock_warp_cmd:
+                with patch.object(processing_raster, "_warp_raster") as mock_warp:
+
+                    def create_file(warp_cmd, raster_path, output_path):
+                        output_path.touch()
+
+                    mock_warp.side_effect = create_file
+                    mock_warp_cmd.return_value = ["gdalwarp", "test"]
+
+                    # Fixture raster is EPSG:4326; requesting a different target
+                    # CRS must still go through gdalwarp.
+                    result = processing_raster.process_raster_to_cog(
+                        output_path=output_path, target_crs=3857
+                    )
+
+                    mock_warp_cmd.assert_called_once()
+                    mock_translate.assert_not_called()
+                    assert len(result) == 1
+
+
+def test_process_raster_to_cog_siigsol_override_skips_reprojection(tmp_path: Path):
+    """
+    Test that a SIIGSOL raster already in its native CRS (EPSG:32198) uses
+    gdal_translate even though the batch's global target CRS is 4326, because
+    its per-dataset override resolves to a target that matches its source CRS.
+    """
+    raster_path = tmp_path / "ph_fr_siigsol.tif"
+    data = np.ones((1, 10, 10), dtype=np.float32)
+    transform = from_origin(0, 10, 1, 1)
+    with rasterio.open(
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=10,
+        width=10,
+        count=1,
+        dtype=data.dtype,
+        crs="EPSG:32198",
+        transform=transform,
+    ) as dst:
+        dst.write(data)
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[raster_path]
+    )
+
+    output_path = tmp_path / "output"
+    output_path.mkdir()
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.harmonize_name",
+        return_value="ph_fr_siigsol",
+    ):
+        with patch.object(
+            processing_raster, "_build_gdaltranslate_cog_command"
+        ) as mock_translate:
+            with patch.object(
+                processing_raster, "_build_gdalwarp_command"
+            ) as mock_warp_cmd:
+                with patch.object(processing_raster, "_warp_raster") as mock_warp:
+
+                    def create_file(warp_cmd, raster_path, output_path):
+                        output_path.touch()
+
+                    mock_warp.side_effect = create_file
+                    mock_translate.return_value = ["gdal_translate", "test"]
+
+                    processing_raster.process_raster_to_cog(
+                        output_path=output_path, target_crs=4326
+                    )
+
+                    mock_translate.assert_called_once()
+                    mock_warp_cmd.assert_not_called()
 
 
 # ------------------------------------------
@@ -3735,3 +4159,170 @@ def test_close_all_rasters_memory_cleanup_verification(tmp_raster_valid_fixture:
 
     # After closing, the raster should be closed
     assert initial_raster.closed
+
+
+def _write_cog_fixture(path: Path, values: np.ndarray) -> None:
+    """Write a small single-band GeoTIFF for the render-asset tests."""
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=values.shape[0],
+        width=values.shape[1],
+        count=1,
+        dtype=values.dtype,
+        crs="EPSG:4326",
+        transform=from_origin(0, 10, 1, 1),
+    ) as dst:
+        dst.write(values, 1)
+
+
+def test_prepare_cog_metadata_publishes_render_assets(
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The COG must be viewable through raster-api, not only downloadable."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    cog_file = tmp_path / "render_cog.tif"
+    _write_cog_fixture(
+        cog_file, np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
+    )
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+    assets = metadata["assets"]
+
+    assert assets["preview"]["href"] == (
+        "https://agri-sdss.duckdns.org/raster-api/cog/preview.png"
+        "?url=/data/render_cog.tif&rescale=1.0,4.0"
+    )
+    assert assets["preview"]["type"] == "image/png"
+    assert assets["preview"]["roles"] == ["overview"]
+    assert assets["tilejson"]["href"] == (
+        "https://agri-sdss.duckdns.org/raster-api/cog/WebMercatorQuad"
+        "/tilejson.json?url=/data/render_cog.tif&rescale=1.0,4.0"
+    )
+    assert assets["tilejson"]["type"] == "application/json"
+    assert assets["tilejson"]["roles"] == ["tiles"]
+
+
+def test_prepare_cog_metadata_skips_rescale_on_a_flat_raster(
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A constant band has no usable range; rio-tiler would divide by zero."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    cog_file = tmp_path / "flat_cog.tif"
+    _write_cog_fixture(
+        cog_file, np.array([[7.0, 7.0], [7.0, 7.0]], dtype="float32")
+    )
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+
+    assert "rescale" not in metadata["assets"]["preview"]["href"]
+    assert "rescale" not in metadata["assets"]["tilejson"]["href"]
+
+
+def _write_multiband_cog(path: Path, band_count: int, dtype: str) -> None:
+    """Write a small multi-band GeoTIFF with a distinct range per band."""
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=2,
+        width=2,
+        count=band_count,
+        dtype=dtype,
+        crs="EPSG:4326",
+        transform=from_origin(0, 10, 1, 1),
+    ) as dst:
+        for band in range(1, band_count + 1):
+            dst.write(
+                np.full((2, 2), band, dtype=dtype) * np.array([[1, 2], [3, 4]], dtype=dtype),
+                band,
+            )
+
+
+def test_prepare_cog_metadata_selects_a_band_on_a_multiband_cog(
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """TiTiler answers 500 on a 6-band COG unless one band is selected."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    cog_file = tmp_path / "soil_cog.tif"
+    _write_multiband_cog(cog_file, band_count=6, dtype="float32")
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+
+    for key in ("preview", "tilejson"):
+        href = metadata["assets"][key]["href"]
+        assert "&bidx=1" in href, href
+        assert "&rescale=1.0,4.0" in href, href
+
+
+def test_prepare_cog_metadata_leaves_an_rgb_composite_alone(
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A 3-band uint8 raster is already an RGB image TiTiler renders as-is."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    cog_file = tmp_path / "rgb_cog.tif"
+    _write_multiband_cog(cog_file, band_count=3, dtype="uint8")
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+
+    href = metadata["assets"]["preview"]["href"]
+    assert "bidx=" not in href
+    assert "rescale=" not in href
+
+
+def test_prepare_cog_metadata_rescale_ignores_unmasked_nan(
+    tmp_raster_valid_fixture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The soil COGs carry NaN outside their nodata value; ignore it."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    cog_file = tmp_path / "nan_cog.tif"
+    _write_cog_fixture(
+        cog_file,
+        np.array([[float("nan"), 2.0], [8.0, float("nan")]], dtype="float32"),
+    )
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+
+    assert "&rescale=2.0,8.0" in metadata["assets"]["preview"]["href"]

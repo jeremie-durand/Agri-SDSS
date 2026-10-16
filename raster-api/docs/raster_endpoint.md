@@ -13,63 +13,82 @@ The Raster API provides access to dynamic raster data through a RESTful interfac
 - **Full container stack**: `docker compose up --build`
 - **Raster API only**: `docker compose up raster-api --build`
 
-Once running, the Raster API is available at: http://localhost:8082
+Once running, the Raster API is reached through the deployment's public origin at
+`https://<host>/raster-api/` — port 8082 is container-internal (`expose:`) and is not
+published to the host. Against a local deployment add `-k` (`curl -k
+https://localhost/...`) because the certificate is self-signed.
 
 ### Configuration
 
 The Raster API configuration is managed through environment variables and database connection settings defined in the Dockerfile and docker-compose files.
 
-## Demo Collections
+## Available COGs
 
-The system includes two demo collections for testing and demonstration purposes:
+`GET /raster-api/collections` lists every COG in the mounted data directory
+(`data/output/raster_cog`, `/data` in the container). The files come from two
+producers:
 
-- **sud_du_quebec_4326**: Southern Quebec administrative boundaries in EPSG:4326
-- **bdppad_2024_4326_sample_stac**: Sample agricultural parcels data for STAC integration in EPSG:4326
+- **gis-pipeline**: ingested rasters, named `<name>_cog.tif`, such as the SIIGSOL
+  soil-property layers (`corg_fr_siigsol_cog`, `ph_fr_siigsol_cog`, …)
+- **process-api**: LiDAR (`lidar_dtm_…`, `lidar_slope_…`, `lidar_aspect_…`) and
+  Sentinel-2 (`sentinel2_…_ndvi_…`) process outputs
 
 ## API Endpoints
 
 ### Query Overview
 
 #### Get COG (Cloud-Optimized GeoTIFFs) metadata
+
 ```http
 GET /cog/info?url={absolutePath}
 ```
+
 Returns metadata of COG file
 
 Example:
+
 ```bash
-curl http://localhost:8082/cog/info?url=file:///data/DEMO.tif
+curl -k "https://localhost/raster-api/cog/info?url=file:///data/corg_fr_siigsol_cog.tif"
 ```
+
 Response: Metadata of DEMO.tif COG file
 
-
 #### Get COG demo viewer
+
 ```http
 GET /cog/viewer?url={absolutePath}
 ```
+
 Example:
+
 ```In Browser
-http://localhost:8082/cog/viewer?url=file:///data/corg_fr_siigsol_cog.tif
+https://localhost/raster-api/cog/viewer?url=file:///data/corg_fr_siigsol_cog.tif
 ```
+
 Response: Web viewer of COG
 
 #### Get dynamic tiles
+
 ```http
 GET /cog/tiles/{tileMatrixSetId}/{z}/{x}/{y}[@{scale}x][.{format}]?url={absolutePath}
 ```
 
 Example:
+
 ```XYZ Tiles
-curl http://localhost:8082/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=file:///data/corg_fr_siigsol_cog.tif&bidx=1
+curl -k "https://localhost/raster-api/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=file:///data/corg_fr_siigsol_cog.tif&bidx=1"
 ```
 
 ## Data Storage
+
 PostGIS Integration
 Raster data is stored locally and their metadata is stored in PostGIS tables following STAC compliance.
 
 ## Standards Compliance
+
 OGC API - Tiles
 This implementation follows the OGC API - Tiles specification, providing:
+
 - RESTful API design for raster tile services
 - Standard tile matrix sets (WebMercatorQuad, WorldCRS84Quad)
 - Multiple output formats (PNG, JPEG, WebP)
@@ -77,14 +96,17 @@ This implementation follows the OGC API - Tiles specification, providing:
 - Metadata endpoints for raster information
 
 Coordinate Reference Systems
+
 - Default Tile Matrix Set: WebMercatorQuad (EPSG:3857)
 
 Cloud Optimized GeoTIFF (COG)
+
 - All raster data must be in COG format for optimal performance
 - Supports multi-band rasters with band selection via `bidx` parameter
 - Internal overviews and tiling for efficient tile generation
 
-# Development Notes
+## Development Notes
+
 - Overviews are automatically generated during COG creation process
 - Tiles are generated on-demand with internal caching
 - Use appropriate compression (DEFLATE, LZW) for file size optimization

@@ -33,12 +33,16 @@ docker compose up -d stac-api
 
 ## Quick search
 
+The STAC API is reached through the single public origin at `https://<host>/stac-api/`.
+Against a local deployment add `-k` (`curl -k https://localhost/...`) — the certificate is
+self-signed.
+
 ```bash
 # Spatial filter
-curl "http://<host>:8081/search?bbox=-73,45,-71,46"
+curl "https://<host>/stac-api/search?bbox=-73,45,-71,46"
 
 # Collection + CQL filter
-curl -X POST http://<host>:8081/search \
+curl -X POST https://<host>/stac-api/search \
   -H "Content-Type: application/json" \
   -d '{"collections":["sentinel2_eo_products"],"bbox":[-73,45,-71,46],"filter":{"op":"<","args":[{"property":"cloud_cover"},20]}}'
 ```
@@ -47,9 +51,15 @@ curl -X POST http://<host>:8081/search \
 
 | Variable | Description |
 | --- | --- |
-| `STAC_API_URL` | Public base URL used for self-links in responses |
-| `POSTGRES_HOST` / `POSTGRES_PORT` | pgSTAC database connection |
-| `POSTGRES_USER` / `POSTGRES_PASS` / `POSTGRES_DBNAME` | Database credentials |
+| `PGHOST` / `PGPORT` / `PGDATABASE` | pgSTAC database connection |
+| `PGUSER` / `PGPASSWORD` | App role the API runs as (`DB_USER` / `DB_PASS`) |
+| `PGSTAC_ADMIN_USER` / `PGSTAC_ADMIN_PASS` | Superuser, used only by the entrypoint to grant pgstac access to the app role (and by test cleanup) |
+| `APP_ROOT_PATH` | Public path prefix (`/stac-api`), passed to uvicorn `--root-path`; self-links are built from it |
+| `CORS_ORIGINS` | Allowed CORS origins (`*` by default in `.env`) |
+| `ENABLE_TRANSACTIONS_EXTENSIONS` | Enables the write endpoints used by gis-pipeline and process-api |
+
+`STAC_API_URL` is not read by stac-api itself: it is the internal URL other
+services use to reach it (`http://stac-api:8081`).
 
 ## Requirements
 

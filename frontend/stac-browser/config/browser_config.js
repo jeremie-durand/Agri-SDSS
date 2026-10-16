@@ -3,11 +3,14 @@ window.STAC_BROWSER_CONFIG = {
     catalogTitle: (localStorage.getItem('sdss-lang') || 'fr') === 'fr' ? 'Catalogue STAC' : 'STAC Catalog',
     allowExternalAccess: true,
     allowedDomains: [],
-    detectLocaleFromBrowser: true,
-    storeLocale: true,
-    locale: "fr",
+    // The platform language toggle (nav-inject.js) is the single source of
+    // truth: browser detection and STAC Browser's own stored locale are off
+    // so its chrome can never disagree with the nav bar.
+    detectLocaleFromBrowser: false,
+    storeLocale: false,
+    locale: (localStorage.getItem('sdss-lang') || 'fr') === 'fr' ? "fr" : "en",
     fallbackLocale: "en",
-    supportedLocales: ["de", "es", "en", "fr", "it", "ro"],
+    supportedLocales: ["en", "fr"],
     apiCatalogPriority: null,
     useTileLayerAsFallback: true,
     displayGeoTiffByDefault: true,
@@ -46,7 +49,7 @@ window.STAC_BROWSER_CONFIG = {
                     'Produits raster dérivés du LiDAR (MNA, MHC, ombrage, pente) issus du portail de données ' +
                     'ouvertes du MRNF du Québec, découpés par parcelles agricoles.'
             };
-            stac.description = descFr[stac.id] ||
+            stac.description = descFr[stac.id] || stac.description ||
                 'Données géospatiales générées par le pipeline Agri-SDSS.';
         }
 

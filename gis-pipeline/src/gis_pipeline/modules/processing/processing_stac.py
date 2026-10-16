@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
-from collections import OrderedDict
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -35,19 +34,7 @@ logger = structlog.get_logger()
 # Precomputed constants
 # ---------------------------------------
 # precompute datetime keys and their case variants once
-_DATETIME_KEYS = ColumnMappings.DATETIME.value.alias + [
-    ColumnMappings.DATETIME.value.canonical
-]
-
-_DATETIME_KEY_VARIANTS = []
-
-for k in _DATETIME_KEYS:
-    _DATETIME_KEY_VARIANTS.extend([k, k.upper(), k.lower()])
-
-# preserve order, remove duplicates
-_DATETIME_KEY_VARIANTS = list(OrderedDict.fromkeys(_DATETIME_KEY_VARIANTS))
-
-_DATETIME_KEYS_LOWER = {k.lower() for k in _DATETIME_KEYS}
+_DATETIME_KEYS_LOWER = ColumnMappings.DATETIME.value.all_names()
 
 
 # ---------------------------------------
@@ -360,19 +347,49 @@ def _create_stac_item_from_raster(
         stac_extensions=template.get("stac_extensions", []),
     )
 
-    # Add main asset
-    file_url = raster_dict.get("file_url")
-    if file_url:
+    # Add main asset. `href` is the public URL; `file_url` is the local path
+    # kept for older callers that never set one.
+    asset_href = raster_dict.get("href") or raster_dict.get("file_url")
+    if asset_href:
         item.add_asset(
             asset_key,
             Asset(
-                href=file_url,
+                href=asset_href,
                 media_type="image/tiff; application=geotiff",
                 roles=["data"],
             ),
         )
 
+    _add_render_assets(item, raster_dict)
+
     return item
+
+
+def _add_render_assets(item: Item, raster_dict: dict) -> None:
+    """Attach the raster-api renderings of the COG to the item.
+
+    The main asset is the COG itself, a download; these are the URLs that let a
+    client display the same pixels without fetching the file. The ``cog`` entry
+    is skipped because it is the same file already published under
+    ``asset_key``.
+
+    Args:
+        item: STAC Item to attach the assets to.
+        raster_dict: Raster metadata, whose ``assets`` key holds the
+            renderings built by ``prepare_cog_metadata_for_stac``.
+    """
+    for key, asset in (raster_dict.get("assets") or {}).items():
+        if key == "cog" or not asset.get("href"):
+            continue
+        item.add_asset(
+            key,
+            Asset(
+                href=asset["href"],
+                media_type=asset.get("type"),
+                roles=asset.get("roles"),
+                title=asset.get("title"),
+            ),
+        )
 
 
 def _build_single_stac_item(raster_dict: dict, idx: int, source_name: str) -> Item:
@@ -521,11 +538,6 @@ def build_stac_collection_from_items(
     Returns:
         pystac.Collection: The generated STAC Collection.
     """
-    for i, item in enumerate(items):
-        logger.info(f"Item {i}: type={type(item)}, is_Item={isinstance(item, Item)}")
-        if hasattr(item, "id"):
-            logger.info(f"Item {i}: id={item.id}")
-    logger.info("=== END DEBUG ===")
     logger.info(
         f"Creating STAC Collection with ID: {collection_id}, Title: {collection_id}"
     )
@@ -565,14 +577,18 @@ def validate_stac(stac_obj: dict, stac_type: str):
         stac_obj: The STAC object as a dictionary.
         stac_type: Either 'item' or 'collection'.
     """
+    if stac_type not in ("item", "collection"):
+        error_msg = (
+            "stac_type must be either 'item' or 'collection'. "
+            f"It is currently: {stac_type}"
+        )
+        handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
     try:
         if stac_type == "item":
             PydanticItem(**stac_obj)
-        elif stac_type == "collection":
-            PydanticCollection(**stac_obj)
         else:
-            error_msg = f"stac_type must be either 'item' or 'collection'. It is currently: {stac_type}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+            PydanticCollection(**stac_obj)
         logger.info(f"STAC {stac_type} validation successful.")
     except ValidationError as e:
         error_msg = f"STAC {stac_type} validation error: {str(e)}"

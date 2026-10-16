@@ -37,8 +37,9 @@ PROCESS_METADATA = {
         "field_ids": {
             "title": "Field IDs",
             "description": (
-                "List of integer field IDs (matching gid in the som_field_boundaries "
-                "PostGIS table) to include in the prediction run. Required."
+                "List of integer field IDs to include in the prediction run: gid "
+                "values of the som_field_boundaries PostGIS table (not the GEE "
+                "FIELD_ID, which the process looks up). Required."
             ),
             "schema": {
                 "type": "array",
@@ -84,9 +85,9 @@ PROCESS_METADATA = {
             "description": (
                 "A GeoJSON FeatureCollection where each Feature represents one "
                 "(FIELD_ID, Image_ID) prediction. Feature geometry is the field polygon "
-                "from PostGIS. Properties include y_true_lin, y_pred_lin, y_true_log, "
-                "y_pred_log, algo, and scenario. A top-level field_summary key contains "
-                "per-field aggregated metrics."
+                "from PostGIS. Properties include gid, FIELD_ID, y_true_lin, y_pred_lin, "
+                "y_true_log, y_pred_log, algo, and scenario. A top-level field_summary "
+                "key contains per-field aggregated metrics."
             ),
             "schema": {
                 "type": "object",
@@ -96,7 +97,7 @@ PROCESS_METADATA = {
     },
     "example": {
         "inputs": {
-            "field_ids": [416, 417, 475, 476],
+            "field_ids": [195, 196, 48, 49],
             "scenarios": ["S3_spec_soil_topo_clim"],
         }
     },

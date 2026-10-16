@@ -61,3 +61,109 @@ def test_config_now_datetime_is_utc_aware():
 
     assert Config.NOW_DATETIME.tzinfo is not None
     assert Config.NOW_DATETIME.tzinfo == timezone.utc
+
+
+@pytest.mark.unit
+def test_public_cog_url_is_absolute(monkeypatch):
+    """A COG path becomes an absolute URL on the configured public origin."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    from gis_pipeline.core.config import public_cog_url
+
+    assert public_cog_url("/data/output/raster_cog/demo.tif") == (
+        "https://agri-sdss.duckdns.org/cog/demo.tif"
+    )
+
+
+@pytest.mark.unit
+def test_public_cog_url_defaults_to_localhost(monkeypatch):
+    """With no host configured the URL falls back to a local origin."""
+    monkeypatch.delenv("HOST_PROTOCOL", raising=False)
+    monkeypatch.delenv("HOST_URL", raising=False)
+
+    from gis_pipeline.core.config import public_cog_url
+
+    assert public_cog_url("/x/demo.tif") == "http://localhost/cog/demo.tif"
+
+
+@pytest.mark.unit
+def test_public_cog_url_encodes_unsafe_characters(monkeypatch):
+    """Spaces and non-ASCII in a filename are percent-encoded."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    from gis_pipeline.core.config import public_cog_url
+
+    assert public_cog_url("/d/relevé été.tif") == (
+        "https://agri-sdss.duckdns.org/cog/relev%C3%A9%20%C3%A9t%C3%A9.tif"
+    )
+
+
+@pytest.mark.unit
+def test_public_preview_url_points_at_the_raster_api(monkeypatch):
+    """The preview is rendered by TiTiler, reached through the public route."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    from gis_pipeline.core.config import public_preview_url
+
+    assert public_preview_url("/data/output/raster_cog/demo.tif") == (
+        "https://agri-sdss.duckdns.org/raster-api/cog/preview.png?url=/data/demo.tif"
+    )
+
+
+@pytest.mark.unit
+def test_public_preview_url_appends_rescale(monkeypatch):
+    """A float raster renders flat unless TiTiler is given its value range."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    from gis_pipeline.core.config import public_preview_url
+
+    assert public_preview_url("/d/demo.tif", rescale="0.5,9.5") == (
+        "https://agri-sdss.duckdns.org/raster-api/cog/preview.png"
+        "?url=/data/demo.tif&rescale=0.5,9.5"
+    )
+
+
+@pytest.mark.unit
+def test_public_tilejson_url_carries_the_tile_matrix_set(monkeypatch):
+    """TiTiler 2.x requires the tile grid identifier in the TileJSON path."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    from gis_pipeline.core.config import public_tilejson_url
+
+    assert public_tilejson_url("/d/demo.tif", rescale="0,1") == (
+        "https://agri-sdss.duckdns.org/raster-api/cog/WebMercatorQuad"
+        "/tilejson.json?url=/data/demo.tif&rescale=0,1"
+    )
+
+
+@pytest.mark.unit
+def test_public_preview_url_selects_a_band(monkeypatch):
+    """A multi-band COG is unencodable unless one band is selected."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    from gis_pipeline.core.config import public_preview_url
+
+    assert public_preview_url("/d/demo.tif", rescale="3,78", bidx=1) == (
+        "https://agri-sdss.duckdns.org/raster-api/cog/preview.png"
+        "?url=/data/demo.tif&bidx=1&rescale=3,78"
+    )
+
+
+@pytest.mark.unit
+def test_public_tilejson_url_selects_a_band(monkeypatch):
+    """Tiles must select the same band as the preview, or they differ."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    from gis_pipeline.core.config import public_tilejson_url
+
+    assert public_tilejson_url("/d/demo.tif", rescale="3,78", bidx=1) == (
+        "https://agri-sdss.duckdns.org/raster-api/cog/WebMercatorQuad"
+        "/tilejson.json?url=/data/demo.tif&bidx=1&rescale=3,78"
+    )

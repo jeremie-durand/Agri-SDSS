@@ -471,7 +471,7 @@ A Collection groups related Items:
 ### Link Relationships
 
 | rel | Purpose |
-|-----|---------|
+| ----- | --------- |
 | `parent` | Points to parent catalog |
 | `collection` | Points to containing collection |
 | `item` | Points to items (for collections) |
@@ -483,7 +483,7 @@ A Collection groups related Items:
 ### Roles in Assets
 
 | Role | Purpose |
-|------|---------|
+| ------ | --------- |
 | `data` | Primary data file |
 | `metadata` | Metadata document |
 | `thumbnail` | Small preview image |

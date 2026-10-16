@@ -7,13 +7,14 @@ Hydrographic network data for Quebec including water features, watercourses, and
 **GRHQ** provides a comprehensive vector dataset of Quebec's hydrographic network maintained by the Government of Quebec (Ministère de l'Environnement, de la Lutte contre les Changements Climatiques et de la Prévention des Incendies de Forêt - MELCCFP).
 
 Two versions are available:
+
 - **Standard GRHQ**: 1:50,000 resolution, complete coverage
 - **GRHQ-HR** (High Resolution): 1:20,000 resolution, ongoing development
 
 ## Data Details
 
 | Property | Value |
-|----------|-------|
+| ---------- | ------- |
 | **Type** | Vector (polylines, polygons, multipart geometries) |
 | **Format** | GeoPackage (.gpkg), Shapefile (.shp) |
 | **CRS** | EPSG:4326 (WGS84) |
@@ -55,7 +56,7 @@ The dataset includes:
 ## GRHQ vs GRHQ-HR
 
 | Aspect | Standard GRHQ | GRHQ-HR |
-|--------|--------------|---------|
+| -------- | -------------- | --------- |
 | **Resolution** | 1:50,000 | 1:20,000 |
 | **Completeness** | 100% | ~85% (ongoing) |
 | **Accuracy** | High | Very High |
@@ -71,5 +72,5 @@ The gis-pipeline checks for GRHQ-HR first and automatically falls back to standa
 - **Publisher**: Government of Quebec (MELCCFP)
 - **Language**: French/English
 - **External Links**:
-  - Standard: https://www.donneesquebec.ca/recherche/dataset/grhq
-  - High Resolution: https://www.donneesquebec.ca/recherche/dataset/geobase-du-reseau-hydrographique-du-quebec-a-haute-resolution-grhq-hr
+  - Standard: <https://www.donneesquebec.ca/recherche/dataset/grhq>
+  - High Resolution: <https://www.donneesquebec.ca/recherche/dataset/geobase-du-reseau-hydrographique-du-quebec-a-haute-resolution-grhq-hr>

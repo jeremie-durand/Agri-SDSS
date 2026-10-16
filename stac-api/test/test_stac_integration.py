@@ -4,11 +4,19 @@ Uses FastAPI TestClient against the real stac-fastapi app backed by pgstac.
 All tests are automatically skipped when PostgreSQL is unavailable.
 
 Test strategy: session-scoped fixtures create a collection and item once,
-run all read/search assertions against them, then clean up via DELETE.
+run all read/search assertions against them, then clean up: items via the
+API, the collection out-of-band as the pgstac admin (see db_utils).
 This avoids polluting the shared database between test runs.
 """
 
+import re
+
 import pytest
+
+from stac_api.test.db_utils import (
+    admin_credentials_available,
+    admin_delete_collection,
+)
 
 # ------------------------------------------
 # Session-scoped fixtures — create once, clean up after
@@ -18,30 +26,40 @@ import pytest
 @pytest.fixture(scope="session")
 def _created_collection(stac_integration_client, sample_stac_collection):
     """Create test collection; yield its ID; delete it after the session."""
+    if not admin_credentials_available():
+        pytest.skip("PGSTAC admin credentials unset — cannot clean up; skipping")
+    collection_id = sample_stac_collection["id"]
     resp = stac_integration_client.post("/collections", json=sample_stac_collection)
     if resp.status_code not in (200, 201):
-        pytest.skip(
-            f"Cannot create test collection (status {resp.status_code}): {resp.text}"
+        pytest.fail(
+            f"Could not create test collection {collection_id!r} "
+            f"(status {resp.status_code}): {resp.text}"
         )
-    collection_id = sample_stac_collection["id"]
-    yield collection_id
-    stac_integration_client.delete(f"/collections/{collection_id}")
+    try:
+        yield collection_id
+    finally:
+        admin_delete_collection(collection_id)
 
 
 @pytest.fixture(scope="session")
 def _created_item(stac_integration_client, _created_collection, sample_stac_item):
     """Create test item inside the test collection; yield its ID; delete after session."""
+    item_id = sample_stac_item["id"]
     resp = stac_integration_client.post(
         f"/collections/{_created_collection}/items",
         json=sample_stac_item,
     )
     if resp.status_code not in (200, 201):
-        pytest.skip(f"Cannot create test item (status {resp.status_code}): {resp.text}")
-    item_id = sample_stac_item["id"]
-    yield item_id
-    stac_integration_client.delete(
-        f"/collections/{_created_collection}/items/{item_id}"
-    )
+        pytest.fail(
+            f"Could not create test item {item_id!r} "
+            f"(status {resp.status_code}): {resp.text}"
+        )
+    try:
+        yield item_id
+    finally:
+        stac_integration_client.delete(
+            f"/collections/{_created_collection}/items/{item_id}"
+        )
 
 
 # ------------------------------------------
@@ -176,3 +194,10 @@ def test_stac_search_bbox_filters_item(
     data = resp.json()
     assert data["type"] == "FeatureCollection"
     assert len(data["features"]) >= 1
+
+
+@pytest.mark.unit
+def test_collection_id_carries_random_suffix(sample_stac_collection):
+    """A fixed id turns one leftover row into a permanent 409."""
+    suffix = sample_stac_collection["id"].rsplit("-", 1)[-1]
+    assert re.fullmatch(r"[0-9a-f]{8}", suffix)

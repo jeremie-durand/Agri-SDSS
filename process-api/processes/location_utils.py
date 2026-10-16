@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, Optional, Tuple
 
 import psycopg
+from agri_i18n import _
 from pygeoapi.process.base import ProcessorExecuteError
 from shapely.geometry import shape
 
@@ -62,7 +63,9 @@ def resolve_location(
         geom = get_geometry_from_db(farm_id)  # type: ignore[arg-type]
         return calc_bbox_from_geojson(geom), geom
 
-    raise ProcessorExecuteError(f"Unhandled location_type: {location_type!r}")
+    raise ProcessorExecuteError(
+        _("Unsupported location type: {value}").format(value=location_type)
+    )
 
 
 def calc_bbox_from_geojson(
@@ -82,9 +85,11 @@ def calc_bbox_from_geojson(
     try:
         geom = shape(geojson)
     except Exception as exc:
-        raise ProcessorExecuteError(f"Invalid GeoJSON geometry: {exc}") from exc
+        raise ProcessorExecuteError(
+            _("Invalid GeoJSON geometry: {error}").format(error=exc)
+        ) from exc
     if not geom.is_valid or geom.is_empty:
-        raise ProcessorExecuteError("GeoJSON geometry is invalid or empty")
+        raise ProcessorExecuteError(_("GeoJSON geometry is invalid or empty"))
     minx, miny, maxx, maxy = geom.bounds
     return minx, miny, maxx, maxy
 
@@ -109,11 +114,15 @@ def get_geometry_from_db(farm_id: str) -> Dict[str, Any]:
         farm_id_int = int(farm_id)
     except (ValueError, TypeError) as exc:
         raise ProcessorExecuteError(
-            f"'farm_id' must be a valid integer, got: {farm_id!r}"
+            _("'farm_id' must be a valid integer, got: {value!r}").format(
+                value=farm_id
+            )
         ) from exc
     if farm_id_int <= 0:
         raise ProcessorExecuteError(
-            f"'farm_id' must be a positive integer, got: {farm_id_int}"
+            _("'farm_id' must be a positive integer, got: {value}").format(
+                value=farm_id_int
+            )
         )
 
     farm = FarmConfig()
@@ -122,13 +131,16 @@ def get_geometry_from_db(farm_id: str) -> Dict[str, Any]:
     id_column: str = farm.FARM_ID_COLUMN
 
     if not re.match(r"^[a-zA-Z0-9_.]+$", table_name):
-        raise ProcessorExecuteError("FARM_TABLE_NAME contains disallowed characters")
+        logger.error("FARM_TABLE_NAME contains disallowed characters: %s", table_name)
+        raise ProcessorExecuteError(_("Could not retrieve the farm geometry."))
     if not re.match(r"^[a-zA-Z0-9_]+$", geom_column):
-        raise ProcessorExecuteError(
-            "FARM_GEOMETRY_COLUMN contains disallowed characters"
+        logger.error(
+            "FARM_GEOMETRY_COLUMN contains disallowed characters: %s", geom_column
         )
+        raise ProcessorExecuteError(_("Could not retrieve the farm geometry."))
     if not re.match(r"^[a-zA-Z0-9_]+$", id_column):
-        raise ProcessorExecuteError("FARM_ID_COLUMN contains disallowed characters")
+        logger.error("FARM_ID_COLUMN contains disallowed characters: %s", id_column)
+        raise ProcessorExecuteError(_("Could not retrieve the farm geometry."))
 
     conn_params = DatabaseConfig().to_conn_params()
 
@@ -144,12 +156,15 @@ def get_geometry_from_db(farm_id: str) -> Dict[str, Any]:
                 row = cur.fetchone()
                 if row is None:
                     raise ProcessorExecuteError(
-                        f"Farm ID {farm_id_int} not found in database"
+                        _("Farm ID {farm_id} not found in database").format(
+                            farm_id=farm_id_int
+                        )
                     )
                 return json.loads(row[0])
     except ProcessorExecuteError:
         raise
     except psycopg.Error as exc:
+        logger.error("Farm geometry lookup failed: %s", exc, exc_info=True)
         raise ProcessorExecuteError(
-            f"Database error retrieving farm geometry: {exc}"
+            _("Could not retrieve the farm geometry.")
         ) from exc

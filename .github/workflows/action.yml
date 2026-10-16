@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -39,14 +39,25 @@ jobs:
           fi
           echo "ARGS.md is up-to-date"
 
+      - name: Check i18n catalogs
+        run: |
+          python -m pip install -r agri_i18n/requirements-i18n.txt
+          python -m agri_i18n.check
+
       - name: Create .env file
         run: cp .env.ci .env
+
+      - name: Validate nginx configs
+        run: make lint-nginx
 
       - name: Build service images
         run: docker compose build gis-pipeline stac-api vector-api raster-api process-api chatbot-backend
 
       - name: Start database
         run: docker compose up -d database
+
+      - name: Smoke-test service entrypoints
+        run: make smoke-entrypoints
 
       - name: Run all tests
         run: make test-all

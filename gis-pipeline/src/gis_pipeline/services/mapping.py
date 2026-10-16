@@ -37,6 +37,10 @@ class ColumnName:
         self.alias = [a.lower() for a in self.alias]
         self.canonical = self.canonical.lower()
 
+    def all_names(self) -> set[str]:
+        """Return the canonical name plus every alias, all lowercase."""
+        return {self.canonical, *self.alias}
+
 
 class ColumnMappings(Enum):
     """Column mappings for various data formats."""
@@ -113,6 +117,19 @@ class CSVDataRegistryForSourceCRS(Enum):
     RESEAU_AGROMETEO = ("reseau_agrometeo", "EPSG:4326")
     QUEBEC_4326 = ("quebec_4326", "EPSG:4326")  # Test
     QUEBEC_32198 = ("quebec_32198", "EPSG:32198")  # Test
+
+
+class RasterTargetCRSOverrides(Enum):
+    """Per-dataset target CRS overrides for raster reprojection.
+
+    A raster's target CRS defaults to the batch's global CRS. An override applies
+    when the raster file stem contains the associated keyword (case-insensitive),
+    letting a dataset be harmonized to its own native CRS instead — e.g. SIIGSOL
+    is already published in EPSG:32198 (NAD83 / Quebec Lambert), so reprojecting
+    it to the global default would force an avoidable resampling pass.
+    """
+
+    SIIGSOL = ("siigsol", "EPSG:32198")
 
 
 # ---------------------------------------------------------------

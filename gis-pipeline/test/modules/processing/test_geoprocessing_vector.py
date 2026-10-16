@@ -8,8 +8,16 @@ import pandas as pd
 import pytest
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.utils import harmonize_name
-from gis_pipeline.modules.processing.geoprocessing import GeoprocessingVector
+from gis_pipeline.modules.processing.geoprocessing import (
+    FIELD_ID_MAP_PATH,
+    GeoprocessingVector,
+    _process_spatial_table,
+    geoprocessing_vector_data,
+    get_gee_gid_map,
+    load_field_id_to_gid,
+)
 from gis_pipeline.services.mapping import NamingPatterns
+from pyproj import CRS
 from shapely.geometry import MultiPolygon, Point, Polygon
 
 _GDF_PATTERN = NamingPatterns.PATTERN_GDF_NAME.value
@@ -677,6 +685,41 @@ def test_read_csv_as_gdf_uses_registry_crs(tmp_path):
         assert gdf.crs.to_epsg() == 3857
 
 
+def test_read_csv_as_gdf_explicit_source_crs_wins(tmp_path):
+    """An explicit source_crs must override both the registry and the default."""
+    csv_path = tmp_path / "parcelles.csv"
+    pd.DataFrame({"x": [500000.0], "y": [6600000.0]}).to_csv(csv_path, index=False)
+
+    gdf = GeoprocessingVector._read_csv_as_gdf(
+        vector_file=csv_path, source_crs="EPSG:2154"
+    )
+    assert gdf.crs.to_epsg() == 2154
+
+
+def test_read_csv_as_gdf_reads_sidecar_prj(tmp_path):
+    """A sidecar .prj next to the CSV must supply the CRS when the registry has no entry."""
+    csv_path = tmp_path / "parcelles.csv"
+    pd.DataFrame({"x": [500000.0], "y": [6600000.0]}).to_csv(csv_path, index=False)
+    csv_path.with_suffix(".prj").write_text(
+        CRS.from_epsg(2154).to_wkt(), encoding="utf-8"
+    )
+
+    gdf = GeoprocessingVector._read_csv_as_gdf(vector_file=csv_path)
+    assert gdf.crs.to_epsg() == 2154
+
+
+def test_read_csv_as_gdf_warns_when_crs_assumed(tmp_path):
+    """Falling back to EPSG:4326 must be logged, not silent."""
+    csv_path = tmp_path / "unknown_source.csv"
+    pd.DataFrame({"lon": [2.0], "lat": [3.0]}).to_csv(csv_path, index=False)
+
+    with patch("gis_pipeline.modules.processing.geoprocessing.logger") as mock_logger:
+        gdf = GeoprocessingVector._read_csv_as_gdf(vector_file=csv_path)
+
+    assert gdf.crs.to_epsg() == 4326
+    assert mock_logger.warning.called, "assumed CRS must emit a warning"
+
+
 # ------------------------------------------
 # Test cases for GeoprocessingVector.validate_vector_data()
 # ------------------------------------------
@@ -797,6 +840,25 @@ def test_validate_vector_data_crs_no_epsg():
     )
 
     with patch.object(geoprocessing_vector.gdf.crs, "to_epsg", return_value=None):
+        with pytest.raises(
+            ValueError, match="GeoDataFrame CRS is invalid or not EPSG compatible"
+        ):
+            geoprocessing_vector.validate_vector_data()
+
+
+def test_validate_vector_data_crs_unreadable():
+    """Validation fails when the CRS cannot be read at all."""
+    gdf = gpd.GeoDataFrame({"attr": [1, 2]}, geometry=[Point(0, 0), Point(1, 1)])
+    gdf.crs = "EPSG:4326"
+    geoprocessing_vector = GeoprocessingVector(
+        gdf=gdf,
+        target_crs=Config.GLOBAL_CRS,
+        collection_id=Config.STAC_COLLECTION_ID,
+    )
+
+    with patch.object(
+        geoprocessing_vector.gdf.crs, "to_epsg", side_effect=RuntimeError("boom")
+    ):
         with pytest.raises(
             ValueError, match="GeoDataFrame CRS is invalid or unreadable"
         ):
@@ -1464,6 +1526,72 @@ class TestGetGeeFieldIds:
 
 
 @pytest.mark.unit
+class TestFieldIdToGidTable:
+    """The committed GEE FIELD_ID -> gid lookup (resources/som_field_id_to_gid.csv)."""
+
+    def test_has_one_row_per_gee_field(self):
+        df = pd.read_csv(FIELD_ID_MAP_PATH)
+        assert len(df) == 440
+
+    def test_is_one_to_one(self):
+        df = pd.read_csv(FIELD_ID_MAP_PATH)
+        assert df["FIELD_ID"].is_unique
+        assert df["gid"].is_unique
+
+    def test_sample_counts_match_the_gee_export(self):
+        """Field_SOM_Stats_Filtered sums to 1,406 sample-field matches."""
+        df = pd.read_csv(FIELD_ID_MAP_PATH)
+        assert df["sampleCount"].sum() == 1406
+
+    def test_identifiers_differ(self):
+        """Guard against the old gid == FIELD_ID assumption."""
+        mapping = load_field_id_to_gid()
+        assert len(mapping) == 440
+        assert all(
+            isinstance(k, int) and isinstance(v, int) for k, v in mapping.items()
+        )
+        assert any(fid != gid for fid, gid in mapping.items())
+
+
+@pytest.mark.unit
+class TestGetGeeGidMap:
+    def test_translates_field_ids_to_gids(self):
+        with patch(
+            "gis_pipeline.modules.processing.geoprocessing.get_gee_field_ids",
+            return_value={391, 753},
+        ):
+            with patch(
+                "gis_pipeline.modules.processing.geoprocessing.load_field_id_to_gid",
+                return_value={391: 853, 753: 4, 999: 7},
+            ):
+                result = get_gee_gid_map("/data/duckdb")
+
+        assert result == {853: 391, 4: 753}
+
+    def test_unmapped_field_ids_are_left_out(self):
+        with patch(
+            "gis_pipeline.modules.processing.geoprocessing.get_gee_field_ids",
+            return_value={391, 5000},
+        ):
+            with patch(
+                "gis_pipeline.modules.processing.geoprocessing.load_field_id_to_gid",
+                return_value={391: 853},
+            ):
+                result = get_gee_gid_map("/data/duckdb")
+
+        assert result == {853: 391}
+
+    def test_no_gee_field_ids_returns_empty_mapping(self):
+        with patch(
+            "gis_pipeline.modules.processing.geoprocessing.get_gee_field_ids",
+            return_value=set(),
+        ):
+            result = get_gee_gid_map("/data/duckdb")
+
+        assert result == {}
+
+
+@pytest.mark.unit
 class TestStampGeeFlagsOnFieldBoundaries:
     def test_happy_path_calls_stamp_and_refresh(self):
         from gis_pipeline.modules.processing.geoprocessing import (
@@ -1473,8 +1601,8 @@ class TestStampGeeFlagsOnFieldBoundaries:
         mock_pg = MagicMock()
 
         with patch(
-            "gis_pipeline.modules.processing.geoprocessing.get_gee_field_ids",
-            return_value={1, 2},
+            "gis_pipeline.modules.processing.geoprocessing.get_gee_gid_map",
+            return_value={4: 753, 853: 391},
         ):
             with patch(
                 "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
@@ -1485,7 +1613,34 @@ class TestStampGeeFlagsOnFieldBoundaries:
                 ) as mock_refresh:
                     stamp_gee_flags_on_field_boundaries()
 
-        mock_pg.stamp_gee_flags.assert_called_once_with("som_field_boundaries", {1, 2})
+        mock_pg.stamp_gee_flags.assert_called_once_with(
+            "som_field_boundaries", {4: 753, 853: 391}
+        )
+        mock_refresh.assert_called_once()
+
+    def test_unreadable_lookup_still_stamps_with_no_field_flagged(self):
+        """A missing or malformed CSV must not leave the table without the
+        gee_field_id / has_gee_data columns som-predict-soil reads."""
+        from gis_pipeline.modules.processing.geoprocessing import (
+            stamp_gee_flags_on_field_boundaries,
+        )
+
+        mock_pg = MagicMock()
+
+        with patch(
+            "gis_pipeline.modules.processing.geoprocessing.get_gee_gid_map",
+            side_effect=FileNotFoundError("som_field_id_to_gid.csv"),
+        ):
+            with patch(
+                "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+            ) as mock_pg_cls:
+                mock_pg_cls.return_value.__enter__.return_value = mock_pg
+                with patch(
+                    "gis_pipeline.modules.processing.geoprocessing._refresh_gee_geoparquet"
+                ) as mock_refresh:
+                    stamp_gee_flags_on_field_boundaries()
+
+        mock_pg.stamp_gee_flags.assert_called_once_with("som_field_boundaries", {})
         mock_refresh.assert_called_once()
 
     def test_postgis_failure_skips_refresh(self):
@@ -1494,8 +1649,8 @@ class TestStampGeeFlagsOnFieldBoundaries:
         )
 
         with patch(
-            "gis_pipeline.modules.processing.geoprocessing.get_gee_field_ids",
-            return_value={1},
+            "gis_pipeline.modules.processing.geoprocessing.get_gee_gid_map",
+            return_value={4: 753},
         ):
             with patch(
                 "gis_pipeline.modules.processing.geoprocessing.PostGISManager",
@@ -1517,7 +1672,7 @@ class TestStampGeeFlagsOnFieldBoundaries:
         mock_pg.has_table.return_value = False
 
         with patch(
-            "gis_pipeline.modules.processing.geoprocessing.get_gee_field_ids"
+            "gis_pipeline.modules.processing.geoprocessing.get_gee_gid_map"
         ) as mock_ids:
             with patch(
                 "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
@@ -1531,3 +1686,297 @@ class TestStampGeeFlagsOnFieldBoundaries:
         mock_pg.stamp_gee_flags.assert_not_called()
         mock_refresh.assert_not_called()
         mock_ids.assert_not_called()
+
+
+def test_refresh_gee_geoparquet_triggers_materialize(tmp_path, monkeypatch):
+    from gis_pipeline.modules.processing.geoprocessing import _refresh_gee_geoparquet
+
+    monkeypatch.setattr(
+        "gis_pipeline.modules.processing.geoprocessing.Config.DUCKDB_DATA_DIR",
+        str(tmp_path),
+    )
+    (tmp_path / "som_field_boundaries.parquet").write_bytes(b"placeholder")
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.gpd.read_postgis"
+    ) as mock_read_postgis, patch(
+        "gis_pipeline.modules.processing.geoprocessing.DuckDBManager.save_gdf_to_geoparquet"
+    ), patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ) as mock_trigger:
+        mock_read_postgis.return_value = gpd.GeoDataFrame(
+            {"gid": [1], "geometry": [Point(0, 0)]}, crs="EPSG:4326"
+        )
+        mock_pg.return_value.__enter__.return_value = MagicMock()
+
+        _refresh_gee_geoparquet()
+
+        mock_trigger.assert_called_once_with("som_field_boundaries")
+
+
+def test_process_spatial_table_triggers_materialize_after_parquet_write():
+    """After save_gdf_to_geoparquet() succeeds, the materialize trigger must
+    fire with the same table name -- not the pipeline's --collection arg."""
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}, crs="EPSG:4326"
+    )
+    processor = GeoprocessingVector(
+        gdf=gdf, target_crs="EPSG:4326", collection_id="test"
+    )
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.DuckDBManager.save_gdf_to_geoparquet"
+    ), patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ) as mock_trigger:
+        mock_pg.return_value.__enter__.return_value.insert_table_data.return_value = (
+            None
+        )
+
+        _process_spatial_table(table="my_table", processor=processor)
+
+        mock_trigger.assert_called_once_with("my_table")
+
+
+def test_process_spatial_table_does_not_trigger_when_write_parquet_false():
+    """Chunked tables that skip GeoParquet export must not trigger a rebuild
+    for a file that was never written."""
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}, crs="EPSG:4326"
+    )
+    processor = GeoprocessingVector(
+        gdf=gdf, target_crs="EPSG:4326", collection_id="test"
+    )
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ) as mock_trigger:
+        mock_pg.return_value.__enter__.return_value.insert_table_data.return_value = (
+            None
+        )
+
+        _process_spatial_table(
+            table="my_table", processor=processor, write_parquet=False
+        )
+
+        mock_trigger.assert_not_called()
+
+
+def test_process_spatial_table_stages_chunk_under_dot_chunks_directory(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "gis_pipeline.modules.processing.geoprocessing.Config.DUCKDB_DATA_DIR",
+        str(tmp_path),
+    )
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}, crs="EPSG:4326"
+    )
+    processor = GeoprocessingVector(
+        gdf=gdf, target_crs="EPSG:4326", collection_id="test"
+    )
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ) as mock_trigger:
+        mock_pg.return_value.__enter__.return_value.insert_table_data.return_value = (
+            None
+        )
+
+        _process_spatial_table(table="my_table", processor=processor, chunk_index=2)
+
+        expected_path = tmp_path / ".chunks" / "my_table" / "part0002.parquet"
+        assert expected_path.exists()
+        mock_trigger.assert_not_called()
+
+
+def test_process_spatial_table_writes_final_path_and_triggers_when_not_chunked(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "gis_pipeline.modules.processing.geoprocessing.Config.DUCKDB_DATA_DIR",
+        str(tmp_path),
+    )
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [Point(0, 0), Point(1, 1)]}, crs="EPSG:4326"
+    )
+    processor = GeoprocessingVector(
+        gdf=gdf, target_crs="EPSG:4326", collection_id="test"
+    )
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ) as mock_trigger:
+        mock_pg.return_value.__enter__.return_value.insert_table_data.return_value = (
+            None
+        )
+
+        _process_spatial_table(table="my_table", processor=processor, chunk_index=None)
+
+        assert (tmp_path / "my_table.parquet").exists()
+        mock_trigger.assert_called_once_with("my_table")
+
+
+# ------------------------------------------
+# Test cases for geoprocessing_vector_data()
+# ------------------------------------------
+
+
+def _point_gdf() -> gpd.GeoDataFrame:
+    return gpd.GeoDataFrame({"attr": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326")
+
+
+@pytest.mark.unit
+def test_geoprocessing_vector_data_processes_every_table():
+    """Every entry in gdf_list is processed, not just the last one."""
+    gdf_list = [(f"table{i}", _point_gdf()) for i in (1, 2, 3)]
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing._process_spatial_table"
+    ) as mock_spatial:
+        geoprocessing_vector_data(gdf_list=gdf_list, collection_id="c")
+
+    processed = [call.args[0] for call in mock_spatial.call_args_list]
+    assert processed == ["table1", "table2", "table3"]
+
+
+@pytest.mark.unit
+def test_geoprocessing_vector_data_empty_table_does_not_abort_the_rest():
+    """An empty result for one table must not stop the tables after it.
+
+    _process_spatial_table returns None when a GeoDataFrame is empty, which is a
+    skip, not a failure.
+    """
+    gdf_list = [(f"table{i}", _point_gdf()) for i in (1, 2, 3)]
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing._process_spatial_table",
+        side_effect=[None, None, None],
+    ) as mock_spatial:
+        geoprocessing_vector_data(gdf_list=gdf_list, collection_id="c")
+
+    assert mock_spatial.call_count == 3
+
+
+@pytest.mark.unit
+def test_geoprocessing_vector_data_routes_non_spatial_tables():
+    """A table without a geometry column goes to the non-spatial path."""
+    df = gpd.GeoDataFrame(pd.DataFrame({"attr": [1, 2]}))
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing._process_non_spatial_table"
+    ) as mock_non_spatial:
+        geoprocessing_vector_data(gdf_list=[("plain", df)], collection_id="c")
+
+    mock_non_spatial.assert_called_once()
+    assert mock_non_spatial.call_args.args[0] == "plain"
+
+
+# ------------------------------------------
+# Test cases for invalid-geometry repair
+# ------------------------------------------
+
+
+def _bowtie() -> Polygon:
+    """Self-intersecting polygon; buffer(0) keeps only half its area."""
+    return Polygon([(0, 0), (1, 1), (1, 0), (0, 1), (0, 0)])
+
+
+def _spiked_square() -> Polygon:
+    """Invalid square with a dangling spike -> make_valid gives a collection."""
+    return Polygon([(0, 0), (4, 0), (4, 4), (0, 4), (0, 0), (2, 2), (6, 2), (2, 2)])
+
+
+def _collapsed() -> Polygon:
+    """Degenerate polygon whose points are colinear -> no polygonal part left."""
+    return Polygon([(0, 0), (1, 0), (2, 0), (0, 0)])
+
+
+def _vector(gdf: gpd.GeoDataFrame) -> GeoprocessingVector:
+    return GeoprocessingVector(
+        gdf=gdf, target_crs=Config.GLOBAL_CRS, collection_id=Config.STAC_COLLECTION_ID
+    )
+
+
+@pytest.mark.unit
+def test_clean_geometries_repairs_self_intersection():
+    """An invalid bowtie becomes valid and keeps its full area."""
+    gdf = gpd.GeoDataFrame({"a": [1]}, geometry=[_bowtie()], crs="EPSG:4326")
+    assert not gdf.geometry.iloc[0].is_valid
+
+    processor = _vector(gdf)
+    processor.clean_geometries_gdf()
+
+    assert processor.gdf.geometry.iloc[0].is_valid
+
+
+@pytest.mark.unit
+def test_clean_geometries_preserves_area_unlike_buffer_zero():
+    """Repair keeps both lobes of the bowtie; buffer(0) would keep one."""
+    geom = _bowtie()
+    processor = _vector(gpd.GeoDataFrame({"a": [1]}, geometry=[geom], crs="EPSG:4326"))
+    processor.clean_geometries_gdf()
+
+    assert processor.gdf.geometry.iloc[0].area == pytest.approx(0.5)
+    assert geom.buffer(0).area == pytest.approx(0.25)
+
+
+@pytest.mark.unit
+def test_clean_geometries_drops_non_polygonal_parts():
+    """A repaired polygon must not come back as a GeometryCollection."""
+    processor = _vector(
+        gpd.GeoDataFrame({"a": [1]}, geometry=[_spiked_square()], crs="EPSG:4326")
+    )
+    processor.clean_geometries_gdf()
+
+    result = processor.gdf.geometry.iloc[0]
+    assert result.geom_type in ("Polygon", "MultiPolygon")
+    assert result.is_valid
+
+
+@pytest.mark.unit
+def test_clean_geometries_drops_unrepairable_rows():
+    """A geometry with no polygonal part left is removed, not silently degraded."""
+    gdf = gpd.GeoDataFrame(
+        {"a": [1, 2]},
+        geometry=[_collapsed(), Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])],
+        crs="EPSG:4326",
+    )
+    processor = _vector(gdf)
+    processor.clean_geometries_gdf()
+
+    assert len(processor.gdf) == 1
+    assert processor.gdf["a"].tolist() == [2]
+
+
+@pytest.mark.unit
+def test_clean_geometries_leaves_valid_geometries_untouched():
+    """Valid input is returned unchanged."""
+    square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+    processor = _vector(
+        gpd.GeoDataFrame({"a": [1]}, geometry=[square], crs="EPSG:4326")
+    )
+    processor.clean_geometries_gdf()
+
+    assert processor.gdf.geometry.iloc[0].equals(square)
+
+
+@pytest.mark.unit
+def test_clean_geometries_can_be_disabled():
+    """is_fix_invalid=False leaves an invalid geometry in place."""
+    processor = _vector(
+        gpd.GeoDataFrame({"a": [1]}, geometry=[_bowtie()], crs="EPSG:4326")
+    )
+    processor.clean_geometries_gdf(is_fix_invalid=False)
+
+    assert not processor.gdf.geometry.iloc[0].is_valid

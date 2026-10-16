@@ -1690,3 +1690,106 @@ class TestCleanMetadataEdgeCases:
     def test_empty_dict_unchanged(self) -> None:
         result = _clean_metadata({})
         assert result == {}
+
+
+@pytest.mark.unit
+def test_raster_item_prefers_public_href_over_file_url() -> None:
+    """When both keys are present, the asset href is the public URL."""
+    raster_dict = {
+        "id": "demo_cog",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+        },
+        "bbox": [0, 0, 1, 1],
+        "file_url": "/data/output/raster_cog/demo_cog.tif",
+        "href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif",
+        "properties": {},
+    }
+
+    item = _create_stac_item_from_raster(raster_dict=raster_dict, unique_id="demo_cog")
+
+    assert item.assets["data"].href == (
+        "https://agri-sdss.duckdns.org/cog/demo_cog.tif"
+    )
+
+
+@pytest.mark.unit
+def test_raster_item_carries_the_render_assets() -> None:
+    """The raster-api renderings must reach the published item, not be dropped."""
+    raster_dict = {
+        "id": "demo_cog",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+        },
+        "bbox": [0, 0, 1, 1],
+        "href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif",
+        "properties": {},
+        "assets": {
+            "cog": {"href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif"},
+            "preview": {
+                "href": "https://agri-sdss.duckdns.org/raster-api/cog/preview.png"
+                "?url=/data/demo_cog.tif",
+                "type": "image/png",
+                "roles": ["overview"],
+                "title": "PNG preview",
+            },
+            "tilejson": {
+                "href": "https://agri-sdss.duckdns.org/raster-api/cog"
+                "/WebMercatorQuad/tilejson.json?url=/data/demo_cog.tif",
+                "type": "application/json",
+                "roles": ["tiles"],
+                "title": "TileJSON (XYZ tiles)",
+            },
+        },
+    }
+
+    item = _create_stac_item_from_raster(raster_dict=raster_dict, unique_id="demo_cog")
+
+    assert item.assets["preview"].media_type == "image/png"
+    assert item.assets["preview"].roles == ["overview"]
+    assert "preview.png" in item.assets["preview"].href
+    assert item.assets["tilejson"].media_type == "application/json"
+    assert item.assets["tilejson"].roles == ["tiles"]
+
+
+@pytest.mark.unit
+def test_raster_item_does_not_duplicate_the_main_cog_asset() -> None:
+    """The COG is already published under asset_key; "cog" must not double it."""
+    raster_dict = {
+        "id": "demo_cog",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+        },
+        "bbox": [0, 0, 1, 1],
+        "href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif",
+        "properties": {},
+        "assets": {
+            "cog": {"href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif"}
+        },
+    }
+
+    item = _create_stac_item_from_raster(raster_dict=raster_dict, unique_id="demo_cog")
+
+    assert set(item.assets) == {"data"}
+
+
+@pytest.mark.unit
+def test_raster_item_without_assets_still_builds() -> None:
+    """Older callers pass no assets dict at all; that must keep working."""
+    raster_dict = {
+        "id": "demo_cog",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+        },
+        "bbox": [0, 0, 1, 1],
+        "file_url": "/data/output/raster_cog/demo_cog.tif",
+        "properties": {},
+    }
+
+    item = _create_stac_item_from_raster(raster_dict=raster_dict, unique_id="demo_cog")
+
+    assert set(item.assets) == {"data"}

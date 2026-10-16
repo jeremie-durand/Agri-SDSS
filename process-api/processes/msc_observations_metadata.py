@@ -5,14 +5,27 @@ OGC API Processes metadata for the msc-observations process.
 PROCESS_METADATA = {
     "version": "1.0.0",
     "id": "msc-observations",
-    "title": "MSC GeoMet Weather Station Observations",
-    "description": (
-        "Retrieves daily or near real-time surface weather observations from the "
-        "Meteorological Service of Canada (MSC) GeoMet OGC API "
-        "(https://api.weather.gc.ca). Data is open and requires no authentication. "
-        "Returns a GeoJSON FeatureCollection with one Feature per station found "
-        "within the requested area."
-    ),
+    "title": {
+        "en": "MSC GeoMet Weather Station Observations",
+        "fr": "Observations des stations météo MSC GeoMet",
+    },
+    "description": {
+        "en": (
+            "Retrieves daily or near real-time surface weather observations from the "
+            "Meteorological Service of Canada (MSC) GeoMet OGC API "
+            "(https://api.weather.gc.ca). Data is open and requires no "
+            "authentication. Returns a GeoJSON FeatureCollection with one Feature "
+            "per station found within the requested area."
+        ),
+        "fr": (
+            "Récupère des observations météorologiques de surface, quotidiennes ou "
+            "en temps quasi réel, depuis l’API OGC GeoMet du Service météorologique "
+            "du Canada (SMC) (https://api.weather.gc.ca). Les données sont ouvertes "
+            "et ne nécessitent aucune authentification. Retourne une "
+            "FeatureCollection GeoJSON avec une entité par station trouvée dans la "
+            "zone demandée."
+        ),
+    },
     "keywords": ["weather", "observations", "MSC", "GeoMet", "Canada", "stations"],
     "links": [
         {

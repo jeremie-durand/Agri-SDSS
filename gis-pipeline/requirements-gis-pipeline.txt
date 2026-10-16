@@ -4,7 +4,7 @@ attrs==25.3.0
 certifi==2026.6.17
 charset-normalizer==3.4.2
 click==8.4.2
-click-plugins==1.1.1
+click-plugins==1.1.1.2
 cligj==0.7.2
 colorama==0.4.6
 duckdb==1.4.4
@@ -34,9 +34,9 @@ shapely==2.0.7
 six==1.17.0
 snuggs==1.4.7
 structlog==26.1.0
-SQLAlchemy==2.0.51
+SQLAlchemy==2.0.52
 stac-pydantic==3.3.0
 typing_extensions==4.13.2
 tzdata==2025.2
-urllib3==2.7.0
+urllib3==2.8.0
 

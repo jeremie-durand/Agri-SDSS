@@ -18,6 +18,7 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import openeo
 import psycopg
 import rasterio
@@ -26,6 +27,9 @@ from openeo.rest import JobFailedException
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 from shapely.geometry import MultiPolygon, Polygon, shape
 
+from agri_i18n import _
+
+from .asset_url_utils import cog_href, preview_href, tilejson_href
 from .config import ApiConfig, DatabaseConfig, FarmConfig
 from .eo_backend import vegetation_indices as veg_indices
 from .eo_sentinel_fetch_metadata import PROCESS_METADATA
@@ -34,17 +38,24 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_cog_stats(cog_path: str) -> Dict[int, Any]:
-    """Return per-band min/max/mean/std stats from a COG file."""
+    """Return per-band min/max/mean/std stats from a COG file.
+
+    NaN is not covered by the nodata mask, so non-finite pixels are dropped
+    first: a single one would otherwise make every statistic NaN, which is not
+    valid JSON and would poison both the published item and the rescale
+    derived from it.
+    """
     with rasterio.open(cog_path) as src:
         stats: Dict[int, Any] = {}
         for i in src.indexes:
-            band_data = src.read(i, masked=True)
-            if band_data.count() > 0:
+            values = src.read(i, masked=True).compressed()
+            values = values[np.isfinite(values)]
+            if values.size > 0:
                 stats[i] = {
-                    "min": float(band_data.min()),
-                    "max": float(band_data.max()),
-                    "mean": float(band_data.mean()),
-                    "std": float(band_data.std()),
+                    "min": float(values.min()),
+                    "max": float(values.max()),
+                    "mean": float(values.mean()),
+                    "std": float(values.std()),
                 }
             else:
                 stats[i] = {"min": None, "max": None, "mean": None, "std": None}
@@ -66,6 +77,12 @@ class SentinelFetchProcessor(BaseProcessor):
     # Sentinel-2 L2A surface reflectance is stored as integer DN with QUANTIFICATION_VALUE=10000.
     # Ref: ESA Sentinel-2 Product Specification Document (S2-PDGS-TAS-DI-PSD), §Field QUANTIFICATION_VALUE.
     SENTINEL2_SCALE_FACTOR: float = 0.0001
+    # Scene Classification Layer classes masked per pixel when cloud_mask is on:
+    # 3 cloud shadow, 8 cloud medium probability, 9 cloud high probability,
+    # 10 thin cirrus. Class 7 (unclassified) is kept: it is often valid bare
+    # soil or vegetation.
+    SCL_BAND: str = "SCL"
+    SCL_MASKED_CLASSES: tuple[int, ...] = (3, 8, 9, 10)
     TOKEN_EXPIRY_MSG: str = (
         "Both the primary (OPENEO_REFRESH_TOKEN env var) and fallback (refresh-tokens.json config file) tokens expire after approximately 30 days."
     )
@@ -191,18 +208,18 @@ class SentinelFetchProcessor(BaseProcessor):
                     geom_column: str = farm.FARM_GEOMETRY_COLUMN
                     id_column: str = farm.FARM_ID_COLUMN
 
-                    if not re.match(r"^[a-zA-Z0-9_.-]+$", table_name):
-                        raise ProcessorExecuteError(
-                            "Invalid table name format in FARM_TABLE_NAME"
-                        )
-                    if not re.match(r"^[a-zA-Z0-9_]+$", geom_column):
-                        raise ProcessorExecuteError(
-                            "Invalid geometry column name format in FARM_GEOMETRY_COLUMN"
-                        )
-                    if not re.match(r"^[a-zA-Z0-9_]+$", id_column):
-                        raise ProcessorExecuteError(
-                            "Invalid ID column name format in FARM_ID_COLUMN"
-                        )
+                    for _var, _value, _pattern in (
+                        ("FARM_TABLE_NAME", table_name, r"^[a-zA-Z0-9_.-]+$"),
+                        ("FARM_GEOMETRY_COLUMN", geom_column, r"^[a-zA-Z0-9_]+$"),
+                        ("FARM_ID_COLUMN", id_column, r"^[a-zA-Z0-9_]+$"),
+                    ):
+                        if not re.match(_pattern, _value):
+                            logger.error(
+                                "%s contains disallowed characters: %s", _var, _value
+                            )
+                            raise ProcessorExecuteError(
+                                _("Could not retrieve the farm geometry.")
+                            )
 
                     query: str = f"""
                         SELECT ST_AsGeoJSON({geom_column}) as geom
@@ -214,20 +231,31 @@ class SentinelFetchProcessor(BaseProcessor):
 
                     if not result:
                         raise ProcessorExecuteError(
-                            f"Farm ID {farm_id} not found in database"
+                            _("Farm ID {farm_id} not found in database").format(
+                                farm_id=farm_id
+                            )
                         )
 
                     try:
                         return json.loads(result[0])
                     except json.JSONDecodeError as e:
-                        raise ProcessorExecuteError(
-                            f"Invalid geometry data for farm ID {farm_id}: {str(e)}"
+                        logger.error(
+                            "Stored geometry for farm %s is not valid JSON: %s",
+                            farm_id,
+                            e,
+                            exc_info=True,
                         )
+                        raise ProcessorExecuteError(
+                            _("Invalid geometry data for farm ID {farm_id}").format(
+                                farm_id=farm_id
+                            )
+                        ) from e
 
         except psycopg.Error as e:
+            logger.error("Farm geometry lookup failed: %s", e, exc_info=True)
             raise ProcessorExecuteError(
-                f"Database error retrieving farm geometry: {str(e)}"
-            )
+                _("Could not retrieve the farm geometry.")
+            ) from e
 
     @staticmethod
     def _calculate_area_km2(bounds: Tuple[float, float, float, float]) -> float:
@@ -282,6 +310,7 @@ class SentinelFetchProcessor(BaseProcessor):
         temporal_extent: List[str],
         required_bands: set,
         cloud_cover_max: float,
+        cloud_mask: bool = True,
     ) -> Any:
         """Load and prepare Sentinel-2 data cube from openEO
 
@@ -291,6 +320,8 @@ class SentinelFetchProcessor(BaseProcessor):
             temporal_extent: [start_date, end_date] in ISO 8601 format
             required_bands: Set of Sentinel-2 band identifiers to load
             cloud_cover_max: Maximum cloud cover percentage (0-100)
+            cloud_mask: Mask cloud and cloud-shadow pixels with the Scene
+                Classification Layer before scaling and temporal reduction
 
         Returns:
             Processed Sentinel-2 data cube with applied filters and scaling
@@ -299,6 +330,7 @@ class SentinelFetchProcessor(BaseProcessor):
             ProcessorExecuteError: If loading or processing data cube fails
         """
         try:
+            bands: list[str] = sorted(required_bands)
             s2_cube = connection.load_collection(
                 self.SENTINEL2_COLLECTION,
                 spatial_extent={
@@ -309,9 +341,15 @@ class SentinelFetchProcessor(BaseProcessor):
                     "crs": self.DEFAULT_CRS,
                 },
                 temporal_extent=temporal_extent,
-                bands=list(required_bands),
+                bands=(bands + [self.SCL_BAND]) if cloud_mask else bands,
                 properties={"eo:cloud_cover": lambda cc: cc <= cloud_cover_max},
             )
+
+            # Mask on the raw SCL class codes, before the reflectance scaling
+            # below would multiply them too.
+            if cloud_mask:
+                invalid = self._scl_invalid_mask(s2_cube.band(self.SCL_BAND))
+                s2_cube = s2_cube.filter_bands(bands).mask(invalid)
 
             # Apply scale factor to convert DN to reflectance
             # Sentinel-2 L2A stores reflectance values as integers (0-10000)
@@ -323,8 +361,23 @@ class SentinelFetchProcessor(BaseProcessor):
         except Exception as e:
             logger.error(f"Failed to load Sentinel-2 data: {str(e)}", exc_info=True)
             raise ProcessorExecuteError(
-                "Failed to load Sentinel-2 data from OpenEO. Check server logs for details."
-            )
+                _(
+                    "Failed to load Sentinel-2 data from OpenEO. "
+                    "Check server logs for details."
+                )
+            ) from e
+
+    @classmethod
+    def _scl_invalid_mask(cls, scl: Any) -> Any:
+        """Return True where the SCL class is one of SCL_MASKED_CLASSES.
+
+        Works on an openEO band (building the process graph) as well as on a
+        numpy array of class codes.
+        """
+        invalid = scl == cls.SCL_MASKED_CLASSES[0]
+        for scl_class in cls.SCL_MASKED_CLASSES[1:]:
+            invalid = invalid | (scl == scl_class)
+        return invalid
 
     def _generate_assets(
         self,
@@ -374,7 +427,7 @@ class SentinelFetchProcessor(BaseProcessor):
                         )
                         stats = _extract_cog_stats(cog_path)
                         assets[product] = {
-                            "href": cog_path,
+                            "href": cog_href(cog_path),
                             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
                             "roles": (
                                 ["data"] if product != "true_color" else ["visual"]
@@ -396,7 +449,7 @@ class SentinelFetchProcessor(BaseProcessor):
                     stats = _extract_cog_stats(cog_path)
 
                     assets[product] = {
-                        "href": cog_path,
+                        "href": cog_href(cog_path),
                         "type": "image/tiff; application=geotiff; profile=cloud-optimized",
                         "roles": ["data"] if product != "true_color" else ["visual"],
                         "title": self._get_product_title(product),
@@ -434,7 +487,7 @@ class SentinelFetchProcessor(BaseProcessor):
                     continue
 
             if not assets:
-                raise ProcessorExecuteError("Failed to generate any output products")
+                raise ProcessorExecuteError(_("Failed to generate any output products"))
 
             return assets
         finally:
@@ -477,13 +530,16 @@ class SentinelFetchProcessor(BaseProcessor):
                     f"Authentication failed with config file fallback: {str(config_auth_error)}",
                     exc_info=True,
                 )
-                error_msg = (
-                    f"OpenEO authentication failed. The OPENEO_REFRESH_TOKEN env var token is "
-                    f"expired or invalid, and the config file fallback also failed. "
-                    f"{self.TOKEN_EXPIRY_MSG} "
-                    f"Please re-run: {self.TOKEN_SCRIPT_PATH} to obtain a new token."
+                error_msg = _(
+                    "OpenEO authentication failed. The OPENEO_REFRESH_TOKEN env "
+                    "var token is expired or invalid, and the config file "
+                    "fallback also failed. {expiry_note} Please re-run: "
+                    "{script} to obtain a new token."
+                ).format(
+                    expiry_note=self.TOKEN_EXPIRY_MSG,
+                    script=self.TOKEN_SCRIPT_PATH,
                 )
-                raise ProcessorExecuteError(error_msg)
+                raise ProcessorExecuteError(error_msg) from config_auth_error
 
     def _authenticate_with_config_file(self, connection: Any) -> None:
         """Authenticate using the refresh-tokens.json config file (fallback / local dev).
@@ -512,15 +568,18 @@ class SentinelFetchProcessor(BaseProcessor):
             config_home = os.getenv(
                 "OPENEO_CONFIG_HOME", self.OPENEO_CONFIG_HOME_DEFAULT
             )
-            error_msg = (
-                f"OpenEO authentication failed. No valid refresh token found. "
-                f"Looked for refresh-tokens.json in OPENEO_CONFIG_HOME={config_home}. "
-                f"{self.TOKEN_EXPIRY_MSG} "
-                f"Please run: {self.TOKEN_SCRIPT_PATH} to set up authentication "
-                f"and copy the token to your .env file. "
-                f"Error details: {str(config_auth_error)}"
+            error_msg = _(
+                "OpenEO authentication failed. No valid refresh token found. "
+                "Looked for refresh-tokens.json in "
+                "OPENEO_CONFIG_HOME={config_home}. {expiry_note} Please run: "
+                "{script} to set up authentication and copy the token to your "
+                ".env file."
+            ).format(
+                config_home=config_home,
+                expiry_note=self.TOKEN_EXPIRY_MSG,
+                script=self.TOKEN_SCRIPT_PATH,
             )
-            raise ProcessorExecuteError(error_msg)
+            raise ProcessorExecuteError(error_msg) from config_auth_error
 
     def _process_sentinel_data(
         self,
@@ -531,7 +590,8 @@ class SentinelFetchProcessor(BaseProcessor):
         aggregation_method: str,
         cloud_cover_max: float,
         farm_identifier: str,
-    ) -> Dict[str, Dict[str, Any]]:
+        cloud_mask: bool = True,
+    ) -> Tuple[Dict[str, Dict[str, Any]], bool]:
         """
         Fetch Sentinel-2 data from openEO and generate requested products
 
@@ -549,9 +609,13 @@ class SentinelFetchProcessor(BaseProcessor):
                 Example: 20 (means 20% maximum cloud cover)
             farm_identifier: Unique identifier for file naming
                 Example: "farm_123" or "farm_a1b2c3d4"
+            cloud_mask: Apply the per-pixel SCL cloud and shadow mask
 
         Returns:
-            Dict mapping product names to asset metadata
+            Tuple of (dict mapping product names to asset metadata, whether
+            every requested product was served from the on-disk cache —
+            the caller uses this to decide whether the STAC item can also
+            be served from its own cache marker instead of republished)
         """
         # Early-exit: serve all products from cache without connecting to OpenEO
         cached_assets: Dict[str, Dict[str, Any]] = {}
@@ -562,7 +626,7 @@ class SentinelFetchProcessor(BaseProcessor):
                 try:
                     stats = _extract_cog_stats(cog_path)
                     cached_assets[product] = {
-                        "href": cog_path,
+                        "href": cog_href(cog_path),
                         "type": "image/tiff; application=geotiff; profile=cloud-optimized",
                         "roles": ["data"] if product != "true_color" else ["visual"],
                         "title": self._get_product_title(product),
@@ -577,7 +641,7 @@ class SentinelFetchProcessor(BaseProcessor):
 
         if len(cached_assets) == len(output_products):
             logger.info("All products served from cache — OpenEO connection skipped")
-            return cached_assets
+            return cached_assets, True
 
         # Connect to openEO backend (only reached when ≥1 product needs fetching)
         try:
@@ -597,15 +661,20 @@ class SentinelFetchProcessor(BaseProcessor):
         except Exception as e:
             logger.error(f"Failed to connect to openEO: {str(e)}", exc_info=True)
             raise ProcessorExecuteError(
-                f"Failed to connect to openEO backend: {str(e)}"
-            )
+                _("Could not connect to the openEO backend. Please try again later.")
+            ) from e
 
         # Determine required bands based on requested products
         required_bands: set = self._get_required_bands(output_products)
 
         # Load Sentinel-2 L2A collection
         s2_cube = self._load_sentinel2_cube(
-            connection, bbox, temporal_extent, required_bands, cloud_cover_max
+            connection,
+            bbox,
+            temporal_extent,
+            required_bands,
+            cloud_cover_max,
+            cloud_mask,
         )
 
         # Generate output assets from data cube
@@ -618,7 +687,7 @@ class SentinelFetchProcessor(BaseProcessor):
             farm_identifier,
         )
 
-        return assets
+        return assets, False
 
     def _calculate_product(
         self, cube: Any, product: str, aggregation_method: str = "median"
@@ -637,7 +706,10 @@ class SentinelFetchProcessor(BaseProcessor):
         valid_methods = ["median", "max", "min", "mean"]
         if aggregation_method not in valid_methods:
             raise ProcessorExecuteError(
-                f"Invalid aggregation method '{aggregation_method}'. Must be one of: {', '.join(valid_methods)}"
+                _(
+                    "Invalid aggregation method '{method}'. "
+                    "Must be one of: {methods}"
+                ).format(method=aggregation_method, methods=", ".join(valid_methods))
             )
 
         # Apply temporal aggregation
@@ -695,7 +767,10 @@ class SentinelFetchProcessor(BaseProcessor):
             cmd, capture_output=True, text=True
         )
         if result.returncode != 0:
-            raise ProcessorExecuteError(f"GDAL COG conversion failed: {result.stderr}")
+            logger.error("GDAL COG conversion failed: %s", result.stderr)
+            raise ProcessorExecuteError(
+                _("Could not convert the raster to Cloud Optimized GeoTIFF.")
+            )
 
     def _get_product_title(self, product: str) -> str:
         """Get human-readable title for product"""
@@ -755,6 +830,73 @@ class SentinelFetchProcessor(BaseProcessor):
             ]
         return [{"nodata": self.DEFAULT_NODATA}]
 
+    @staticmethod
+    def _render_params(asset: Dict[str, Any]) -> Tuple[Optional[int], Optional[str]]:
+        """Return the ``(bidx, rescale)`` TiTiler needs to render an asset.
+
+        Both come from the statistics already extracted for the asset rather
+        than a second read of the file. Band indices survive the JSON round
+        trip through the cache marker as strings, so the band is looked up
+        under either form.
+
+        TiTiler encodes a 1-band COG as greyscale and a 3-band one as RGB, but
+        can encode nothing else — a 6-band COG answers 500 — so any other band
+        count renders band 1 explicitly. It also casts a float band straight to
+        uint8 when given no rescale, which renders a vegetation index flat, so
+        a rendered band carries its own value range. ``true_color`` is the only
+        3-band product, an RGB composite already displayable as-is, and needs
+        neither.
+
+        The rescale is None whenever the range is unusable — absent,
+        non-finite, or constant, which would make rio-tiler divide by zero.
+        """
+        statistics = asset.get("statistics") or {}
+        if not statistics or len(statistics) == 3:
+            return None, None
+        bidx = None if len(statistics) == 1 else 1
+        band = statistics.get(1) or statistics.get("1") or {}
+        low, high = band.get("min"), band.get("max")
+        if low is None or high is None:
+            return bidx, None
+        low, high = float(low), float(high)
+        if not (math.isfinite(low) and math.isfinite(high)) or low == high:
+            return bidx, None
+        return bidx, f"{low},{high}"
+
+    def _render_assets(
+        self, assets: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return the raster-api renderings of each product COG.
+
+        The COG assets are byte-range downloads; these are the URLs that let a
+        client display the same pixels without downloading anything. An item
+        carries several products, unlike a LiDAR one, so each gets its own pair
+        keyed ``<product>_preview`` / ``<product>_tilejson`` beside it.
+
+        Args:
+            assets: Product assets, each holding the public href of its COG.
+        """
+        rendered: Dict[str, Dict[str, Any]] = {}
+        for product, asset in assets.items():
+            href = asset.get("href")
+            if not href:
+                continue
+            bidx, rescale = self._render_params(asset)
+            title = self._get_product_title(product)
+            rendered[f"{product}_preview"] = {
+                "href": preview_href(href, rescale=rescale, bidx=bidx),
+                "type": "image/png",
+                "roles": ["overview"],
+                "title": f"{title} — PNG preview",
+            }
+            rendered[f"{product}_tilejson"] = {
+                "href": tilejson_href(href, rescale=rescale, bidx=bidx),
+                "type": "application/json",
+                "roles": ["tiles"],
+                "title": f"{title} — TileJSON (XYZ tiles)",
+            }
+        return rendered
+
     def _create_stac_item(
         self,
         item_id: str,
@@ -763,6 +905,8 @@ class SentinelFetchProcessor(BaseProcessor):
         temporal_extent: List[str],
         assets: Dict[str, Dict[str, Any]],
         cloud_cover_max: float,
+        marker_path: str,
+        cloud_mask: bool = True,
     ) -> Dict[str, Any]:
         """
         Create and publish STAC item to STAC API
@@ -777,8 +921,16 @@ class SentinelFetchProcessor(BaseProcessor):
                 Example: ["2024-06-01", "2024-08-31"]
             assets: Dictionary mapping product names to STAC asset metadata
                 Each asset must include: href, type, roles, title, raster:bands, statistics
+                Each also gains a raster-api preview and TileJSON sibling
+                (see _render_assets) so the item is viewable without a download
             cloud_cover_max: Maximum cloud cover percentage used for filtering (0-100)
                 Example: 20.0
+            marker_path: Path to the cache marker written on a successful
+                publish, so a later call with an identical cached product
+                set can skip republishing (see _stac_marker_path)
+            cloud_mask: Whether the products were SCL cloud-masked; recorded
+                in the item properties so clients reusing published items can
+                tell masked from unmasked ones
 
         Returns:
             STAC Item compliant with STAC v1.0.0 specification, including:
@@ -822,15 +974,48 @@ class SentinelFetchProcessor(BaseProcessor):
                 "processing:level": "L2A",
                 "eo:cloud_cover": cloud_cover_max,
                 "proj:epsg": 4326,
+                "agri_sdss:cloud_mask": cloud_mask,
+                "agri_sdss:scl_masked_classes": (
+                    list(self.SCL_MASKED_CLASSES) if cloud_mask else []
+                ),
             },
-            "assets": assets,
+            "assets": {**assets, **self._render_assets(assets)},
             "links": [],
         }
 
-        # Post to STAC API
-        self._post_to_stac_api(stac_item)
+        # Post to STAC API. On success, write a cache marker so a later call
+        # with an identical (fully-cached) product set can skip
+        # republishing; a failed publish leaves no marker, so it's retried
+        # on the next call instead of staying unpublished forever.
+        if self._post_to_stac_api(stac_item):
+            self._write_stac_marker(marker_path, stac_item)
 
         return stac_item
+
+    def _stac_marker_path(self, stac_item_id: str) -> str:
+        """Path to the sidecar marker recording a successful STAC publish."""
+        return os.path.join(self.output_dir, f"{stac_item_id}.stac.json")
+
+    @staticmethod
+    def _load_cached_stac_item(marker_path: str) -> Optional[Dict[str, Any]]:
+        """Return the previously-published STAC item, or None if unpublished."""
+        if not os.path.exists(marker_path):
+            return None
+        try:
+            with open(marker_path, "r") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not read STAC marker %s: %s", marker_path, exc)
+            return None
+
+    @staticmethod
+    def _write_stac_marker(marker_path: str, stac_item: Dict[str, Any]) -> None:
+        """Persist a successfully-published STAC item as a cache marker."""
+        try:
+            with open(marker_path, "w") as f:
+                json.dump(stac_item, f)
+        except OSError as exc:
+            logger.warning("Could not write STAC marker %s: %s", marker_path, exc)
 
     def _ensure_collection_exists(self) -> None:
         """Ensure the sentinel2_eo_products collection exists in STAC API"""
@@ -954,12 +1139,18 @@ class SentinelFetchProcessor(BaseProcessor):
             )
             return False
 
-    def _generate_preview_url(self, asset_href: str) -> str:
-        """Generate TiTiler preview URL for asset"""
-        filename: str = os.path.basename(asset_href)
-        raster_api_port: int = ApiConfig().RASTER_API_PORT
-        raster_api_url: str = f"http://raster-api:{raster_api_port}"
-        return f"{raster_api_url}/cog/preview.png?url=/data/{filename}&rescale=0,1"
+    def _generate_preview_url(self, asset: Dict[str, Any]) -> str:
+        """Return the public TiTiler preview URL for a product asset.
+
+        Rendered with the same band and value range as the item's own preview
+        asset, so the URL handed back in the process response and the one a
+        client finds in the catalog show the same image.
+
+        Args:
+            asset: Product asset holding the public href of its COG.
+        """
+        bidx, rescale = self._render_params(asset)
+        return preview_href(asset["href"], rescale=rescale, bidx=bidx)
 
     def execute(
         self, data: Dict[str, Any], outputs: Optional[Any] = None
@@ -983,25 +1174,37 @@ class SentinelFetchProcessor(BaseProcessor):
             output_products: List[str] = data["output_products"]
             aggregation_method: str = data.get("aggregation_method", "median")
             cloud_cover_max: float = data.get("cloud_cover_max", 20)
+            cloud_mask: Any = data.get("cloud_mask", True)
+
+            if not isinstance(cloud_mask, bool):
+                raise ProcessorExecuteError(
+                    _("'cloud_mask' must be true or false, got: {value}").format(
+                        value=cloud_mask
+                    )
+                )
 
             if not 0 <= cloud_cover_max <= 100:
                 raise ProcessorExecuteError(
-                    f"'cloud_cover_max' must be between 0 and 100, got: {cloud_cover_max}"
+                    _(
+                        "'cloud_cover_max' must be between 0 and 100, got: {value}"
+                    ).format(value=cloud_cover_max)
                 )
 
             # Validate that exactly one geometry source is provided
             if farm_geometry is None and farm_id is None:
                 raise ProcessorExecuteError(
-                    "Either 'farm_geometry' or 'farm_id' must be provided"
+                    _("Either 'farm_geometry' or 'farm_id' must be provided")
                 )
             if farm_geometry is not None and farm_id is not None:
                 raise ProcessorExecuteError(
-                    "Provide only one of 'farm_geometry' or 'farm_id', not both"
+                    _("Provide only one of 'farm_geometry' or 'farm_id', not both")
                 )
 
             if farm_id is not None and farm_id <= 0:
                 raise ProcessorExecuteError(
-                    f"Farm ID must be a positive integer, got: {farm_id}"
+                    _("'farm_id' must be a positive integer, got: {value}").format(
+                        value=farm_id
+                    )
                 )
 
             # Validate temporal extent
@@ -1010,10 +1213,15 @@ class SentinelFetchProcessor(BaseProcessor):
                 end_date: datetime = datetime.fromisoformat(temporal_extent[1])
                 if start_date > end_date:
                     raise ProcessorExecuteError(
-                        f"Start date ({temporal_extent[0]}) must be before or equal to end date ({temporal_extent[1]})"
+                        _(
+                            "Start date ({start}) must be before or equal to "
+                            "end date ({end})"
+                        ).format(start=temporal_extent[0], end=temporal_extent[1])
                     )
             except (ValueError, IndexError) as e:
-                raise ProcessorExecuteError(f"Invalid temporal extent format: {str(e)}")
+                raise ProcessorExecuteError(
+                    _("Invalid temporal extent format: {error}").format(error=e)
+                ) from e
 
             # Get farm geometry
             geometry_geojson: Dict[str, Any]
@@ -1035,15 +1243,23 @@ class SentinelFetchProcessor(BaseProcessor):
                 farm_identifier = (
                     f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}"
                 )
+            # Masked products get their own COG and STAC item names, so the
+            # unmasked ones cached before masking existed are never served for
+            # a masked request (and still are for cloud_mask=false).
+            if cloud_mask:
+                farm_identifier = f"{farm_identifier}_scl"
 
             # Validate geometry
             if not geom_shape.is_valid:
                 raise ProcessorExecuteError(
-                    "Invalid geometry provided. Geometry must be a valid Polygon or MultiPolygon."
+                    _(
+                        "Invalid geometry provided. Geometry must be a valid "
+                        "Polygon or MultiPolygon."
+                    )
                 )
             if geom_shape.is_empty:
                 raise ProcessorExecuteError(
-                    "Empty geometry provided. Geometry must contain coordinates."
+                    _("Empty geometry provided. Geometry must contain coordinates.")
                 )
 
             bbox: Tuple[float, float, float, float] = (
@@ -1054,12 +1270,17 @@ class SentinelFetchProcessor(BaseProcessor):
             area_km2: float = self._calculate_area_km2(geom_shape.bounds)
             if area_km2 > self.MAX_FARM_AREA_KM2:
                 raise ProcessorExecuteError(
-                    f"Farm area ({area_km2:.2f} km²) exceeds maximum allowed ({self.MAX_FARM_AREA_KM2} km²). "
-                    "Please use a smaller polygon or contact administrator for async processing."
+                    _(
+                        "Farm area ({area} km²) exceeds maximum allowed "
+                        "({maximum} km²). Please use a smaller polygon or "
+                        "contact administrator for async processing."
+                    ).format(area=f"{area_km2:.2f}", maximum=self.MAX_FARM_AREA_KM2)
                 )
 
             # Fetch and process Sentinel-2 data
-            assets: Dict[str, Dict[str, Any]] = self._process_sentinel_data(
+            assets: Dict[str, Dict[str, Any]]
+            all_cached: bool
+            assets, all_cached = self._process_sentinel_data(
                 bbox=bbox,
                 geometry=geometry_geojson,
                 temporal_extent=temporal_extent,
@@ -1067,20 +1288,47 @@ class SentinelFetchProcessor(BaseProcessor):
                 aggregation_method=aggregation_method,
                 cloud_cover_max=cloud_cover_max,
                 farm_identifier=farm_identifier,
+                cloud_mask=cloud_mask,
             )
 
-            # Create STAC item
+            # Create (or reuse) the STAC item. The cache marker is only
+            # trusted when every requested product was itself served from
+            # the on-disk cache AND the marker holds exactly the assets this
+            # call would publish. Two things fall out of that: a call
+            # requesting a different product mix for the same farm/dates
+            # republishes, since the item's `assets` must reflect that mix;
+            # and a marker written before the raster-api render assets
+            # existed no longer matches, so the item it points at is
+            # republished with corrected hrefs instead of staying broken.
             stac_item_id: str = (
                 f"sentinel2_{farm_identifier}_{temporal_extent[0]}_{temporal_extent[1]}"
             )
-            stac_result: Dict[str, Any] = self._create_stac_item(
-                item_id=stac_item_id,
-                geometry=geometry_geojson,
-                bbox=bbox,
-                temporal_extent=temporal_extent,
-                assets=assets,
-                cloud_cover_max=cloud_cover_max,
+            marker_path: str = self._stac_marker_path(stac_item_id)
+            cached_item: Optional[Dict[str, Any]] = (
+                self._load_cached_stac_item(marker_path) if all_cached else None
             )
+            expected_assets: set = set(assets) | set(self._render_assets(assets))
+            stac_result: Dict[str, Any]
+            if (
+                cached_item is not None
+                and set(cached_item.get("assets", {})) == expected_assets
+            ):
+                logger.info(
+                    "STAC cache hit: '%s' already published with matching assets",
+                    stac_item_id,
+                )
+                stac_result = cached_item
+            else:
+                stac_result = self._create_stac_item(
+                    item_id=stac_item_id,
+                    geometry=geometry_geojson,
+                    bbox=bbox,
+                    temporal_extent=temporal_extent,
+                    assets=assets,
+                    cloud_cover_max=cloud_cover_max,
+                    marker_path=marker_path,
+                    cloud_mask=cloud_mask,
+                )
 
             # Generate preview URL for TiTiler
             preview_asset: Dict[str, Any] = (
@@ -1088,7 +1336,7 @@ class SentinelFetchProcessor(BaseProcessor):
                 or assets.get("true_color")
                 or list(assets.values())[0]
             )
-            preview_url: str = self._generate_preview_url(preview_asset["href"])
+            preview_url: str = self._generate_preview_url(preview_asset)
 
             result: Dict[str, Any] = {
                 "stac_item_id": stac_item_id,
@@ -1108,16 +1356,20 @@ class SentinelFetchProcessor(BaseProcessor):
         except (KeyError, TypeError) as e:
             logger.error("Invalid input parameters: %s", e, exc_info=True)
             raise ProcessorExecuteError(
-                "Invalid input parameters — check required fields and types."
+                _("Invalid input parameters — check required fields and types.")
             )
         except (ValueError, AttributeError) as e:
             logger.error("Data validation error: %s", e, exc_info=True)
-            raise ProcessorExecuteError("Data validation error — check input values.")
+            raise ProcessorExecuteError(
+                _("Data validation error — check input values.")
+            )
         except Exception as e:
             logger.error(
                 "Unexpected error processing Sentinel-2 data: %s", e, exc_info=True
             )
-            raise ProcessorExecuteError("Unexpected error processing Sentinel-2 data.")
+            raise ProcessorExecuteError(
+                _("Unexpected error processing Sentinel-2 data.")
+            )
 
     def __repr__(self) -> str:
         return f"<SentinelFetchProcessor> {self.name}"

@@ -1,163 +1,240 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repository.
+This file holds the rules shared by the whole platform; each microservice keeps
+its own `CLAUDE.md` for service-specific detail.
 
-## Commands
+Work from inside the service directory you are changing, and read that service's
+`CLAUDE.md` first — it wins over this file wherever the two differ. Claude Code
+loads a nested `CLAUDE.md` automatically when it touches files in that subtree,
+but read it up front when planning a change, before opening any file.
 
-### Running services
+| Service | Service guide |
+| --- | --- |
+| `gis-pipeline` | [gis-pipeline/CLAUDE.md](gis-pipeline/CLAUDE.md) |
+| `chatbot` | [chatbot/CLAUDE.md](chatbot/CLAUDE.md) |
+| `stac-api` | [stac-api/CLAUDE.md](stac-api/CLAUDE.md) |
+| `vector-api` | [vector-api/CLAUDE.md](vector-api/CLAUDE.md) |
+| `raster-api` | [raster-api/CLAUDE.md](raster-api/CLAUDE.md) |
+| `process-api` | [process-api/CLAUDE.md](process-api/CLAUDE.md) |
+| `frontend/home` | [frontend/home/CLAUDE.md](frontend/home/CLAUDE.md) |
+| `agri_i18n` | — [docs/I18N.md](docs/I18N.md) |
+| `caddy` | [caddy/CLAUDE.md](caddy/CLAUDE.md) |
+
+A `—` means no service guide yet: fall back to this file plus the linked README.
+When a service gains rules of its own, create its `CLAUDE.md` and update this
+table — do not add service-specific rules here.
+
+## Project Overview
+
+Agri-SDSS is a geospatial data platform for sustainable agriculture research in
+Quebec, built as a **pipeline → storage → API → frontend** chain. Services, ports,
+data flow and technology choices are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); deployment, credentials and restore
+procedures in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md); integrated data sources in
+[docs/data/CATALOG.md](docs/data/CATALOG.md). Read the relevant one before relying
+on a detail from memory.
+
+User-facing API messages are **French by default** (see [Internationalization](#internationalization)).
+
+## Git Workflow
+
+Branches and commit prefixes are in
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md#submitting-changes); PRs target
+`develop`.
+
+- **Claude never commits, pushes or opens PRs.** Leave changes uncommitted in the
+  working tree and let the developer do it; create a branch only when asked in
+  that turn.
+
+CI (`.github/workflows/action.yml`) checks `ARGS.md` sync, i18n catalogs, nginx
+configs, image builds and `make test-all`.
+
+## Common Commands
+
+### Ops
 
 ```bash
-# Start all services
-docker compose up -d
+docker compose up -d              # Start all services
+docker compose up -d <service>    # Start one service
+docker compose build              # Rebuild images (make build also creates data dirs)
+docker compose logs -f <service>  # Follow logs
+make smoke-entrypoints            # Verify every service entrypoint still imports
 
-# Start a specific service
-docker compose up -d stac-api
+# home has no published port — reach it from inside the Docker network
+docker run --rm --network eoapi-network curlimages/curl:latest -sI http://home:8080/
 ```
 
-### Testing
+A `git pull` alone does not update a running service: images carry the code, so
+rebuild the changed service (`docker compose up -d --build <service>`).
+
+Recreating any API container (`stac-api`, `vector-api`, `raster-api`,
+`process-api`) changes its IP, and `home` nginx keeps the old one, so every
+proxied request to that API returns 502. Run `docker compose restart home`
+afterwards. This includes containers recreated as dependencies, for example by
+`make test-chatbot` or a `docker compose run --build`.
+
+### Tests
 
 ```bash
-# All services
-make test-all
+make test-all             # Everything CI runs
+make test-<service>       # gis-pipeline | stac-api | vector-api | raster-api |
+                          # process-api | chatbot | i18n
+make test-repo-consistency  # Guards the /cog route duplicated across 4 files
+make test-caddy           # Rate-limit integration tests (hot-reloads Caddyfile.test)
 
-# Individual services
-make test-gis-pipeline
-make test-stac-api
-make test-vector-api
-make test-raster-api
-make test-process-api
-make test-chatbot
-
-# Single test file or test (inside container)
+# Single test file or test (inside the service container)
 docker compose run --rm stac-api pytest stac_api/test/test_foo.py::test_bar -v
-
-# Auxiliary targets (not part of test-all)
-make test-caddy         # Rate-limit integration tests (hot-reloads Caddyfile.test)
-make lint-dockerfiles   # hadolint on the chatbot Dockerfiles
-make scan-secrets       # Trivy secret scan over the repo
-make generate-args      # Regenerate gis-pipeline/docs/ARGS.md from the CLI parser
 ```
+
+Each service runs its own container because base images and Python versions
+differ; host-side `pytest` is scoped to `agri_i18n` by `pytest.ini`. Marker
+conventions are in [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md#testing-guidelines).
+
+### Code Quality
+
+```bash
+pre-commit run --all-files   # ruff (--fix), isort (black profile), black, markdownlint
+make lint-md                 # markdownlint only
+make lint-dockerfiles        # hadolint on the chatbot Dockerfiles
+make lint-nginx              # nginx -t on the generated home and chatbot-frontend configs
+make scan-secrets            # Trivy secret scan over the repo
+make generate-args           # Regenerate gis-pipeline/docs/ARGS.md from the CLI parser
+make i18n-check              # Catalogs cover the source, no dynamic msgids
+```
+
+### Dependencies
+
+Each service pins its own `requirements-<service>.txt` and
+`requirements-<service>-test.txt`; there is no shared root requirements file.
+Update automation lives in `.github/dependabot.yml` and `.github/workflows/`. The
+chatbot is never forked — see
+[chatbot/docs/ARCHITECTURE.md](chatbot/docs/ARCHITECTURE.md).
 
 ## Architecture
 
-Agri-SDSS is a geospatial data platform for sustainable agriculture research in Quebec. It follows a pipeline → storage → API → frontend pattern. The authoritative service/port table, system diagram, and technology choices are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- Services talk to each other over the `eoapi-network` Compose network using
+  **service names** (`database`, `stac-api`, …) and the internal ports listed in
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#services), never host ports.
+- The `home` nginx is the single entry point for all frontends — proxy routes,
+  nav injection and the chatbot ↔ map `postMessage` bridge are documented in
+  [frontend/home/README.md](frontend/home/README.md).
 
-### Shared infrastructure
+Configuration lives in `.env` (template: `.env.example`; CI values: `.env.ci`).
+Three contracts matter more than the rest:
 
-- **PostgreSQL + PostGIS** (pgSTAC image) — STAC metadata + vector features. Docker port 5432, local port 5439.
-- **DuckDB** — in-process analytics on GeoParquet files at `DUCKDB_DATABASE`.
-- **Network**: services communicate via the Docker Compose network using service names (e.g., `database`, `stac-api`)
+- **Public origin** — STAC asset hrefs are built from `HOST_PROTOCOL://HOST_URL`,
+  never from container-local paths (process-api `processes/asset_url_utils.py`,
+  gis-pipeline `core/config.py`); see
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#stac-asset-hrefs).
+  `FORWARDED_ALLOW_IPS` must stay set or uvicorn services advertise `http://`
+  behind the HTTPS proxy.
+- **Database credentials** — backends use the least-privileged `DB_USER` role,
+  never the superuser; see
+  [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#database-credential-model).
+- **The `/cog` route** is duplicated in four files with no shared package;
+  `make test-repo-consistency` guards them against drift.
 
-The `home` nginx is the single entry point for all frontends — proxy routes, nav injection, and the chatbot ↔ map `postMessage` bridge are documented in [frontend/home/README.md](frontend/home/README.md).
+### Structure
 
-### Key source paths
+```text
+agri_i18n/        Shared gettext package (catalogs, middleware, CI check)
+caddy/            Caddyfile, rate-limit test config
+chatbot/          Upstream overrides + tests (never a fork)
+data/             input/, output/raster_cog/, duckdb/ — gitignored payloads
+docs/             ARCHITECTURE, DEPLOYMENT, I18N, data catalog and guides
+frontend/home/    Nginx entry point + Leaflet map page
+gis-pipeline/     Ingestion CLI (src/ layout)
+process-api/      PyGeoAPI processes/ and config/
+raster-api/       TiTiler wiring (src/)
+scripts/          DB role creation, spatial index builds, restore helpers
+stac-api/         stac-fastapi wiring (src/)
+vector-api/       TiPg + DuckDB routers (src/)
+```
 
-`gis-pipeline` and `vector-api` have a `src/` directory added to `pythonpath` in `pytest.ini`; other services do not. Each backend service has its own `test/` directory, `Dockerfile.<service>`, `requirements-<service>.txt`, and `requirements-<service>-test.txt`. Tests are marked with `@pytest.mark.unit`, `@pytest.mark.integration`, or `@pytest.mark.mocked`.
+Each Python service has `Dockerfile.<service>`, `requirements-<service>.txt`,
+`requirements-<service>-test.txt`, `pytest.ini`, `test/`, `README.md`,
+`CLAUDE.md`, and a `docs/` folder when it needs more than the README. `pytest.ini`
+sets `pythonpath` in gis-pipeline (`src`), vector-api (`vector_api`) and
+process-api (`processes`); the others import from the package directory directly.
 
-## Configuration
+Service boundaries are hard:
 
-- Environment variables are defined in `.env`.
-- Variables used by CI (`action.yml`) are noted.
-- Integrated data sources: [docs/data/CATALOG.md](docs/data/CATALOG.md).
+- **No service imports another service's Python code.** `agri_i18n` is the only
+  shared package (used by `process-api`, `vector-api` and `chatbot`); `scripts/`
+  is operator tooling run standalone, not a library to import from.
+- Reuse across services happens over HTTP, through the internal service URLs
+  already wired in `docker-compose.yml` — not by reaching into a sibling
+  directory. "Reuse existing utilities" in [Key Patterns](#key-patterns-to-follow)
+  means within the service, or in `agri_i18n`.
+- Duplication that must stay in sync across services gets a consistency test
+  instead of a shared import — see `make test-repo-consistency` for the `/cog`
+  route.
 
-### API URLs
+## Internationalization
 
-| Variable | Example | Description |
-| --- | --- | --- |
-| `STAC_API_URL` | `http://stac-api:8081` | STAC API base URL (internal Docker service name), used by gis-pipeline to publish STAC items |
+Backend messages are translated with gettext through `agri_i18n`. The full
+contract — msgid rules, locale resolution, scope and the authoring loop — is in
+[docs/I18N.md](docs/I18N.md); read it before adding or changing a user-facing
+message. Never use f-strings inside `_()`, and keep all logs in English.
 
-### PostgreSQL / PostGIS
+## Key Patterns to Follow
 
-Two credentials exist (least-privilege model — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#database-credential-model)):
+- Keep changes minimal and scoped.
+- Reuse existing utilities and patterns instead of adding parallel ones.
+- Always update or add tests when modifying logic — unit tests for pure logic,
+  integration tests for API endpoints, mocked tests when external services are
+  involved.
+- Use f-strings for formatting (except log calls and gettext msgids).
+- Use `is not`, never `not ... is`.
+- No inline comments unless the logic is genuinely non-obvious — meaning a reader
+  would otherwise delete or break the code. If you cannot name the specific thing
+  that goes wrong without the comment, delete the comment. Code should be
+  self-explanatory through naming.
+- All imports MUST be at the top level of the file.
+- Tests are plain pytest: write module-level `def test_*` functions, and group
+  related tests in a `class Test*` (no `__init__`) only when they share fixtures
+  or setup. Never subclass `unittest.TestCase`.
 
-| Variable | Example / CI | Description |
-| --- | --- | --- |
-| `POSTGRES_USER` | `postgres` | Superuser — Docker init, healthcheck, and backups only |
-| `POSTGRES_PASS` | _(generated)_ | Superuser password (`POSTGRES_PASSWORD` in CI) |
-| `DB_USER` | `agri_sdss` | App role used by all backend services (SELECT/INSERT/UPDATE/DELETE) |
-| `DB_PASS` | _(generated)_ | App role password |
-| `POSTGRES_DBNAME` | `agri_sdss` | Database name (`POSTGRES_DB` in CI) |
-| `POSTGRES_HOST` | `database` | Hostname — use `database` in Docker, `localhost` locally |
-| `POSTGRES_PORT` | `5432` | Port — use `5432` in Docker, `5439` locally |
-| `POSTGRES_LOCAL_PORT` | `5439` | Host-side port mapping for local connections |
+General Python style (PEP 8, 88-char lines, docstrings) is in
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md#code-style) and enforced by
+pre-commit.
 
-### DuckDB
+## Typing and Type Hints
 
-| Variable | Example | Description |
-| --- | --- | --- |
-| `DUCKDB_DATABASE` | `/data/duckdb/eoapi.duckdb` | Path to the DuckDB database file |
-| `DUCKDB_DATA_DIR` | `/data/duckdb` (`/tmp` in CI) | Directory for GeoParquet files written by the pipeline |
+- Type hints are required on all code — parameters, return values and
+  module-level constants where the type is not obvious.
+- Use builtin generics (`list[str]`, `dict[str, int]`) and `X | None` rather than
+  `typing.List` / `typing.Optional` in new code; add
+  `from __future__ import annotations` when a module must stay importable on the
+  oldest interpreter it ships on (3.11).
+- Annotate collections you build up (`handlers: list[logging.Handler] = []`) so
+  the intent survives refactors.
+- There is no mypy gate in CI — ruff and the tests are the only automated check,
+  so hints must be accurate by review, not by tool.
 
-### Ports
+Python versions differ per service; check the service's `Dockerfile.<service>`
+and run code in its own container.
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `STAC_API_PORT` | `8081` | stac-api |
-| `RASTER_API_PORT` | `8082` | raster-api |
-| `VECTOR_API_PORT` | `8083` | vector-api |
-| `PROCESS_API_PORT` | `5000` | process-api |
-| `HOME_PORT` | `8084` | home frontend (unified entry point) |
-| `CHATBOT_BACKEND_PORT` | `8005` | chatbot-backend |
-| `CHATBOT_FRONTEND_PORT` | `3001` | chatbot-frontend (direct access) |
-| `STAC_BROWSER_PORT` | `8085` | stac-browser (direct access) |
-| `VECTOR_API_CORS_ORIGINS` | _(empty)_ | Comma-separated allowed CORS origins for vector-api; empty blocks all cross-origin requests |
+## Logging
 
-### OpenEO / Copernicus
+- `gis-pipeline` configures structlog in `core/logging_setup.py`; every other
+  service uses stdlib logging with a module-level
+  `logger = logging.getLogger(__name__)`.
+- **Log in English**, always, even when the raised message is translated.
+- Use lazy `%s` interpolation, not f-strings:
+  `logger.warning("STAC publish failed: %s", exc)`. gis-pipeline overrides this
+  with structlog key-values — see
+  [gis-pipeline/CLAUDE.md](gis-pipeline/CLAUDE.md#logging).
+- Never log secrets, credentials or API keys.
 
-| Variable | Description |
-| --- | --- |
-| `OPENEO_REFRESH_TOKEN` | OIDC refresh token for Copernicus Data Space — expires ~30 days; regenerate with `./process-api/scripts/get_openeo_token.sh` |
+## Security Considerations
 
-## Claude guidelines
-
-- Understand the pipeline before modifying code
-- Keep changes minimal and scoped
-- Always update or add tests when modifying logic
-- Reuse existing utilities and patterns
-
-### Key Patterns to Follow
-
-- Type hints required for all code
-- Functions must be focused and small
-- Line length: 88 chars maximum
-- PEP 8 naming (snake_case for functions/variables)
-- Class names in PascalCase
-- Constants in UPPER_SNAKE_CASE
-- Document with docstrings, avoid comments
-- Use f-strings for formatting
-- Use `is not` operator rather than `not ... is`
-  - Correct:
-    ```python
-    if foo is not None:
-    ```
-  - Wrong:
-    ```python
-    if not foo is None:
-    ```
-
-### Testing guidelines
-
-- Unit tests for pure logic
-- Integration tests for API endpoints
-- Prefer mocked tests when external services are involved
-
-### Branching strategy
-
-- `develop` — integration branch (PRs target here)
-- `main` — production
-
-Commit prefixes (conventional style): `feat:`, `fix:`, `docs:`, `test:`, `refacto:`, `chore:`
-
-## CI
-
-GitHub Actions (`.github/workflows/action.yml`) runs on PR/push to main/develop:
-
-1. Validates `ARGS.md` is in sync with CLI arguments
-2. Builds per-service images (`gis-pipeline`, `stac-api`, `vector-api`, `raster-api`, `process-api`, `chatbot-backend`)
-3. Starts the database, then runs `make test-all`
-
-### Automation
-
-- **Dependabot** (`.github/dependabot.yml`) — Monday 06:00 America/Montreal; pip + docker per service, docker-compose and GitHub Actions at root; one PR per dependency update
-- **Security scans** (`security.yml`) — Trivy secret scan on push/PR; CVE scans and override verification only on the weekly Monday cron and manual `workflow_dispatch`
-- **Chatbot release watcher** (`chatbot-release-watcher.yml`) — daily check of OpenGeo-AI-Assistant releases; auto-opens a PR bumping `CHATBOT_VERSION` in all four pinned files
+- **Only `80`/`443` (Caddy) are public.** Never add a `ports:` mapping to a
+  backend service; use `expose:` only.
+- Secrets (`LLM_API_KEY`, `OPENEO_REFRESH_TOKEN`, DB passwords) live in `.env`,
+  which is gitignored — never commit them, never echo them into logs or tests.
+- Containers run with `no-new-privileges:true` and explicit CPU/memory limits;
+  keep both on any service you add or change.
+- CORS, rate limiting, auth and the pre-deploy checklist are in
+  [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#6-security-checklist).

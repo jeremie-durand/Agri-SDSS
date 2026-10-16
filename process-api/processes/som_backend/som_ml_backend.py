@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Hamed Etezadi
+# SPDX-FileCopyrightText: 2026 Jérémie Durand
 """SOM image-level ML backend.
 
 Wraps the RandomForest SOM prediction pipeline (originally machine_learning_image_level.py
@@ -34,6 +37,9 @@ TEST_FIELD_RATIO = 0.2
 DROP_THRESHOLD = 0.01
 MIN_INNER_TRAIN_ROWS = 30
 MIN_IMAGE_ROWS = 10
+CV_FOLDS = 5
+
+BARESAIL_GLOB = "BareSoil_TOPCLI_*.parquet"
 
 SPECTRAL_MEANS = [
     "BI_mean",
@@ -75,13 +81,86 @@ def parse_soil_list(s: Any) -> list[str]:
 class SOMMLBackend:
     """RandomForest SOM image-level prediction pipeline (Jadid-30Jan2026 algorithm)."""
 
+    def _preprocess(
+        self, data_df: pd.DataFrame
+    ) -> tuple[pd.DataFrame, MultiLabelBinarizer, tuple[float, float]]:
+        """Clean, filter outliers, and one-hot encode soil types.
+
+        Call this exactly once, on the full training pool, at training time
+        only. It FITS the MultiLabelBinarizer and COMPUTES the outlier
+        bounds from whatever data is passed in — calling it again on a
+        prediction-time subset would refit the encoder and recompute the
+        bounds from that (possibly tiny) subset, silently reintroducing
+        train/predict skew. Use preprocess_for_predict() for prediction-time
+        rows instead — it takes this method's fitted mlb/bounds as arguments
+        and only ever transforms with them, never refits.
+
+        Returns the processed DataFrame, the fitted MultiLabelBinarizer
+        (needed to encode soilTypes identically at prediction time), and the
+        log_SOM outlier bounds (lo, hi) used for filtering (needed to apply
+        the same filter to prediction-time rows).
+        """
+        data = data_df.dropna(subset=["mean_SOM"]).copy()
+
+        log_som = np.log10(data["mean_SOM"])
+        q1, q3 = log_som.quantile(0.25), log_som.quantile(0.75)
+        iqr = q3 - q1
+        lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+        data = data[(log_som >= lo) & (log_som <= hi)].copy()
+        data["log_SOM"] = np.log10(data["mean_SOM"])
+
+        data["soilTypes_parsed"] = data["soilTypes"].apply(parse_soil_list)
+        mlb = MultiLabelBinarizer()
+        soil_features = mlb.fit_transform(data["soilTypes_parsed"])
+        soil_feature_names = mlb.classes_.tolist()
+        soil_df = pd.DataFrame(
+            soil_features, columns=soil_feature_names, index=data.index
+        )
+        data = pd.concat([data, soil_df], axis=1)
+        return data, mlb, (float(lo), float(hi))
+
+    def preprocess_for_predict(
+        self,
+        field_raw_df: pd.DataFrame,
+        mlb: MultiLabelBinarizer,
+        log_som_bounds: tuple[float, float],
+    ) -> pd.DataFrame:
+        """Apply the same cleaning/filtering/encoding as training, using
+        already-fitted artifacts (transform, not fit) so prediction-time
+        rows are processed identically to how the training pool was.
+
+        `mlb` and `log_som_bounds` must come from a prior call to
+        _preprocess() on the full training pool — never compute them fresh
+        here. Doing so would defeat the entire purpose of this split: a
+        prediction-time subset's own quantiles are not a valid outlier
+        boundary, and refitting the encoder could produce different/missing
+        one-hot columns than what the trained model expects.
+        """
+        if field_raw_df.empty:
+            return field_raw_df
+        data = field_raw_df.dropna(subset=["mean_SOM"]).copy()
+        if data.empty:
+            return data
+        data["log_SOM"] = np.log10(data["mean_SOM"])
+        lo, hi = log_som_bounds
+        data = data[(data["log_SOM"] >= lo) & (data["log_SOM"] <= hi)].copy()
+        if data.empty:
+            return data
+        data["soilTypes_parsed"] = data["soilTypes"].apply(parse_soil_list)
+        soil_features = mlb.transform(data["soilTypes_parsed"])
+        soil_df = pd.DataFrame(
+            soil_features, columns=mlb.classes_.tolist(), index=data.index
+        )
+        data = pd.concat([data, soil_df], axis=1)
+        return data
+
     def run(
         self,
         data_df: pd.DataFrame,
         scenarios: list[str] | None = None,
         show_plots: bool = False,
         target_field_ids: list[int] | None = None,
-    ) -> dict[str, list[dict[str, Any]]]:
+    ) -> dict[str, Any]:
         """Run the full SOM prediction pipeline on the supplied feature DataFrame.
 
         Args:
@@ -93,7 +172,8 @@ class SOMMLBackend:
                 specific user-selected farms. If None, a random 20% split is used.
 
         Returns:
-            {"predictions": [...], "metrics": [...]}
+            {"predictions": [...], "metrics": [...], "artifacts": {...},
+            "mlb": MultiLabelBinarizer, "log_som_bounds": (lo, hi)}
         """
         if scenarios is None:
             scenarios = ["S1_spec_soil", "S2_spec_soil_topo", "S3_spec_soil_topo_clim"]
@@ -108,24 +188,8 @@ class SOMMLBackend:
         if missing_spectral:
             raise ValueError(f"Missing spectral columns: {missing_spectral}")
 
-        data = data_df.dropna(subset=["mean_SOM"]).copy()
-
-        # Outlier removal on log10(mean_SOM) via IQR
-        log_som = np.log10(data["mean_SOM"])
-        q1, q3 = log_som.quantile(0.25), log_som.quantile(0.75)
-        iqr = q3 - q1
-        data = data[(log_som >= q1 - 1.5 * iqr) & (log_som <= q3 + 1.5 * iqr)].copy()
-        data["log_SOM"] = np.log10(data["mean_SOM"])
-
-        # soilTypes → one-hot
-        data["soilTypes_parsed"] = data["soilTypes"].apply(parse_soil_list)
-        mlb = MultiLabelBinarizer()
-        soil_features = mlb.fit_transform(data["soilTypes_parsed"])
+        data, mlb, log_som_bounds = self._preprocess(data_df)
         soil_feature_names = mlb.classes_.tolist()
-        soil_df = pd.DataFrame(
-            soil_features, columns=soil_feature_names, index=data.index
-        )
-        data = pd.concat([data, soil_df], axis=1)
 
         spectral_cols = SPECTRAL_MEANS + SPECTRAL_STDS
         present_topo = [c for c in TOPO_COLS if c in data.columns]
@@ -162,6 +226,7 @@ class SOMMLBackend:
 
         all_summaries: list[dict[str, Any]] = []
         all_preds: list[dict[str, Any]] = []
+        all_artifacts: dict[str, Any] = {}
 
         for scenario_tag in scenarios:
             if scenario_tag not in scenario_features:
@@ -175,15 +240,22 @@ class SOMMLBackend:
                 continue
 
             try:
-                summary, preds = self._run_scenario(
+                summary, preds, artifacts = self._run_scenario(
                     train_data, test_data, feats, scenario_tag
                 )
                 all_summaries.append(summary)
                 all_preds.extend(preds)
+                all_artifacts[scenario_tag] = artifacts
             except Exception as exc:
                 logger.error("Scenario %s failed: %s", scenario_tag, exc, exc_info=True)
 
-        return {"predictions": all_preds, "metrics": all_summaries}
+        return {
+            "predictions": all_preds,
+            "metrics": all_summaries,
+            "artifacts": all_artifacts,
+            "mlb": mlb,
+            "log_som_bounds": log_som_bounds,
+        }
 
     def _run_scenario(
         self,
@@ -191,8 +263,33 @@ class SOMMLBackend:
         test_data: pd.DataFrame,
         independent_vars: list[str],
         scenario_tag: str,
-    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        """Jadid algorithm: inner-split LassoCV FS → GroupKFold image ranking → val-based best_i → final RF."""
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+        """Jadid algorithm: inner-split LassoCV FS → GroupKFold image ranking →
+        val-based best_i → final RF (rf_final), evaluated once against
+        test_data to produce `summary`/`preds`.
+
+        Also fits a second, separate model — rf_production — trained on
+        train_final (the same noise-filtered "good" images used for
+        rf_final) plus ALL of test_data, unconditionally. rf_production
+        answers rows of fields never seen at training time; rf_final exists
+        purely to produce an honest held-out evaluation score before
+        test_data gets folded into the production training set. Because
+        rf_production has seen test_data during training, `summary`'s
+        metrics describe rf_final's accuracy, not rf_production's — they
+        should not be re-interpreted as rf_production's expected accuracy.
+
+        Every labelled row of a known field is instead answered with its
+        field-grouped cross-validated prediction (_grouped_cv_predictions),
+        whose RandomForest never saw that field. The scaler, LASSO feature
+        subset and image selection are shared across folds, so they were
+        fitted with the held-out fields that were in train_data.
+
+        Returns (summary, preds, artifacts) — artifacts bundles everything
+        needed to serve predictions later without retraining: scaler,
+        selected_features, feat_idx, col_means, rf_production,
+        cv_predictions, smearing_factor (from the cross-validated residuals,
+        not rf_final's), production_metrics and n_test_fields.
+        """
         col_means = train_data[independent_vars].mean()
 
         X_train_raw = train_data[independent_vars].fillna(col_means).values
@@ -402,4 +499,152 @@ class SOMMLBackend:
             for i, (idx, row) in enumerate(test_data.iterrows())
         ]
 
-        return summary, preds
+        # Production model: same selected features and the same
+        # noise-filtered "good" images from train_data (train_final,
+        # already computed above for rf_final), plus unconditionally all of
+        # test_data's rows — they were never subject to the image-quality
+        # filter, and are genuine additional labeled examples once we're no
+        # longer treating them as a strict held-out set for this model.
+        production_data = pd.concat([train_final, test_data], ignore_index=False)
+        X_production = scaler.transform(
+            production_data[independent_vars].fillna(col_means).values
+        )[:, feat_idx]
+        y_production = production_data["log_SOM"].values
+
+        rf_production = RandomForestRegressor(
+            n_estimators=200, random_state=RANDOM_STATE, n_jobs=1
+        )
+        rf_production.fit(X_production, y_production)
+
+        labelled_data = pd.concat([train_data, test_data], ignore_index=False)
+        cv_pred, cv_folds = self._grouped_cv_predictions(
+            production_data,
+            labelled_data,
+            independent_vars,
+            scaler,
+            feat_idx,
+            col_means,
+        )
+        production_cv_pred = cv_pred.loc[production_data.index].to_numpy()
+
+        production_smearing_factor = float(
+            np.mean(10.0 ** (y_production - production_cv_pred))
+        )
+
+        y_production_lin = 10.0**y_production
+        production_cv_pred_lin = (10.0**production_cv_pred) * production_smearing_factor
+        production_metrics = {
+            "MAE_log": float(mean_absolute_error(y_production, production_cv_pred)),
+            "RMSE_log": float(
+                root_mean_squared_error(y_production, production_cv_pred)
+            ),
+            "R2_log": float(r2_score(y_production, production_cv_pred)),
+            "MAE_lin": float(
+                mean_absolute_error(y_production_lin, production_cv_pred_lin)
+            ),
+            "RMSE_lin": float(
+                root_mean_squared_error(y_production_lin, production_cv_pred_lin)
+            ),
+            "R2_lin": float(r2_score(y_production_lin, production_cv_pred_lin)),
+            "n_rows": int(y_production.size),
+            "n_fields": int(production_data["FIELD_ID"].nunique()),
+            "n_folds": len(cv_folds),
+            "estimate": "grouped_cv",
+        }
+
+        # Keyed by the row identity the serving path can reconstruct.
+        cv_predictions = {
+            (int(row["FIELD_ID"]), str(row["Image_ID"])): float(cv_pred.loc[idx])
+            for idx, row in labelled_data.iterrows()
+        }
+
+        artifacts = {
+            "scaler": scaler,
+            "selected_features": selected_features,
+            "feat_idx": feat_idx,
+            "col_means": col_means,
+            "rf_production": rf_production,
+            "smearing_factor": production_smearing_factor,
+            "cv_predictions": cv_predictions,
+            "production_metrics": production_metrics,
+            "n_test_fields": int(test_data["FIELD_ID"].nunique()),
+            "_x_production": X_production,
+            "_y_production": y_production,
+            "_cv_folds": cv_folds,
+        }
+
+        return summary, preds, artifacts
+
+    @staticmethod
+    def _grouped_cv_predictions(
+        production_data: pd.DataFrame,
+        labelled_data: pd.DataFrame,
+        independent_vars: list[str],
+        scaler: StandardScaler,
+        feat_idx: list[int],
+        col_means: pd.Series,
+    ) -> tuple[pd.Series, list[dict[str, set[int]]]]:
+        """Field-grouped cross-validated log-SOM predictions for labelled rows.
+
+        Fields are split into CV_FOLDS groups with GroupKFold on FIELD_ID. For
+        each fold, a RandomForest with rf_production's settings is fitted on
+        the production_data rows of the other fields, then predicts every
+        labelled row of the held-out fields — including images the quality
+        filter left out of production_data. No returned value therefore comes
+        from a RandomForest that saw any image of its field.
+
+        The preprocessing is not re-fitted per fold: scaler, feat_idx,
+        col_means and the image selection come from the whole training split,
+        which includes the train_data fields being held out. The estimate is
+        therefore field-independent for the RandomForest but not for feature
+        and image selection, and may be slightly optimistic.
+
+        Args:
+            production_data: Rows rf_production is trained on.
+            labelled_data: Every labelled row (train_data and test_data).
+            independent_vars: Scenario feature columns, before selection.
+            scaler: Scaler fitted on the inner-train split.
+            feat_idx: Indices of the LASSO-selected features.
+            col_means: Column means used to fill missing values.
+
+        Returns:
+            (predictions indexed like labelled_data, one
+            {"held_out", "trained_on"} field-set dict per fold).
+
+        Raises:
+            ValueError: If fewer than two fields are labelled, or if
+                labelled_data has a duplicated row index.
+        """
+
+        def features(df: pd.DataFrame) -> np.ndarray:
+            return scaler.transform(df[independent_vars].fillna(col_means).values)[
+                :, feat_idx
+            ]
+
+        if not labelled_data.index.is_unique:
+            raise ValueError("Grouped cross-validation needs a unique row index.")
+        groups = labelled_data["FIELD_ID"].to_numpy()
+        n_splits = min(CV_FOLDS, len(np.unique(groups)))
+        if n_splits < 2:
+            raise ValueError("Grouped cross-validation needs at least two fields.")
+
+        X_labelled = features(labelled_data)
+        cv_pred = np.full(len(labelled_data), np.nan)
+        folds: list[dict[str, set[int]]] = []
+        for _fit_idx, held_idx in GroupKFold(n_splits=n_splits).split(
+            X_labelled, groups=groups
+        ):
+            held_out = set(groups[held_idx])
+            fit_rows = production_data[~production_data["FIELD_ID"].isin(held_out)]
+            rf_fold = RandomForestRegressor(
+                n_estimators=200, random_state=RANDOM_STATE, n_jobs=1
+            )
+            rf_fold.fit(features(fit_rows), fit_rows["log_SOM"].values)
+            cv_pred[held_idx] = rf_fold.predict(X_labelled[held_idx])
+            folds.append(
+                {
+                    "held_out": {int(f) for f in held_out},
+                    "trained_on": {int(f) for f in fit_rows["FIELD_ID"].unique()},
+                }
+            )
+        return pd.Series(cv_pred, index=labelled_data.index), folds

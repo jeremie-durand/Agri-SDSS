@@ -9,6 +9,7 @@ import json
 import logging
 import os
 
+from agri_i18n import _, set_locale
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import APIKeyHeader
 from openai import AsyncOpenAI
@@ -30,7 +31,9 @@ async def _verify_api_key(x_api_key: str | None = Depends(_api_key_header)) -> N
         return
     expected = os.environ.get("API_KEY", "")
     if not expected or x_api_key != expected:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+        raise HTTPException(
+            status_code=401, detail=_("Invalid or missing API key.")
+        )
 
 
 _TOOL_DEFS = [
@@ -133,6 +136,7 @@ class _QueryRequest(BaseModel):
     query: str
     session_id: str | None = None
     conversation_history: list[dict] | None = None
+    language: str | None = None
 
 
 class _QueryResponse(BaseModel):
@@ -145,6 +149,11 @@ class _QueryResponse(BaseModel):
 )
 async def sdss_query(req: _QueryRequest) -> _QueryResponse:
     """Agentic tool-calling loop for spatial process discovery and execution."""
+    # The caller supplies the language in the body rather than a header, so it
+    # is bound here instead of by middleware. No reset is needed: the binding
+    # is local to this request's task context.
+    set_locale(req.language)
+
     api_key = os.environ.get("LLM_API_KEY", "")
     if not api_key:
         raise HTTPException(status_code=503, detail="LLM_API_KEY is not configured.")
@@ -223,7 +232,9 @@ async def sdss_query(req: _QueryRequest) -> _QueryResponse:
                 }
             )
 
-    return _QueryResponse(response="I was unable to complete the spatial analysis.")
+    # The LLM is told to answer in the user's language, but this message
+    # never reaches the model, so it comes from the catalog instead.
+    return _QueryResponse(response=_("I was unable to complete the spatial analysis."))
 
 
 def _extract_text_tool_call(content: str) -> list[dict] | None:

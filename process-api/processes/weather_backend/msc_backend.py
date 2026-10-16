@@ -17,6 +17,8 @@ import requests
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pygeoapi.process.base import ProcessorExecuteError
 
+from agri_i18n import _
+
 from ..backend_utils import LocationType, LocationValidatorMixin
 from ..cache_utils import TTLCache
 from .models import GeoJSONGeometry
@@ -97,7 +99,9 @@ class MSCObservationsInput(LocationValidatorMixin):
             date.fromisoformat(v)
         except ValueError as exc:
             raise ValueError(
-                f"Invalid date format (expected YYYY-MM-DD): {v!r}"
+                _("Invalid date format (expected YYYY-MM-DD): {value!r}").format(
+                    value=v
+                )
             ) from exc
         return v
 
@@ -110,7 +114,9 @@ class MSCObservationsInput(LocationValidatorMixin):
         end = date.fromisoformat(self.end_date)
         if start > end:
             raise ValueError(
-                f"'start_date' ({self.start_date}) must be <= 'end_date' ({self.end_date})"
+                _("'start_date' ({start}) must be <= 'end_date' ({end})").format(
+                    start=self.start_date, end=self.end_date
+                )
             )
         return self
 
@@ -121,8 +127,14 @@ class MSCObservationsInput(LocationValidatorMixin):
         invalid = [v for v in self.variables if v not in valid]
         if invalid:
             raise ValueError(
-                f"Variable(s) {invalid} not available for collection "
-                f"{self.collection!r}. Available: {sorted(valid)}"
+                _(
+                    "Variable(s) {invalid} not available for collection "
+                    "{collection!r}. Available: {available}"
+                ).format(
+                    invalid=invalid,
+                    collection=self.collection,
+                    available=sorted(valid),
+                )
             )
         return self
 
@@ -308,8 +320,12 @@ class MSCBackend:
         config = COLLECTION_CONFIG.get(collection)
         if config is None:
             raise ProcessorExecuteError(
-                f"Unknown MSC collection {collection!r}. "
-                f"Available: {sorted(COLLECTION_CONFIG.keys())}"
+                _(
+                    "Unknown MSC collection {collection!r}. Available: {available}"
+                ).format(
+                    collection=collection,
+                    available=sorted(COLLECTION_CONFIG.keys()),
+                )
             )
         return config
 
@@ -365,17 +381,42 @@ class MSCBackend:
             resp.raise_for_status()
             return resp.json()
         except requests.exceptions.Timeout as exc:
+            logger.error(
+                "MSC GeoMet API request timed out for collection %s: %s",
+                collection,
+                exc,
+            )
             raise ProcessorExecuteError(
-                f"MSC GeoMet API request timed out for collection {collection!r}: {exc}"
+                _(
+                    "The MSC GeoMet API request timed out for collection "
+                    "{collection!r}. Please try again later."
+                ).format(collection=collection)
             ) from exc
         except requests.exceptions.HTTPError as exc:
+            logger.error(
+                "MSC GeoMet API HTTP error %s for collection %s: %s",
+                exc.response.status_code,
+                collection,
+                exc,
+            )
             raise ProcessorExecuteError(
-                f"MSC GeoMet API HTTP error {exc.response.status_code} "
-                f"for collection {collection!r}: {exc}"
+                _(
+                    "The MSC GeoMet API returned HTTP error {status} for "
+                    "collection {collection!r}."
+                ).format(status=exc.response.status_code, collection=collection)
             ) from exc
         except requests.exceptions.RequestException as exc:
+            logger.error(
+                "MSC GeoMet API request failed for collection %s: %s",
+                collection,
+                exc,
+                exc_info=True,
+            )
             raise ProcessorExecuteError(
-                f"MSC GeoMet API request failed for collection {collection!r}: {exc}"
+                _(
+                    "The MSC GeoMet API request failed for collection "
+                    "{collection!r}. Please try again later."
+                ).format(collection=collection)
             ) from exc
 
     def _fetch_all_items(
@@ -551,12 +592,20 @@ class MSCBackend:
 
         if not items:
             raise ProcessorExecuteError(
-                f"No data found in MSC collection {collection!r} "
-                f"for bbox {bbox} and period {start_date}/{end_date}. "
-                "Possible causes: no active stations in this area for the requested period "
-                "(climate-daily stations may have closed — try an earlier date range or "
-                "switch to 'swob-realtime' for near real-time data within the last 30 days), "
-                "or the area is outside MSC coverage (Canada only)."
+                _(
+                    "No data found in MSC collection {collection!r} for bbox "
+                    "{bbox} and period {start_date}/{end_date}. Possible causes: "
+                    "no active stations in this area for the requested period "
+                    "(climate-daily stations may have closed — try an earlier "
+                    "date range or switch to 'swob-realtime' for near real-time "
+                    "data within the last 30 days), or the area is outside MSC "
+                    "coverage (Canada only)."
+                ).format(
+                    collection=collection,
+                    bbox=bbox,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
             )
 
         station_features = self._group_by_station(

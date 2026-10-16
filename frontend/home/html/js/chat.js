@@ -1,4 +1,7 @@
 import { map, stacState } from './state.js';
+import { apiFetch } from './utils.js';
+
+function _tL() { return (window.T && window.T[window.lang]) || {}; }
 
 /*
  * sendFeatureContext — auto-populate the chatbot with farm/feature context on parcel click.
@@ -110,7 +113,7 @@ function clearChatLayers() {
 
 async function signUrl(url) {
     try {
-        var r = await fetch('/api/sign-mosaic-url', {
+        var r = await apiFetch('/api/sign-mosaic-url', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: url })
@@ -150,7 +153,7 @@ async function sendQuery(text) {
     chatSend.disabled = true;
     chatInput.value = '';
     addMsg('user', text);
-    var thinking = addMsg('thinking', 'Analysing…');
+    var thinking = addMsg('thinking', _tL()['chat-analysing'] || 'Analysing…');
     history.push({ role: 'user', content: text });
     var endpoint = isSdssQuery(text) ? '/sdss/query' : '/api/query';
     var data;
@@ -158,17 +161,22 @@ async function sendQuery(text) {
         var r = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: text, session_id: sessionId, conversation_history: history.slice(-10) })
+            body: JSON.stringify({
+                query: text,
+                session_id: sessionId,
+                conversation_history: history.slice(-10),
+                language: window.lang || 'fr'
+            })
         });
         data = await r.json();
     } catch (_) {
         thinking.className = 'chat-msg chat-msg--assistant';
-        thinking.textContent = 'Error: could not reach the backend.';
+        thinking.textContent = _tL()['chat-backend-error'] || 'Error: could not reach the backend.';
         chatSend.disabled = false;
         return;
     }
     thinking.remove();
-    var reply = data.response || data.message || '(no response)';
+    var reply = data.response || data.message || (_tL()['chat-no-response'] || '(no response)');
     addMsg('assistant', reply);
     history.push({ role: 'assistant', content: reply });
 

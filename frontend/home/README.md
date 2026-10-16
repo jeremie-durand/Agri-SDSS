@@ -7,13 +7,16 @@ The unified entry point for Agri-SDSS. A static nginx frontend that serves the L
 ## Overview
 
 **Home** is the single URL users visit. It provides:
+
 - **Interactive map**: Leaflet-based map with vector parcels, raster overlays, SOM analysis, and STAC item visualization
 - **Unified navigation**: A shared nav bar injected into every sub-application (STAC Browser, Chatbot) via nginx `sub_filter`
 - **Reverse proxy**: Routes `/stac/`, `/chatbot/`, `/stac-api/`, `/vector-api/`, `/raster-api/`, `/process-api/` to the appropriate services — no CORS issues for the browser
+- **COG downloads**: `/cog/<file>.tif` serves the raster files referenced by STAC asset hrefs directly as static files, with byte-range support
 - **Chatbot bridge**: `chatbot-bridge.js` injected into the chatbot iframe to relay map context and tile commands between the chatbot and the Leaflet map via `postMessage`
 - **Bilingual interface**: EN / FR language toggle across all pages
 
 **Key Features:**
+
 - Single-origin access to all Agri-SDSS services
 - Vanilla JS ES modules — no build step required
 - Service Worker (`leaflet-offline-sw.js`) for offline raster tile caching
@@ -25,26 +28,27 @@ The unified entry point for Agri-SDSS. A static nginx frontend that serves the L
 
 ```mermaid
 graph TD
-    User --> Home[Home nginx<br/>Port 8084]
+    User -->|:443, :80→443| Caddy[Caddy] -->|:8080, internal| Home[Home nginx]
 
     Home -->|/| Map[map.html<br/>Leaflet map]
     Home -->|/services| Services[index.html<br/>Services overview]
     Home -->|/data| Data[data.html<br/>Data catalog]
-    Home -->|/stac/| STAC[stac-browser<br/>:8085]
+    Home -->|/stac/| STAC[stac-browser<br/>:8080]
     Home -->|/chatbot/| Chatbot[chatbot-frontend<br/>:3001]
 
     Home -->|/stac-api/| StacAPI[stac-api<br/>:8081]
     Home -->|/vector-api/| VectorAPI[vector-api<br/>:8083]
     Home -->|/raster-api/| RasterAPI[raster-api<br/>:8082]
     Home -->|/process-api/| PyGeoAPI[process-api<br/>:5000]
-    Home -->|/api, /chat, ...| ChatbotAPI[chatbot-backend<br/>:8005]
+    Home -->|/api, /sdss| ChatbotAPI[chatbot-backend<br/>:8000]
 
     Map -->|postMessage| Chatbot
     Chatbot -->|postMessage| Map
 ```
 
 **Request flow:**
-1. **User opens** `http://<host>:8084` → nginx serves `map.html`
+
+1. **User opens** `https://<host>` (Caddy, the public entry point on :443) → proxied to `home:8080` → nginx serves `map.html`
 2. **Map loads** → fetches vector collections from `/vector-api/`, STAC items from `/stac-api/`, tiles from `/raster-api/`
 3. **User navigates to `/stac/`** → nginx proxies to stac-browser and injects the shared nav bar
 4. **User opens `/chatbot/`** → nginx proxies to chatbot frontend and injects both `chatbot-bridge.js` and the nav bar
@@ -62,37 +66,81 @@ docker compose up -d
 docker compose up -d home
 ```
 
-Once running, access:
-- **Map**: `http://<host>:8084`
-- **Services**: `http://<host>:8084/services`
-- **Data catalog**: `http://<host>:8084/data`
-- **STAC Browser**: `http://<host>:8084/stac/`
-- **AI Assistant**: `http://<host>:8084/chatbot/`
+`home` publishes no host port — it is reachable only via Caddy (`expose: "8080"` in
+`docker-compose.yml`, no `ports:` mapping). This is deliberate: Caddy carries the
+rate-limit zones and security headers, and is the intended single entry point.
+There is no `HOME_PORT` variable to change this.
+
+Once running, access (through Caddy):
+
+- **Map**: `https://<host>`
+- **Services**: `https://<host>/services`
+- **Data catalog**: `https://<host>/data`
+- **STAC Browser**: `https://<host>/stac/`
+- **AI Assistant**: `https://<host>/chatbot/`
+
+For debugging, reach `home` directly from inside `eoapi-network`, bypassing Caddy:
+
+```bash
+docker run --rm --network eoapi-network curlimages/curl:latest -sI http://home:8080/
+```
 
 ---
 
 ## Configuration
 
-The nginx config is generated at container startup by `scripts/entrypoint.sh`. Backend service ports are patched in at runtime from environment variables.
-
-**Environment Variables:**
+The nginx config is generated at container startup by `scripts/entrypoint.sh`. Three
+backend ports are patched in at startup from environment variables:
 
 ```bash
-HOME_PORT=8084               # Host-side port for the home frontend
-STAC_BROWSER_PORT=8085       # stac-browser container port
 STAC_API_PORT=8081           # stac-api container port
 RASTER_API_PORT=8082         # raster-api container port
 VECTOR_API_PORT=8083         # vector-api container port
-PROCESS_API_PORT=5000       # process-api container port
-CHATBOT_BACKEND_PORT=8005    # chatbot-backend container port
 ```
+
+The other proxy targets are fixed in the script: `stac-browser:8080`,
+`chatbot-frontend:3001`, `chatbot-backend:8000` and `process-api:5000`. Changing
+one of those ports means editing `entrypoint.sh` and rebuilding.
+
+These are all container-internal ports used to build the proxy targets in the
+generated nginx config — none of them is a host-side port for `home` itself.
+`home` has no `HOME_PORT`; see [Quick Start](#quick-start) for how it is
+actually reached.
+
+### Dataset identity
+
+The map's dataset identity is runtime configuration, not source code. Set these in `.env`:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `PRIMARY_COLLECTION_PREFIX` | `bdppad` | Collection id prefix treated as the primary vector dataset; other collections are listed separately |
+| `MAP_CENTER_LAT` | `46.8139` | Initial map latitude |
+| `MAP_CENTER_LON` | `-71.2080` | Initial map longitude |
+| `MAP_ZOOM` | `6` | Initial zoom level |
+
+`scripts/entrypoint.sh` writes these into `/runtime-config.js` at container start, and
+`js/config.js` merges them over its defaults.
+
+Changing a value needs only a recreate:
+
+```bash
+docker compose up -d --force-recreate home
+```
+
+`entrypoint.sh` itself is baked into the image rather than mounted, so a change to the
+script — as opposed to the variables — needs `docker compose up -d --build home`.
+
+The SOM raster panels read their COG basenames from `somRasterBasenames` in `js/config.js`.
+Those are still edited in source: they are tied to the SIIGSOL soil dataset the SOM analysis
+expects, so changing them only makes sense alongside replacing that analysis.
 
 ### Customization
 
 To change a proxy route or add a new one:
 
 1. Edit `scripts/entrypoint.sh` — the nginx config is generated there as a heredoc
-2. Rebuild the container: `docker compose up home --build`
+2. Validate it: `make lint-nginx`
+3. Rebuild the container: `docker compose up -d --build home`
 
 ---
 
@@ -103,12 +151,10 @@ To change a proxy route or add a new one:
 The main page. Modules loaded via ES imports from `html/js/`:
 
 | Module | Role |
-|--------|------|
+| -------- | ------ |
 | `app.js` | Entry point — wires map events, basemap switcher, nav buttons |
 | `state.js` | Shared Leaflet map instance and layer registry |
 | `vector.js` | BDPPAD parcel collections from `/vector-api/parquet/collections` |
-| `raster.js` | COG tile overlays via `/raster-api/cog/tiles/` |
-| `stac.js` | STAC item footprints from `/stac-api/` |
 | `som.js` + `som_layers.js` | SOM analysis panel and boundary layers |
 | `aac.js` | Agriculture Canada crop layer (proxied via `/aac-identify/`) |
 | `grhq.js` | GRHQ hydrological network layer |
@@ -121,6 +167,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 ### Unified Navigation
 
 `nav-inject.js` is served at `/sdss-nav.js` and injected into every sub-application via nginx `sub_filter`:
+
 - Injected into STAC Browser HTML (`<body>`)
 - Injected into Chatbot HTML (`<body>`)
 - Provides EN/FR language toggle and links to all pages
@@ -128,6 +175,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 ### Chatbot ↔ Map Bridge
 
 `chatbot-bridge.js` is injected into the chatbot iframe via `sub_filter`. It:
+
 - Listens for `AGRI_SDSS_CONTEXT` postMessages (sent when the user clicks a parcel on the map)
 - Enriches the context with live parcel data and STAC collections, then injects an analysis prompt into the chatbot
 - Intercepts Axios responses from the chatbot backend and forwards map commands to the parent map:
@@ -139,16 +187,17 @@ The main page. Modules loaded via ES imports from `html/js/`:
 ## Proxy Routes
 
 | Path | Proxied To | Notes |
-|------|-----------|-------|
-| `/stac/` | `stac-browser:8085` | `sub_filter` rewrites asset paths and injects nav |
+| ------ | ----------- | ------- |
+| `/stac/` | `stac-browser:8080` | `sub_filter` rewrites asset paths and injects nav |
 | `/chatbot/` | `chatbot-frontend:3001` | `sub_filter` injects chatbot-bridge.js and nav |
-| `/api/`, `/chat/`, `/query/`, etc. | `chatbot-backend:8000` | Chatbot SPA uses `window.location.origin` as base URL |
+| `/api/*` and `/{pc_collections_metadata,pc_rendering_config,stac_collections}.json` | `chatbot-backend:8000` | Chatbot SPA uses `window.location.origin` as base URL; nothing else is proxied to the backend. Mirrored in `chatbot/overrides/frontend/nginx.conf` |
 | `/sdss/` | `chatbot-backend:8000` | SDSS spatial process routes |
-| `/stac-api/` | `stac-api` | Used by chatbot-bridge.js |
+| `/stac-api/` | `stac-api` | Read-only: `GET`/`HEAD`/`OPTIONS`, plus `POST` on `/stac-api/search`; writes get 403 |
 | `/vector-api/` | `vector-api` | Used by chatbot-bridge.js and map |
 | `/raster-api/` | `raster-api` | Used for tile overlays |
 | `/process-api/` | `process-api:5000` | 630s read timeout for long-running processes |
 | `/aac-identify/` | `agriculture.canada.ca` | CORS proxy for AAC imagery service |
+| `/cog/<file>.tif` | static file, `./data/output/raster_cog` | STAC asset hrefs published by process-api and gis-pipeline. Raster extensions only (`.tif`/`.tiff`) — the same directory holds `*.stac.json` publish markers, which the regex excludes. Byte-range capable (native nginx `Range` handling, so GDAL `/vsicurl` reads only the tiles it needs); `Cache-Control: public, max-age=0, must-revalidate` |
 
 ---
 
@@ -156,10 +205,13 @@ The main page. Modules loaded via ES imports from `html/js/`:
 
 ### Editing Static Files
 
-The HTML, CSS, and JS files in `html/` are served directly by nginx — no build step. Edit and rebuild:
+The HTML, CSS, and JS files in `html/` are served directly by nginx — no build step.
+`html/js/`, `html/css/`, `map.html`, `data.html`, `about.html` and `report-bug.html` are
+bind-mounted read-only, so edits are live: hard-refresh the browser. `index.html` is
+baked into the image (as `index.html.template`), so it needs a rebuild:
 
 ```bash
-docker compose up home --build
+docker compose up -d --build home
 ```
 
 ### Editing the Nginx Config
@@ -187,23 +239,33 @@ docker compose exec home cat /etc/nginx/conf.d/default.conf
 
 ```bash
 # Verify sub_filter is working — check that nav injection is in the served HTML
-curl -s http://<host>:8084/stac/ | grep sdss-nav.js
+curl -s https://<host>/stac/ | grep sdss-nav.js
 ```
 
 ### Chatbot bridge not relaying map commands
 
-Open the browser console on the map page (`http://<host>:8084`) and check for `postMessage` events. Confirm `chatbot-bridge.js` is loaded inside the chatbot iframe:
+Open the browser console on the map page (`https://<host>`) and check for `postMessage` events. Confirm `chatbot-bridge.js` is loaded inside the chatbot iframe:
 
 ```bash
-curl -s http://<host>:8084/chatbot/ | grep chatbot-bridge.js
+curl -s https://<host>/chatbot/ | grep chatbot-bridge.js
+```
+
+### 502 on every API route after recreating a backend
+
+nginx resolves each `proxy_pass` hostname once, at startup, so a recreated backend
+container (new IP) is unreachable until `home` restarts:
+
+```bash
+docker compose restart home
 ```
 
 ### Environment variable not applied
 
-The entrypoint patches ports at startup — a rebuild is not needed, but the container must be restarted:
+The entrypoint reads its variables at startup — a rebuild is not needed, but the
+container must be recreated to pick up new values:
 
 ```bash
-docker compose up -d home
+docker compose up -d --force-recreate home
 ```
 
 ---

@@ -3,22 +3,78 @@ Unit tests for Sentinel-2 Earth Observation data fetch process.
 Tests the eo_sentinel_fetch.py module functionality.
 """
 
+import hashlib
+import json
 import os
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import psycopg
 import pytest
+import rasterio
 import requests
 import requests.exceptions
+from openeo.rest.datacube import DataCube
+from processes.asset_url_utils import cog_href
 from processes.eo_sentinel_fetch import PROCESS_METADATA, SentinelFetchProcessor
 from pygeoapi.process.base import ProcessorExecuteError
+from rasterio.transform import from_origin
+from shapely.geometry import shape
+
+import agri_i18n
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _english_messages():
+    """Assert against the English msgids rather than the French default.
+
+    Message content is localised, so these tests pin the source language.
+    French rendering is covered in agri_i18n/test and vector-api/test.
+    """
+    with agri_i18n.use_locale("en"):
+        yield
+
+
+def _write_sentinel_test_raster(path: str) -> None:
+    """Write a small single-band float32 GeoTIFF readable by ``_extract_cog_stats``."""
+    array = np.asarray([[0.1, 0.2], [0.3, 0.4]], dtype="float32")
+    transform = from_origin(-73.5, 45.6, 0.1, 0.1)
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=array.shape[0],
+        width=array.shape[1],
+        count=1,
+        dtype=array.dtype,
+        crs="EPSG:4326",
+        transform=transform,
+    ) as dst:
+        dst.write(array, 1)
 
 
 # ------------------------------------------
 # Fixtures
 # ------------------------------------------
+@pytest.fixture(autouse=True)
+def block_live_stac_writes():
+    """Keep the unit tests from writing into a live STAC API.
+
+    Publishing runs over the network, so any test that reaches
+    ``_create_stac_item`` with nothing patched creates a junk item in whatever
+    catalog ``STAC_API_URL`` points at — the real one under ``make test-all``.
+    Only the writes are intercepted, and a test that needs a specific response
+    installs its own ``requests`` patch, which takes precedence over this one.
+    """
+    with (
+        patch("requests.post", return_value=MagicMock(status_code=201, text="")),
+        patch("requests.put", return_value=MagicMock(status_code=200, text="")),
+    ):
+        yield
+
+
 @pytest.fixture
 def sample_farm_geometry():
     """Sample farm polygon geometry (GeoJSON)."""
@@ -215,7 +271,7 @@ def test_execute_rejects_farm_id_zero(processor_instance):
         "output_products": ["ndvi"],
     }
     with pytest.raises(
-        ProcessorExecuteError, match="Farm ID must be a positive integer"
+        ProcessorExecuteError, match="'farm_id' must be a positive integer"
     ):
         processor_instance.execute(data)
 
@@ -228,7 +284,7 @@ def test_execute_rejects_negative_farm_id(processor_instance):
         "output_products": ["ndvi"],
     }
     with pytest.raises(
-        ProcessorExecuteError, match="Farm ID must be a positive integer"
+        ProcessorExecuteError, match="'farm_id' must be a positive integer"
     ):
         processor_instance.execute(data)
 
@@ -462,8 +518,15 @@ def test_convert_to_cog_failure(processor_instance, tmp_path):
     mock_result.stderr = "GDAL error: invalid file"
 
     with patch("subprocess.run", return_value=mock_result):
-        with pytest.raises(ProcessorExecuteError, match="GDAL COG conversion failed"):
+        with pytest.raises(
+            ProcessorExecuteError,
+            match="Could not convert the raster to Cloud Optimized GeoTIFF",
+        ) as excinfo:
             processor_instance._convert_to_cog(str(input_file), str(output_file))
+
+    assert "GDAL error: invalid file" not in str(
+        excinfo.value
+    ), "gdalwarp stderr must stay in the logs, not reach the caller"
 
 
 # ------------------------------------------
@@ -546,7 +609,7 @@ def test_get_raster_bands_metadata_unknown_product(processor_instance):
 # Test STAC Item Creation
 # ------------------------------------------
 def test_create_stac_item_structure(
-    processor_instance, sample_farm_geometry, valid_temporal_extent
+    processor_instance, sample_farm_geometry, valid_temporal_extent, tmp_path
 ):
     """Test STAC item has correct structure."""
     assets = {
@@ -566,6 +629,7 @@ def test_create_stac_item_structure(
         temporal_extent=valid_temporal_extent,
         assets=assets,
         cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_item.stac.json"),
     )
 
     assert item["type"] == "Feature"
@@ -580,7 +644,37 @@ def test_create_stac_item_structure(
     assert item["properties"]["platform"] == "sentinel-2"
 
 
-def test_create_stac_item_temporal_properties(processor_instance, sample_farm_geometry):
+@pytest.mark.parametrize(
+    "cloud_mask, masked_classes", [(True, [3, 8, 9, 10]), (False, [])]
+)
+def test_create_stac_item_records_cloud_mask(
+    processor_instance,
+    sample_farm_geometry,
+    valid_temporal_extent,
+    tmp_path,
+    cloud_mask,
+    masked_classes,
+):
+    """Clients reusing published items (the SOM form) filter on this
+    property, so unmasked items published before masking are not reused."""
+    item = processor_instance._create_stac_item(
+        item_id="test_item",
+        geometry=sample_farm_geometry,
+        bbox=(-71.5, 45.5, -71.4, 45.6),
+        temporal_extent=valid_temporal_extent,
+        assets=_make_assets(("ndvi",)),
+        cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_item.stac.json"),
+        cloud_mask=cloud_mask,
+    )
+
+    assert item["properties"]["agri_sdss:cloud_mask"] is cloud_mask
+    assert item["properties"]["agri_sdss:scl_masked_classes"] == masked_classes
+
+
+def test_create_stac_item_temporal_properties(
+    processor_instance, sample_farm_geometry, tmp_path
+):
     """Test STAC item temporal properties."""
     temporal_extent = ["2024-06-01", "2024-08-31"]
 
@@ -591,6 +685,7 @@ def test_create_stac_item_temporal_properties(processor_instance, sample_farm_ge
         temporal_extent=temporal_extent,
         assets={},
         cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_item.stac.json"),
     )
 
     assert "start_datetime" in item["properties"]
@@ -599,7 +694,9 @@ def test_create_stac_item_temporal_properties(processor_instance, sample_farm_ge
     assert item["properties"]["end_datetime"].startswith("2024-08-31")
 
 
-def test_create_stac_item_stac_extensions(processor_instance, sample_farm_geometry):
+def test_create_stac_item_stac_extensions(
+    processor_instance, sample_farm_geometry, tmp_path
+):
     """_create_stac_item includes the proj, raster, and eo extension URIs."""
     item = processor_instance._create_stac_item(
         item_id="test_ext",
@@ -608,6 +705,7 @@ def test_create_stac_item_stac_extensions(processor_instance, sample_farm_geomet
         temporal_extent=["2024-06-01", "2024-08-31"],
         assets={},
         cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_ext.stac.json"),
     )
 
     extensions = item["stac_extensions"]
@@ -617,7 +715,7 @@ def test_create_stac_item_stac_extensions(processor_instance, sample_farm_geomet
 
 
 def test_create_stac_item_calls_post_to_stac_api(
-    processor_instance, sample_farm_geometry
+    processor_instance, sample_farm_geometry, tmp_path
 ):
     """_create_stac_item calls _post_to_stac_api exactly once."""
     with patch.object(processor_instance, "_post_to_stac_api") as mock_post:
@@ -628,8 +726,296 @@ def test_create_stac_item_calls_post_to_stac_api(
             temporal_extent=["2024-06-01", "2024-08-31"],
             assets={},
             cloud_cover_max=20,
+            marker_path=str(tmp_path / "test_post.stac.json"),
         )
         mock_post.assert_called_once()
+
+
+# ------------------------------------------
+# STAC publish caching (marker written after a successful publish; skips
+# republishing when every requested product was itself cache-hit AND the
+# marker's asset set matches; republishes on any mismatch or cache miss)
+# ------------------------------------------
+
+
+@pytest.mark.unit
+def test_create_stac_item_writes_marker_only_on_publish_success(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """A successful publish leaves a marker behind for future cache hits."""
+    marker_path = str(tmp_path / "test_item.stac.json")
+
+    with patch.object(processor_instance, "_post_to_stac_api", return_value=True):
+        processor_instance._create_stac_item(
+            item_id="test_item",
+            geometry=sample_farm_geometry,
+            bbox=(-71.5, 45.5, -71.4, 45.6),
+            temporal_extent=["2024-06-01", "2024-08-31"],
+            assets={},
+            cloud_cover_max=20,
+            marker_path=marker_path,
+        )
+
+    assert os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_create_stac_item_no_marker_on_publish_failure(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """A failed publish must not leave a marker — otherwise the item would
+    never get (re)published on a later call."""
+    marker_path = str(tmp_path / "test_item.stac.json")
+
+    with patch.object(processor_instance, "_post_to_stac_api", return_value=False):
+        processor_instance._create_stac_item(
+            item_id="test_item",
+            geometry=sample_farm_geometry,
+            bbox=(-71.5, 45.5, -71.4, 45.6),
+            temporal_extent=["2024-06-01", "2024-08-31"],
+            assets={},
+            cloud_cover_max=20,
+            marker_path=marker_path,
+        )
+
+    assert not os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_load_cached_stac_item_missing_returns_none(processor_instance, tmp_path):
+    """No marker file means no cached item — must not raise."""
+    marker_path = str(tmp_path / "does_not_exist.stac.json")
+    assert processor_instance._load_cached_stac_item(marker_path) is None
+
+
+@pytest.mark.unit
+def test_write_and_load_stac_marker_round_trip(processor_instance, tmp_path):
+    """A written marker can be read back as the same STAC item dict."""
+    marker_path = str(tmp_path / "roundtrip.stac.json")
+    stac_item = {"id": "sentinel2_farm_test", "type": "Feature"}
+
+    processor_instance._write_stac_marker(marker_path, stac_item)
+    loaded = processor_instance._load_cached_stac_item(marker_path)
+
+    assert loaded == stac_item
+
+
+@pytest.mark.unit
+def test_stac_marker_path_derived_from_output_dir(processor_instance, tmp_path):
+    """The marker path lives under output_dir, keyed by the STAC item id."""
+    processor_instance.output_dir = str(tmp_path)
+    marker_path = processor_instance._stac_marker_path(
+        "sentinel2_farm_1_2024-06-01_2024-08-31"
+    )
+    assert marker_path == str(
+        tmp_path / "sentinel2_farm_1_2024-06-01_2024-08-31.stac.json"
+    )
+
+
+@pytest.mark.mocked
+def test_execute_skips_stac_publish_when_all_products_cached_and_assets_match(
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
+):
+    """A repeat call where every product is served from cache AND the
+    previously-published item already has the same asset set must skip
+    republishing entirely — the fix this test guards."""
+    processor_instance.output_dir = str(tmp_path)
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+    }
+
+    # Pre-seed a marker matching this exact call's farm/date/product combo.
+    geom_shape = shape(sample_farm_geometry_small)
+    bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}_scl"
+    stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
+    marker_path = processor_instance._stac_marker_path(stac_item_id)
+    # Seeded in the shape a publish actually leaves behind: the product asset
+    # plus the raster-api siblings built for it.
+    seeded_assets = _make_assets(("ndvi",))
+    seeded_assets.update(processor_instance._render_assets(seeded_assets))
+    seeded_item = {"id": stac_item_id, "assets": seeded_assets}
+    processor_instance._write_stac_marker(marker_path, seeded_item)
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi",)), True),
+        ),
+        patch.object(processor_instance, "_post_to_stac_api") as mock_post,
+    ):
+        mimetype, envelope = processor_instance.execute(data)
+
+    mock_post.assert_not_called()
+    assert envelope["value"]["stac_item_id"] == stac_item_id
+
+
+@pytest.mark.mocked
+def test_execute_republishes_when_marker_asset_set_differs(
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
+):
+    """Even when every product this call is cache-hit, a marker whose asset
+    set doesn't match the current request must not be trusted — the item
+    is republished so the catalog reflects the requested product mix."""
+    processor_instance.output_dir = str(tmp_path)
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi", "true_color"],
+    }
+
+    geom_shape = shape(sample_farm_geometry_small)
+    bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}_scl"
+    stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
+    marker_path = processor_instance._stac_marker_path(stac_item_id)
+    # Marker only has "ndvi" published; this call also wants "true_color".
+    seeded_item = {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+    processor_instance._write_stac_marker(marker_path, seeded_item)
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi", "true_color")), True),
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=True
+        ) as mock_post,
+    ):
+        mimetype, envelope = processor_instance.execute(data)
+
+    mock_post.assert_called_once()
+    assert set(envelope["value"]["assets"]) == {"ndvi", "true_color"}
+
+
+# ------------------------------------------
+# Per-pixel SCL cloud mask
+# ------------------------------------------
+def test_scl_invalid_mask_flags_only_cloud_and_shadow_classes():
+    """Classes 3, 8, 9 and 10 are masked; vegetation, bare soil, water and
+    unclassified (7) pixels are kept."""
+    scl = np.arange(12)
+    invalid = SentinelFetchProcessor._scl_invalid_mask(scl)
+    assert {int(c) for c in scl[invalid]} == {3, 8, 9, 10}
+    assert not invalid[[4, 5, 6, 7]].any()
+
+
+def _offline_load_collection(
+    collection_id, spatial_extent, temporal_extent, bands, **_kwargs
+):
+    return DataCube.load_collection(
+        collection_id,
+        connection=None,
+        spatial_extent=spatial_extent,
+        temporal_extent=temporal_extent,
+        bands=bands,
+    )
+
+
+def _load_offline_cube(processor_instance, cloud_mask):
+    connection = MagicMock()
+    connection.load_collection.side_effect = _offline_load_collection
+    cube = processor_instance._load_sentinel2_cube(
+        connection,
+        (-73.5, 45.4, -73.3, 45.6),
+        ["2024-06-01", "2024-08-31"],
+        {"B04", "B08"},
+        20,
+        cloud_mask,
+    )
+    return connection, cube.flat_graph()
+
+
+def _node_id(graph, process_id):
+    ids = [k for k, n in graph.items() if n["process_id"] == process_id]
+    assert len(ids) == 1, f"expected one {process_id} node, got {len(ids)}"
+    return ids[0]
+
+
+def test_load_cube_with_cloud_mask_masks_before_scaling(processor_instance):
+    connection, graph = _load_offline_cube(processor_instance, cloud_mask=True)
+
+    assert connection.load_collection.call_args.kwargs["bands"] == [
+        "B04",
+        "B08",
+        "SCL",
+    ]
+    filter_id = _node_id(graph, "filter_bands")
+    mask_id = _node_id(graph, "mask")
+    apply_id = _node_id(graph, "apply")
+    assert graph[filter_id]["arguments"]["bands"] == ["B04", "B08"]
+    assert graph[mask_id]["arguments"]["data"] == {"from_node": filter_id}
+    assert graph[apply_id]["arguments"]["data"] == {"from_node": mask_id}
+
+    serialized = json.dumps(graph)
+    for scl_class in (3, 8, 9, 10):
+        assert f'"y": {scl_class}' in serialized
+
+
+def test_load_cube_without_cloud_mask_has_no_mask(processor_instance):
+    connection, graph = _load_offline_cube(processor_instance, cloud_mask=False)
+
+    assert connection.load_collection.call_args.kwargs["bands"] == ["B04", "B08"]
+    assert not any(n["process_id"] == "mask" for n in graph.values())
+
+
+@pytest.mark.parametrize(
+    "cloud_mask, masked", [(None, True), (True, True), (False, False)]
+)
+def test_execute_names_masked_products_apart(
+    processor_instance, sample_farm_geometry_small, cloud_mask, masked
+):
+    """Masked COGs and STAC items get their own names, so an unmasked COG
+    cached before masking existed is never served for a masked request."""
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+    }
+    if cloud_mask is not None:
+        data["cloud_mask"] = cloud_mask
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi",)), False),
+        ) as mock_process,
+        patch.object(processor_instance, "_post_to_stac_api", return_value=True),
+    ):
+        _mimetype, envelope = processor_instance.execute(data)
+
+    kwargs = mock_process.call_args.kwargs
+    assert kwargs["cloud_mask"] is masked
+    assert kwargs["farm_identifier"].endswith("_scl") is masked
+    assert envelope["value"]["stac_item_id"] == (
+        f"sentinel2_{kwargs['farm_identifier']}_2024-06-01_2024-08-31"
+    )
+
+
+def test_execute_rejects_non_boolean_cloud_mask(
+    processor_instance, sample_farm_geometry_small
+):
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+        "cloud_mask": "yes",
+    }
+    with pytest.raises(
+        ProcessorExecuteError, match="'cloud_mask' must be true or false"
+    ):
+        processor_instance.execute(data)
+
+
+def test_cloud_mask_input_defaults_to_true():
+    cloud_mask = PROCESS_METADATA["inputs"]["cloud_mask"]
+    assert cloud_mask["schema"] == {"type": "boolean", "default": True}
+    assert cloud_mask["minOccurs"] == 0
 
 
 # ------------------------------------------
@@ -637,15 +1023,17 @@ def test_create_stac_item_calls_post_to_stac_api(
 # ------------------------------------------
 def test_generate_preview_url(processor_instance):
     """Test preview URL generation for TiTiler."""
-    asset_href = "/data/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31_abc123.tif"
+    asset = {
+        "href": "/data/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31_abc123.tif",
+        "statistics": {1: {"min": 0.1, "max": 0.9}},
+    }
 
-    with patch.dict(os.environ, {"RASTER_API_PORT": "8082"}):
-        preview_url = processor_instance._generate_preview_url(asset_href)
+    preview_url = processor_instance._generate_preview_url(asset)
 
-        assert "raster-api:8082" in preview_url
-        assert "/cog/preview.png" in preview_url
-        assert "sentinel2_farm_4_ndvi" in preview_url
-        assert "rescale=" in preview_url
+    assert "raster-api:" not in preview_url
+    assert "/raster-api/cog/preview.png" in preview_url
+    assert "sentinel2_farm_4_ndvi" in preview_url
+    assert "rescale=0.1,0.9" in preview_url
 
 
 # ------------------------------------------
@@ -1365,8 +1753,16 @@ def test_database_connection_failure(processor_instance):
         with patch.dict(
             os.environ, {"POSTGRES_HOST": "localhost", "POSTGRES_PASS": "testpass"}
         ):
-            with pytest.raises(ProcessorExecuteError, match="Database error"):
-                processor_instance._get_geometry_from_db(4)
+            with agri_i18n.use_locale("en"):
+                with pytest.raises(
+                    ProcessorExecuteError,
+                    match="Could not retrieve the farm geometry",
+                ) as excinfo:
+                    processor_instance._get_geometry_from_db(4)
+
+    assert "Connection refused" not in str(
+        excinfo.value
+    ), "internal database error must not reach the user"
 
 
 def test_malformed_geometry_from_database(processor_instance):
@@ -1388,12 +1784,29 @@ def test_malformed_geometry_from_database(processor_instance):
             os.environ, {"POSTGRES_HOST": "localhost", "POSTGRES_PASS": "testpass"}
         ):
             # JSON decode error is now properly caught and wrapped
-            with pytest.raises(ProcessorExecuteError, match="Invalid geometry data"):
+            with pytest.raises(
+                ProcessorExecuteError, match="Invalid geometry data"
+            ) as excinfo:
                 processor_instance._get_geometry_from_db(4)
 
+    assert "Expecting value" not in str(
+        excinfo.value
+    ), "The JSON decoder detail must stay in the logs, not reach the caller"
 
-def test_get_geometry_from_db_invalid_table_name(processor_instance):
-    """_get_geometry_from_db raises ProcessorExecuteError for invalid FARM_TABLE_NAME."""
+
+@pytest.mark.parametrize(
+    "env_var, value",
+    [
+        ("FARM_TABLE_NAME", "bad;name"),
+        ("FARM_GEOMETRY_COLUMN", "bad column"),
+        ("FARM_GEOMETRY_COLUMN", "geom.col"),
+        ("FARM_ID_COLUMN", "id;drop table"),
+    ],
+)
+def test_get_geometry_from_db_invalid_identifier(
+    processor_instance, caplog, env_var, value
+):
+    """_get_geometry_from_db rejects unsafe farm table/column identifiers."""
     mock_conn = MagicMock()
     mock_conn.__enter__.return_value = mock_conn
     mock_conn.__exit__.return_value = None
@@ -1404,49 +1817,14 @@ def test_get_geometry_from_db_invalid_table_name(processor_instance):
             {
                 "POSTGRES_HOST": "localhost",
                 "POSTGRES_PASS": "testpass",
-                "FARM_TABLE_NAME": "bad;name",
+                env_var: value,
             },
         ):
-            with pytest.raises(ProcessorExecuteError, match="Invalid table name"):
+            with pytest.raises(
+                ProcessorExecuteError, match="Could not retrieve the farm geometry"
+            ):
                 processor_instance._get_geometry_from_db(1)
-
-
-def test_get_geometry_from_db_invalid_geometry_column(processor_instance):
-    """_get_geometry_from_db raises ProcessorExecuteError for invalid FARM_GEOMETRY_COLUMN."""
-    mock_conn = MagicMock()
-    mock_conn.__enter__.return_value = mock_conn
-    mock_conn.__exit__.return_value = None
-
-    with patch("psycopg.connect", return_value=mock_conn):
-        with patch.dict(
-            os.environ,
-            {
-                "POSTGRES_HOST": "localhost",
-                "POSTGRES_PASS": "testpass",
-                "FARM_GEOMETRY_COLUMN": "bad column",
-            },
-        ):
-            with pytest.raises(ProcessorExecuteError, match="Invalid geometry column"):
-                processor_instance._get_geometry_from_db(1)
-
-
-def test_get_geometry_from_db_invalid_id_column(processor_instance):
-    """_get_geometry_from_db raises ProcessorExecuteError for invalid FARM_ID_COLUMN."""
-    mock_conn = MagicMock()
-    mock_conn.__enter__.return_value = mock_conn
-    mock_conn.__exit__.return_value = None
-
-    with patch("psycopg.connect", return_value=mock_conn):
-        with patch.dict(
-            os.environ,
-            {
-                "POSTGRES_HOST": "localhost",
-                "POSTGRES_PASS": "testpass",
-                "FARM_ID_COLUMN": "id;drop table",
-            },
-        ):
-            with pytest.raises(ProcessorExecuteError, match="Invalid ID column"):
-                processor_instance._get_geometry_from_db(1)
+    assert f"{env_var} contains disallowed characters" in caplog.text
 
 
 def test_negative_farm_id(processor_instance):
@@ -1559,7 +1937,9 @@ def test_multiple_products_combination(processor_instance):
         assert len(bands) > 0
 
 
-def test_stac_item_with_multiple_assets(processor_instance, sample_farm_geometry):
+def test_stac_item_with_multiple_assets(
+    processor_instance, sample_farm_geometry, tmp_path
+):
     """Test STAC item creation with multiple assets."""
     assets = {
         "ndvi": {
@@ -1585,20 +1965,22 @@ def test_stac_item_with_multiple_assets(processor_instance, sample_farm_geometry
         temporal_extent=["2024-06-01", "2024-08-31"],
         assets=assets,
         cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_item.stac.json"),
     )
 
-    assert len(item["assets"]) == 2
+    # Each product, plus the raster-api preview/TileJSON pair built for it.
+    assert len(item["assets"]) == 6
     assert "ndvi" in item["assets"]
     assert "evi" in item["assets"]
 
 
 def test_preview_url_without_env_var(processor_instance):
-    """Test preview URL generation without RASTER_API_PORT env var."""
-    asset_href = "/data/test.tif"
+    """Test preview URL generation with no HOST_PROTOCOL/HOST_URL env vars."""
+    asset = {"href": "/data/test.tif"}
 
     # Clear environment variable
     with patch.dict(os.environ, {}, clear=True):
-        preview_url = processor_instance._generate_preview_url(asset_href)
+        preview_url = processor_instance._generate_preview_url(asset)
         # Should use default or handle gracefully
         assert "preview.png" in preview_url
 
@@ -1614,8 +1996,15 @@ def test_cog_conversion_with_nonexistent_file(processor_instance, tmp_path):
     mock_result.stderr = "Input file does not exist"
 
     with patch("subprocess.run", return_value=mock_result):
-        with pytest.raises(ProcessorExecuteError, match="GDAL COG conversion failed"):
+        with pytest.raises(
+            ProcessorExecuteError,
+            match="Could not convert the raster to Cloud Optimized GeoTIFF",
+        ) as excinfo:
             processor_instance._convert_to_cog(str(input_file), str(output_file))
+
+    assert "Input file does not exist" not in str(
+        excinfo.value
+    ), "gdalwarp stderr must stay in the logs, not reach the caller"
 
 
 def test_long_temporal_extent(processor_instance, sample_farm_geometry):
@@ -1720,9 +2109,14 @@ def test_openeo_connection_failure(processor_instance, sample_farm_geometry):
     with patch.dict(os.environ, {"OPENEO_REFRESH_TOKEN": "a" * 210}):
         with patch("openeo.connect", side_effect=Exception("Connection failed")):
             with pytest.raises(
-                ProcessorExecuteError, match="Failed to connect to openEO backend"
-            ):
+                ProcessorExecuteError,
+                match="Could not connect to the openEO backend",
+            ) as excinfo:
                 processor_instance.execute(data)
+
+    assert "Connection failed" not in str(
+        excinfo.value
+    ), "The raw connection error must stay in the logs, not reach the caller"
 
 
 def test_sentinel_data_load_failure(processor_instance, sample_farm_geometry):
@@ -2325,7 +2719,9 @@ _COLLECTION_ID = SentinelFetchProcessor.STAC_COLLECTION_ID
 def _make_assets(products: tuple) -> dict:
     return {
         p: {
-            "href": f"/data/sentinel2_farm_test_{p}_2024-06-01_2024-08-31_abcd1234.tif",
+            "href": cog_href(
+                f"/data/sentinel2_farm_test_{p}_2024-06-01_2024-08-31_abcd1234.tif"
+            ),
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
             "roles": ["data"],
             "title": p.upper(),
@@ -2345,9 +2741,10 @@ def _reset_collection_cache():
 
 @pytest.mark.mocked
 def test_execute_full_flow_farm_geometry_returns_complete_response(
-    processor_instance, sample_farm_geometry_small, _reset_collection_cache
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
 ):
     """execute() with farm_geometry returns all expected keys in the response value."""
+    processor_instance.output_dir = str(tmp_path)
     data = {
         "farm_geometry": sample_farm_geometry_small,
         "temporal_extent": ["2024-06-01", "2024-08-31"],
@@ -2358,7 +2755,7 @@ def test_execute_full_flow_farm_geometry_returns_complete_response(
         patch.object(
             processor_instance,
             "_process_sentinel_data",
-            return_value=_make_assets(("ndvi",)),
+            return_value=(_make_assets(("ndvi",)), False),
         ),
         patch("requests.get", return_value=MagicMock(status_code=404)),
         patch("requests.post", return_value=MagicMock(status_code=201, text="")),
@@ -2382,9 +2779,10 @@ def test_execute_full_flow_farm_geometry_returns_complete_response(
 
 @pytest.mark.mocked
 def test_execute_full_flow_farm_id_queries_db_then_returns_response(
-    processor_instance, mock_db_connection, _reset_collection_cache
+    processor_instance, mock_db_connection, _reset_collection_cache, tmp_path
 ):
     """execute() with farm_id triggers a DB lookup and returns a complete response."""
+    processor_instance.output_dir = str(tmp_path)
     data = {
         "farm_id": 4,
         "temporal_extent": ["2024-06-01", "2024-08-31"],
@@ -2396,7 +2794,7 @@ def test_execute_full_flow_farm_id_queries_db_then_returns_response(
         patch.object(
             processor_instance,
             "_process_sentinel_data",
-            return_value=_make_assets(("true_color",)),
+            return_value=(_make_assets(("true_color",)), False),
         ),
         patch("requests.get", return_value=MagicMock(status_code=404)),
         patch("requests.post", return_value=MagicMock(status_code=201, text="")),
@@ -2413,9 +2811,10 @@ def test_execute_full_flow_farm_id_queries_db_then_returns_response(
 
 @pytest.mark.mocked
 def test_execute_stac_publish_sequence(
-    processor_instance, sample_farm_geometry_small, _reset_collection_cache
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
 ):
     """execute() calls GET (collection check), POST (create collection), POST (item) — in order."""
+    processor_instance.output_dir = str(tmp_path)
     data = {
         "farm_geometry": sample_farm_geometry_small,
         "temporal_extent": ["2024-06-01", "2024-08-31"],
@@ -2426,7 +2825,7 @@ def test_execute_stac_publish_sequence(
         patch.object(
             processor_instance,
             "_process_sentinel_data",
-            return_value=_make_assets(("ndvi",)),
+            return_value=(_make_assets(("ndvi",)), False),
         ),
         patch("requests.get", return_value=MagicMock(status_code=404)) as mock_get,
         patch(
@@ -2441,9 +2840,10 @@ def test_execute_stac_publish_sequence(
 
 @pytest.mark.mocked
 def test_execute_full_flow_multiple_products(
-    processor_instance, sample_farm_geometry_small, _reset_collection_cache
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
 ):
     """execute() with multiple products yields all products in result['assets']."""
+    processor_instance.output_dir = str(tmp_path)
     data = {
         "farm_geometry": sample_farm_geometry_small,
         "temporal_extent": ["2024-06-01", "2024-08-31"],
@@ -2454,7 +2854,7 @@ def test_execute_full_flow_multiple_products(
         patch.object(
             processor_instance,
             "_process_sentinel_data",
-            return_value=_make_assets(("ndvi", "true_color")),
+            return_value=(_make_assets(("ndvi", "true_color")), False),
         ),
         patch("requests.get", return_value=MagicMock(status_code=404)),
         patch("requests.post", return_value=MagicMock(status_code=201, text="")),
@@ -2466,3 +2866,394 @@ def test_execute_full_flow_multiple_products(
     assert "true_color" in result["assets"]
     assert isinstance(result["stac_item_id"], str)
     assert len(result["stac_item_id"]) > 0
+
+
+def test_generate_preview_url_is_public(monkeypatch):
+    """The preview URL must not reference the internal Docker hostname."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    processor = SentinelFetchProcessor.__new__(SentinelFetchProcessor)
+    url = processor._generate_preview_url(
+        {
+            "href": "/data/sentinel2_farm_4_ndvi.tif",
+            "statistics": {1: {"min": 0.0, "max": 1.0}},
+        }
+    )
+
+    assert url.startswith("https://agri-sdss.duckdns.org/raster-api/cog/preview.png")
+    assert "raster-api:" not in url
+    assert url.endswith("&rescale=0.0,1.0")
+
+
+def test_cached_product_publishes_a_public_href(
+    processor_instance, tmp_path, monkeypatch
+):
+    """The early-exit cache branch must emit a public URL, not a local path."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+    monkeypatch.setattr(
+        "processes.eo_sentinel_fetch.openeo.connect",
+        lambda *a, **k: pytest.fail("cache miss — the COG filename format changed"),
+    )
+
+    processor_instance.output_dir = str(tmp_path)
+
+    cog_name = "sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"
+    _write_sentinel_test_raster(str(tmp_path / cog_name))
+
+    assets, all_cached = processor_instance._process_sentinel_data(
+        bbox=(-73.5, 45.4, -73.3, 45.6),
+        geometry={
+            "type": "Polygon",
+            "coordinates": [
+                [[-73.5, 45.4], [-73.3, 45.4], [-73.3, 45.6], [-73.5, 45.4]]
+            ],
+        },
+        temporal_extent=["2024-06-01", "2024-08-31"],
+        output_products=["ndvi"],
+        aggregation_method="mean",
+        cloud_cover_max=20.0,
+        farm_identifier="farm_4",
+    )
+
+    assert all_cached is True
+    assert assets["ndvi"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog"
+        "/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"
+    )
+
+
+def test_generate_assets_cache_hit_publishes_a_public_href(
+    processor_instance, tmp_path, monkeypatch
+):
+    """The cache-hit branch inside _generate_assets emits a public URL."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+    processor_instance.output_dir = str(tmp_path)
+
+    cog_name = "sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"
+    _write_sentinel_test_raster(str(tmp_path / cog_name))
+
+    assets = processor_instance._generate_assets(
+        MagicMock(),
+        {"type": "Polygon", "coordinates": [[[0, 0], [0, 1], [1, 1], [0, 0]]]},
+        ["ndvi"],
+        "mean",
+        ["2024-06-01", "2024-08-31"],
+        "farm_4",
+    )
+
+    assert assets["ndvi"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog"
+        "/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"
+    )
+
+
+def test_generate_assets_fresh_download_publishes_a_public_href(
+    processor_instance, tmp_path, monkeypatch
+):
+    """The fresh-download branch inside _generate_assets emits a public URL."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+    processor_instance.output_dir = str(tmp_path)
+
+    with patch.object(
+        SentinelFetchProcessor,
+        "_convert_to_cog",
+        side_effect=lambda src, dst: _write_sentinel_test_raster(dst),
+    ):
+        assets = processor_instance._generate_assets(
+            MagicMock(),
+            {"type": "Polygon", "coordinates": [[[0, 0], [0, 1], [1, 1], [0, 0]]]},
+            ["ndvi"],
+            "mean",
+            ["2024-06-01", "2024-08-31"],
+            "farm_4",
+        )
+
+    assert assets["ndvi"]["href"] == (
+        "https://agri-sdss.duckdns.org/cog"
+        "/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"
+    )
+
+
+# ------------------------------------------
+# Test raster-api render assets (preview / TileJSON)
+# ------------------------------------------
+def _render_assets_item(processor, assets, tmp_path):
+    """Build a STAC item without publishing, and return its assets."""
+    with patch.object(SentinelFetchProcessor, "_post_to_stac_api", return_value=False):
+        item = processor._create_stac_item(
+            item_id="sentinel2_render_test",
+            geometry={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-71.5, 45.5], [-71.4, 45.5], [-71.4, 45.6], [-71.5, 45.5]]
+                ],
+            },
+            bbox=(-71.5, 45.5, -71.4, 45.6),
+            temporal_extent=["2024-06-01", "2024-08-31"],
+            assets=assets,
+            cloud_cover_max=20.0,
+            marker_path=str(tmp_path / "unused.stac.json"),
+        )
+    return item["assets"]
+
+
+@pytest.mark.unit
+def test_each_product_gets_its_own_preview_and_tilejson(
+    processor_instance, tmp_path, monkeypatch
+):
+    """An item holds several products, so each needs its own render pair."""
+    monkeypatch.setenv("HOST_PROTOCOL", "https")
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _render_assets_item(
+        processor_instance, _make_assets(("ndvi", "evi")), tmp_path
+    )
+
+    for product in ("ndvi", "evi"):
+        assert product in assets
+        assert assets[f"{product}_preview"]["href"].startswith(
+            "https://agri-sdss.duckdns.org/raster-api/cog/preview.png"
+        )
+        assert product in assets[f"{product}_preview"]["href"]
+        assert assets[f"{product}_tilejson"]["href"].startswith(
+            "https://agri-sdss.duckdns.org/raster-api/cog/WebMercatorQuad"
+            "/tilejson.json"
+        )
+        assert product in assets[f"{product}_tilejson"]["href"]
+
+
+@pytest.mark.unit
+def test_render_assets_carry_roles_and_media_types(
+    processor_instance, tmp_path, monkeypatch
+):
+    """STAC clients pick a rendering by role and media type, not by key."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _render_assets_item(processor_instance, _make_assets(("ndvi",)), tmp_path)
+
+    assert assets["ndvi_preview"]["type"] == "image/png"
+    assert assets["ndvi_preview"]["roles"] == ["overview"]
+    assert assets["ndvi_tilejson"]["type"] == "application/json"
+    assert assets["ndvi_tilejson"]["roles"] == ["tiles"]
+
+
+@pytest.mark.unit
+def test_render_assets_rescale_comes_from_the_asset_statistics(
+    processor_instance, tmp_path, monkeypatch
+):
+    """A float index renders flat unless TiTiler is given its value range."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("ndvi",))
+    assets["ndvi"]["statistics"] = {
+        1: {"min": -0.2, "max": 0.9, "mean": 0.4, "std": 0.1}
+    }
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "&rescale=-0.2,0.9" in rendered["ndvi_preview"]["href"]
+    assert "&rescale=-0.2,0.9" in rendered["ndvi_tilejson"]["href"]
+
+
+@pytest.mark.unit
+def test_render_assets_of_a_visual_product_are_not_rescaled(
+    processor_instance, tmp_path, monkeypatch
+):
+    """true_color is a 3-band RGB composite TiTiler already renders as-is."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("true_color",))
+    assets["true_color"]["statistics"] = {
+        1: {"min": 0.0, "max": 255.0, "mean": 100.0, "std": 10.0},
+        2: {"min": 0.0, "max": 255.0, "mean": 100.0, "std": 10.0},
+        3: {"min": 0.0, "max": 255.0, "mean": 100.0, "std": 10.0},
+    }
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "rescale=" not in rendered["true_color_preview"]["href"]
+    assert "rescale=" not in rendered["true_color_tilejson"]["href"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "statistics",
+    [
+        {},
+        {1: {"min": None, "max": None, "mean": None, "std": None}},
+        {1: {"min": 0.5, "max": 0.5, "mean": 0.5, "std": 0.0}},
+        {1: {"min": float("nan"), "max": float("nan"), "mean": 0.0, "std": 0.0}},
+    ],
+    ids=["missing", "empty-band", "constant", "not-finite"],
+)
+def test_render_assets_skip_an_unusable_rescale(
+    processor_instance, tmp_path, monkeypatch, statistics
+):
+    """An unusable range must leave the href unrescaled, never publish junk."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("ndvi",))
+    assets["ndvi"]["statistics"] = statistics
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "rescale=" not in rendered["ndvi_preview"]["href"]
+    assert "rescale=" not in rendered["ndvi_tilejson"]["href"]
+
+
+@pytest.mark.unit
+def test_render_assets_survive_statistics_read_back_from_json(
+    processor_instance, tmp_path, monkeypatch
+):
+    """A cached marker round-trips band indices to strings; rescale must hold."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("ndvi",))
+    assets["ndvi"]["statistics"] = {
+        "1": {"min": 0.1, "max": 0.8, "mean": 0.4, "std": 0.1}
+    }
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "&rescale=0.1,0.8" in rendered["ndvi_preview"]["href"]
+
+
+@pytest.mark.unit
+def test_render_assets_are_skipped_for_a_product_without_an_href(
+    processor_instance, tmp_path, monkeypatch
+):
+    """A product that never produced a COG must not publish a dangling URL."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("ndvi",))
+    assets["ndvi"].pop("href")
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "ndvi_preview" not in rendered
+    assert "ndvi_tilejson" not in rendered
+
+
+@pytest.mark.unit
+def test_render_assets_select_a_band_on_a_multiband_product(
+    processor_instance, tmp_path, monkeypatch
+):
+    """TiTiler answers 500 on a 6-band COG unless one band is selected."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("raw_bands",))
+    assets["raw_bands"]["statistics"] = {
+        band: {"min": float(band), "max": float(band) * 10, "mean": 1.0, "std": 0.1}
+        for band in range(1, 7)
+    }
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert "&bidx=1" in rendered["raw_bands_preview"]["href"]
+    assert "&rescale=1.0,10.0" in rendered["raw_bands_preview"]["href"]
+    assert "&bidx=1" in rendered["raw_bands_tilejson"]["href"]
+
+
+@pytest.mark.unit
+def test_render_assets_of_a_single_band_product_select_no_band(
+    processor_instance, tmp_path, monkeypatch
+):
+    """A greyscale render needs no band selection; only the value range."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    rendered = _render_assets_item(
+        processor_instance, _make_assets(("ndvi",)), tmp_path
+    )
+
+    assert "bidx=" not in rendered["ndvi_preview"]["href"]
+    assert "rescale=" in rendered["ndvi_preview"]["href"]
+
+
+@pytest.mark.unit
+def test_extract_cog_stats_ignores_unmasked_nan(tmp_path):
+    """A single NaN pixel must not turn every statistic into NaN, which is
+    not valid JSON and would poison the published item."""
+    from processes.eo_sentinel_fetch import _extract_cog_stats
+
+    cog_path = tmp_path / "partial_nan.tif"
+    array = np.asarray([[float("nan"), 0.2], [0.4, 0.6]], dtype="float32")
+    with rasterio.open(
+        cog_path,
+        "w",
+        driver="GTiff",
+        height=2,
+        width=2,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_origin(-73.5, 45.6, 0.1, 0.1),
+    ) as dst:
+        dst.write(array, 1)
+
+    stats = _extract_cog_stats(str(cog_path))
+
+    assert stats[1]["min"] == pytest.approx(0.2)
+    assert stats[1]["max"] == pytest.approx(0.6)
+
+
+@pytest.mark.unit
+def test_response_preview_url_matches_the_published_preview_asset(
+    processor_instance, tmp_path, monkeypatch
+):
+    """The URL in the process response and the catalog's must be the same image."""
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+
+    assets = _make_assets(("ndvi",))
+    assets["ndvi"]["statistics"] = {1: {"min": -0.3, "max": 0.85}}
+
+    rendered = _render_assets_item(processor_instance, assets, tmp_path)
+
+    assert processor_instance._generate_preview_url(assets["ndvi"]) == (
+        rendered["ndvi_preview"]["href"]
+    )
+
+
+@pytest.mark.mocked
+def test_execute_republishes_when_marker_predates_the_render_assets(
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
+):
+    """A marker written before the raster-api assets existed carries only the
+    product keys — and the broken hrefs of that era. Trusting it would leave
+    the item unfixed forever, so it must not count as a cache hit."""
+    processor_instance.output_dir = str(tmp_path)
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+    }
+
+    geom_shape = shape(sample_farm_geometry_small)
+    bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}_scl"
+    stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
+    marker_path = processor_instance._stac_marker_path(stac_item_id)
+    # Pre-fix marker: products only, no preview/tilejson siblings.
+    processor_instance._write_stac_marker(
+        marker_path, {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+    )
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi",)), True),
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=True
+        ) as mock_post,
+    ):
+        _, envelope = processor_instance.execute(data)
+
+    mock_post.assert_called_once()
+    published = mock_post.call_args[0][0]
+    assert "ndvi_preview" in published["assets"]
+    assert "ndvi_tilejson" in published["assets"]

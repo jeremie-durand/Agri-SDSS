@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
+from agri_i18n.middleware import LocaleASGIMiddleware
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from vector_api.pedo_router import router
@@ -13,6 +14,7 @@ from vector_api.pedo_router import router
 def client():
     app = FastAPI()
     app.include_router(router)
+    app.add_middleware(LocaleASGIMiddleware)
     return TestClient(app)
 
 
@@ -90,6 +92,10 @@ class TestPedoCoverage:
         pool.acquire = MagicMock(return_value=acquire_ctx)
 
         with patch("vector_api.pedo_router.get_pool", new=AsyncMock(return_value=pool)):
-            resp = client.post("/pedo-coverage", json={"geometry": _POLYGON_GEOM})
+            resp = client.post(
+                "/pedo-coverage",
+                json={"geometry": _POLYGON_GEOM},
+                headers={"Accept-Language": "en"},
+            )
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Internal database error"

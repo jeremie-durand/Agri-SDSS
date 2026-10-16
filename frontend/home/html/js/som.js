@@ -1,5 +1,8 @@
 import { somContext, somChartInstance, setSomChartInstance, vectorState, layers } from './state.js';
-import { bboxAreaHa } from './utils.js';
+import { bboxAreaHa, apiFetch } from './utils.js';
+import { somRasterUrl } from './config.js';
+
+function _tL() { return (window.T && window.T[window.lang]) || {}; }
 
 function _geomBbox(geom) {
     const coords = [];
@@ -15,7 +18,63 @@ var somPredictFieldIds = [];
 var somPredictChartInstance = null;
 var somPredictLastFc = null;
 var somPredictUnit = 'gkg';
-var _somProgressTimer = null;
+
+// Time-estimated progress bar factory, shared by any long-running
+// auto-generate action. `elIds` names the three DOM elements (progress
+// container, bar, stage label); `stages` is an ordered list of
+// { pct, key, ms } checkpoints — `ms` is how long to wait at the *previous*
+// checkpoint before advancing to this one. The final stage's `ms` should be
+// a very large number so the bar holds there until `done()` is called
+// explicitly (the actual response time is unpredictable past that point).
+function _makeProgressController(elIds, stages) {
+    var timer = null;
+    var hideTimer = null;
+    function start() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+        var progEl  = document.getElementById(elIds.progress);
+        var barEl   = document.getElementById(elIds.bar);
+        var stageEl = document.getElementById(elIds.stage);
+        barEl.style.background = '';
+        barEl.style.width = '0%';
+        progEl.hidden = false;
+        var tl = (window.T && window.T[window.lang]) || (window.T && window.T['en']) || {};
+        var i = 0;
+        function advance() {
+            if (i >= stages.length) return;
+            var s = stages[i++];
+            barEl.style.width = s.pct + '%';
+            stageEl.textContent = tl[s.key] || s.key;
+            timer = setTimeout(advance, s.ms);
+        }
+        advance();
+    }
+    function done(success) {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+        var progEl  = document.getElementById(elIds.progress);
+        var barEl   = document.getElementById(elIds.bar);
+        var stageEl = document.getElementById(elIds.stage);
+        if (success) {
+            barEl.style.width = '100%';
+            stageEl.textContent = '';
+            hideTimer = setTimeout(function() { progEl.hidden = true; barEl.style.width = '0%'; hideTimer = null; }, 600);
+        } else {
+            barEl.style.background = '#f87171';
+            stageEl.textContent = '';
+            hideTimer = setTimeout(function() { progEl.hidden = true; barEl.style.width = '0%'; barEl.style.background = ''; hideTimer = null; }, 1200);
+        }
+    }
+    function reset() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+        var progEl = document.getElementById(elIds.progress);
+        if (progEl) progEl.hidden = true;
+        var barEl = document.getElementById(elIds.bar);
+        if (barEl) { barEl.style.width = '0%'; barEl.style.background = ''; }
+    }
+    return { start: start, done: done, reset: reset };
+}
 
 // Stages: realistic timing based on actual backend pipeline duration.
 // Delays are time to spend at each stage before auto-advancing.
@@ -26,42 +85,30 @@ var _PREDICT_STAGES = [
     { pct: 80, key: 'som-stage-rf',       ms: 25000 },
     { pct: 92, key: 'som-stage-building', ms: 999999 },
 ];
+var _somPredictProgress = _makeProgressController(
+    { progress: 'somPredictProgress', bar: 'somProgressBar', stage: 'somProgressStage' },
+    _PREDICT_STAGES
+);
+function somProgressStart() { _somPredictProgress.start(); }
+function somProgressDone(success) { _somPredictProgress.done(success); }
 
-function somProgressStart() {
-    if (_somProgressTimer) { clearTimeout(_somProgressTimer); _somProgressTimer = null; }
-    var progEl  = document.getElementById('somPredictProgress');
-    var barEl   = document.getElementById('somProgressBar');
-    var stageEl = document.getElementById('somProgressStage');
-    barEl.style.background = '';
-    barEl.style.width = '0%';
-    progEl.hidden = false;
-    var tl = (window.T && window.T[window.lang]) || (window.T && window.T['en']) || {};
-    var i = 0;
-    function advance() {
-        if (i >= _PREDICT_STAGES.length) return;
-        var s = _PREDICT_STAGES[i++];
-        barEl.style.width = s.pct + '%';
-        stageEl.textContent = tl[s.key] || s.key;
-        _somProgressTimer = setTimeout(advance, s.ms);
-    }
-    advance();
-}
-
-function somProgressDone(success) {
-    if (_somProgressTimer) { clearTimeout(_somProgressTimer); _somProgressTimer = null; }
-    var progEl  = document.getElementById('somPredictProgress');
-    var barEl   = document.getElementById('somProgressBar');
-    var stageEl = document.getElementById('somProgressStage');
-    if (success) {
-        barEl.style.width = '100%';
-        stageEl.textContent = '';
-        setTimeout(function() { progEl.hidden = true; barEl.style.width = '0%'; }, 600);
-    } else {
-        barEl.style.background = '#f87171';
-        stageEl.textContent = '';
-        setTimeout(function() { progEl.hidden = true; barEl.style.width = '0%'; barEl.style.background = ''; }, 1200);
-    }
-}
+// Stages for the sentinel-fetch NDVI auto-generate field (SOM PoC panel).
+// Timing derived from n=10 cold-cache measurements of sentinel-fetch
+// (mean 139,466 ms, median 138,760 ms, SD 31,377 ms, range 108,319–188,219 ms
+// — see docs/superpowers/specs/2026-08-05-sentinel-fetch-progress-bar-design.md).
+// Tuned so even the fastest observed run (108s) reaches the final hold
+// checkpoint (95s cumulative) before the real response arrives.
+var _SCENES_STAGES = [
+    { pct: 5,  key: 'som-scenes-stage-connect',  ms: 3000  },
+    { pct: 15, key: 'som-scenes-stage-search',   ms: 7000  },
+    { pct: 45, key: 'som-scenes-stage-process',  ms: 50000 },
+    { pct: 80, key: 'som-scenes-stage-download', ms: 35000 },
+    { pct: 92, key: 'som-scenes-stage-finalize', ms: 999999 },
+];
+var _somScenesProgress = _makeProgressController(
+    { progress: 'somScenesProgress', bar: 'somScenesProgressBar', stage: 'somScenesProgressStage' },
+    _SCENES_STAGES
+);
 
 function somSwitchTab(tab) {
     var isPoc = tab === 'poc';
@@ -94,11 +141,7 @@ function somPredictReset() {
     var pctBtn = document.getElementById('somUnitPct');
     if (gkgBtn) gkgBtn.classList.add('som-unit-btn--active');
     if (pctBtn) pctBtn.classList.remove('som-unit-btn--active');
-    if (_somProgressTimer) { clearTimeout(_somProgressTimer); _somProgressTimer = null; }
-    var progEl = document.getElementById('somPredictProgress');
-    if (progEl) progEl.hidden = true;
-    var barEl = document.getElementById('somProgressBar');
-    if (barEl) { barEl.style.width = '0%'; barEl.style.background = ''; }
+    _somPredictProgress.reset();
     if (somPredictChartInstance) { somPredictChartInstance.destroy(); somPredictChartInstance = null; }
 }
 
@@ -112,12 +155,12 @@ async function somPredictFindField() {
         var geom = somContext.feature && somContext.feature.geometry;
         if (!geom) {
             var b = somContext.layer && somContext.layer.getBounds ? somContext.layer.getBounds() : null;
-            if (!b) throw new Error('No geometry available');
+            if (!b) throw new Error(tLang['som-err-no-geometry'] || 'No geometry available');
             geom = { type: 'Point',
                      coordinates: [(b.getWest() + b.getEast()) / 2, (b.getSouth() + b.getNorth()) / 2] };
         }
 
-        var r = await fetch('/vector-api/som-field-match', {
+        var r = await apiFetch('/vector-api/som-field-match', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ geometry: geom })
@@ -164,7 +207,7 @@ export async function somPredictRun() {
     status.className = 'som-run__status';
     somProgressStart();
     try {
-        var r = await fetch('/process-api/processes/som-predict-soil/execution?f=json', {
+        var r = await apiFetch('/process-api/processes/som-predict-soil/execution?f=json', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ inputs: { field_ids: somPredictFieldIds, scenarios: ['S3_spec_soil_topo_clim'] } })
@@ -216,7 +259,8 @@ function somPredictDisplayResults(fc) {
         return;
     }
 
-    var factor   = (somPredictUnit === 'pct') ? 0.1 : 1.0;
+    // Model values are % SOM (loss on ignition); 1 % = 10 g/kg.
+    var factor   = (somPredictUnit === 'pct') ? 1.0 : 10.0;
     var unitLabel = (somPredictUnit === 'pct') ? 'SOM (%)' : 'SOM (g/kg)';
     var unitSuffix = (somPredictUnit === 'pct') ? ' %' : ' g/kg';
 
@@ -244,7 +288,8 @@ function somPredictDisplayResults(fc) {
             labels: years,
             datasets: [
                 {
-                    label: '_max',
+                    label: _tL()['som-chart-band'] || 'Min–max of per-image predictions within the year',
+                    isBand: true,
                     data: maxPred,
                     borderColor: 'transparent',
                     backgroundColor: 'rgba(34,211,238,0.12)',
@@ -262,7 +307,7 @@ function somPredictDisplayResults(fc) {
                     tension: 0.3
                 },
                 {
-                    label: 'Predicted SOM (avg)',
+                    label: _tL()['som-chart-predicted'] || 'Predicted SOM (avg)',
                     data: avgPred,
                     borderColor: '#22d3ee',
                     backgroundColor: '#22d3ee',
@@ -273,7 +318,7 @@ function somPredictDisplayResults(fc) {
                     borderWidth: 2
                 },
                 {
-                    label: 'Measured SOM (avg)',
+                    label: _tL()['som-chart-measured'] || 'Measured SOM (avg)',
                     data: avgMeas,
                     borderColor: '#f59e0b',
                     backgroundColor: '#f59e0b',
@@ -299,6 +344,11 @@ function somPredictDisplayResults(fc) {
                     callbacks: {
                         label: function(ctx) {
                             if (ctx.dataset.label[0] === '_') return null;
+                            if (ctx.dataset.isBand) {
+                                var lo = minPred[ctx.dataIndex], hi = maxPred[ctx.dataIndex];
+                                if (lo == null || hi == null) return null;
+                                return ctx.dataset.label + ': ' + lo.toFixed(2) + '–' + hi.toFixed(2) + unitSuffix;
+                            }
                             return ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y.toFixed(2) + unitSuffix : '—');
                         }
                     }
@@ -321,7 +371,7 @@ function somPredictDisplayResults(fc) {
         var mae  = m.MAE_lin  != null ? (+m.MAE_lin  * factor).toFixed(3) : '—';
         var tr = document.createElement('tr');
         tr.innerHTML =
-            '<td>' + (m.R2_lin != null ? (+m.R2_lin).toFixed(2) + (m.r2_source === 'val' ? ' <span title="Validation R² (single test field)">*</span>' : '') : '—') + '</td>' +
+            '<td>' + (m.R2_lin != null ? (+m.R2_lin).toFixed(2) + (m.r2_source === 'val' ? ' <span title="' + (tLang['som-r2-tooltip'] || 'Validation R² (single test field)') + '">*</span>' : '') : '—') + '</td>' +
             '<td>' + rmse + '</td>' +
             '<td>' + mae  + '</td>' +
             '<td>' + (m.n_images_used != null ? m.n_images_used : m.n_fields != null ? m.n_fields : '—') + '</td>';
@@ -380,6 +430,7 @@ export function openSomModal(collectionId, feature, layer) {
         el.textContent = '';
         el.className = 'som-field__status';
     });
+    _somScenesProgress.reset();
 
     // Auto-fill area: check feature properties first, fall back to bbox, then refine via API
     var areaEl = document.getElementById('somArea');
@@ -446,6 +497,7 @@ export function closeSomModal() {
     st.className = 'som-run__status';
     if (somChartInstance) { somChartInstance.destroy(); setSomChartInstance(null); }
     somPredictReset();
+    _somScenesProgress.reset();
 }
 
 function somValidateFields() {
@@ -686,6 +738,7 @@ export async function somShowPreview() {
             '<div class="som-report-page__section">' +
                 '<div class="som-report-section-title">' + tLang['som-pdf-projection'] + '</div>' +
                 chartHtml +
+                '<div class="som-report-disclaimer">' + tLang['som-illustrative-note'] + '</div>' +
             '</div>' +
             '<div class="som-report-disclaimer">' + tLang['som-pdf-disclaimer'] + '</div>' +
             '<div class="som-report-footer">' +
@@ -718,7 +771,7 @@ export function somClosePreview() {
 
 export function somSavePdf() {
     var jsPDF = window.jspdf && window.jspdf.jsPDF;
-    if (!jsPDF) { alert('jsPDF not available'); return; }
+    if (!jsPDF) { alert(_tL()['som-pdf-unavailable'] || 'PDF export unavailable (jsPDF not loaded).'); return; }
     if (!_reportSnapshot) return;
 
     var s = _reportSnapshot;
@@ -807,19 +860,32 @@ export function somSavePdf() {
     doc.text(tLang['som-pdf-projection'], 12, y);
     y += 6;
 
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7.5);
+    var noteLines = doc.splitTextToSize(tLang['som-illustrative-note'], 186);
+    var disclaimerLines = doc.splitTextToSize(tLang['som-pdf-disclaimer'], 186);
+    var lineH = 3.2;
+    var textH = (noteLines.length + disclaimerLines.length) * lineH + 2;
+
     if (s.chartDataUrl) {
         var cw = (somChartInstance && somChartInstance.canvas.width)  || 440;
         var ch = (somChartInstance && somChartInstance.canvas.height) || 180;
         var chartW = 186;
         var chartH = Math.round(chartW * ch / cw);
+        // Shrink a tall chart so the note and disclaimer stay above the footer rule (y = 285).
+        var maxChartH = 282 - y - 5 - textH;
+        if (chartH > maxChartH) {
+            chartW = Math.round(chartW * maxChartH / chartH);
+            chartH = maxChartH;
+        }
         doc.addImage(s.chartDataUrl, 'PNG', 12, y, chartW, chartH);
         y += chartH + 5;
     }
 
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(7.5);
     doc.setTextColor(155, 182, 210);
-    doc.text(tLang['som-pdf-disclaimer'], 12, y, { maxWidth: 186 });
+    doc.text(noteLines, 12, y);
+    y += noteLines.length * lineH + 2;
+    doc.text(disclaimerLines, 12, y);
 
     // ── Footer ────────────────────────────────────────────────────────────────
     doc.setDrawColor(41, 71, 102);
@@ -844,7 +910,7 @@ export async function somAutoGenCorg() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/raster-api/cog/statistics?url=file:///data/corg_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('corg')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -873,7 +939,7 @@ export async function somAutoGenPh() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/raster-api/cog/statistics?url=file:///data/ph_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('ph')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -902,7 +968,7 @@ export async function somAutoGenSable() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/raster-api/cog/statistics?url=file:///data/sable_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('sable')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -931,7 +997,7 @@ export async function somAutoGenLimon() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/raster-api/cog/statistics?url=file:///data/limon_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('limon')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -960,7 +1026,7 @@ export async function somAutoGenArgile() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/raster-api/cog/statistics?url=file:///data/argile_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('argile')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -989,7 +1055,7 @@ export async function somAutoGenCec() {
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
     try {
-        var r = await fetch('/raster-api/cog/statistics?url=file:///data/cec_fr_siigsol_cog.tif&nodata=nan&indexes=1', {
+        var r = await apiFetch(`/raster-api/cog/statistics?url=${somRasterUrl('cec')}&nodata=nan&bidx=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(somContext.feature)
@@ -1013,17 +1079,27 @@ export async function somAutoGenCec() {
 // Search STAC by bbox intersection, optionally filter by start/end date prefix.
 // The datetime query param is not supported on the pgSTAC items endpoint, so we
 // fetch up to 20 intersecting items and match dates client-side.
-async function _searchStacItem(collection, bb, startDate, endDate) {
-    var url = '/stac-api/collections/' + collection + '/items?bbox='
-        + bb.map(function(v) { return (+v).toFixed(4); }).join(',')
-        + '&limit=20';
-    var r = await fetch(url);
+async function _searchStacItem(collection, bb, startDate, endDate, sentinelParcel) {
+    var bboxKey = bb.map(function(v) { return (+v).toFixed(4); }).join(',');
+    var url = '/stac-api/collections/' + collection + '/items?bbox=' + bboxKey
+        + (startDate ? '&datetime=' + startDate + 'T00:00:00Z/' + endDate + 'T23:59:59Z' : '')
+        + '&limit=100';
+    var r = await apiFetch(url);
     if (!r.ok) return null;
     var fc = await r.json();
     var items = fc.features || [];
     if (!startDate) return items.length > 0 ? items[0] : null;
     return items.find(function(item) {
         var p = item.properties || {};
+        if (sentinelParcel) {
+            // Items published before SCL masking existed lack the property.
+            if (p['agri_sdss:cloud_mask'] !== true) return false;
+            // sentinel-fetch names a parcel by its bbox rounded to 4 decimals, so
+            // an equal rounded bbox is the same parcel; a mere intersection can
+            // be a neighbour.
+            var itemKey = (item.bbox || []).map(function(v) { return (+v).toFixed(4); }).join(',');
+            if (itemKey !== bboxKey) return false;
+        }
         return p.start_datetime && p.start_datetime.startsWith(startDate)
             && p.end_datetime   && p.end_datetime.startsWith(endDate);
     }) || null;
@@ -1036,16 +1112,17 @@ export async function somAutoGenScenes() {
     btn.disabled = true;
     status.textContent = tLang['som-loading'];
     status.className = 'som-field__status';
+    var usedSlowPath = false;
     try {
         var geom = somContext.feature && somContext.feature.geometry;
-        if (!geom) throw new Error('No feature geometry');
+        if (!geom) throw new Error(tLang['som-err-no-feature-geom'] || 'No feature geometry');
         var ym = (somContext.collectionId || '').match(/_an_(\d{4})/) ||
                  (somContext.collectionId || '').match(/[_-](20\d{2})[_-]/) ||
                  (somContext.collectionId || '').match(/(20\d{2})/);
         var year = ym ? ym[1] : String(new Date().getFullYear());
         var startDate = year + '-06-01';
         var endDate = year + '-08-31';
-        var cachedItem = await _searchStacItem('sentinel2_eo_products', _geomBbox(geom), startDate, endDate);
+        var cachedItem = await _searchStacItem('sentinel2_eo_products', _geomBbox(geom), startDate, endDate, true);
         var mean;
         if (cachedItem) {
             mean = cachedItem.assets &&
@@ -1054,7 +1131,9 @@ export async function somAutoGenScenes() {
                    cachedItem.assets.ndvi.statistics['1'] &&
                    cachedItem.assets.ndvi.statistics['1'].mean;
         } else {
-            var r = await fetch('/process-api/processes/sentinel-fetch/execution?f=json', {
+            usedSlowPath = true;
+            _somScenesProgress.start();
+            var r = await apiFetch('/process-api/processes/sentinel-fetch/execution?f=json', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1077,10 +1156,12 @@ export async function somAutoGenScenes() {
                    data.value.stac_item.assets.ndvi.statistics['1'] &&
                    data.value.stac_item.assets.ndvi.statistics['1'].mean;
         }
-        if (mean == null) throw new Error('No NDVI mean in response');
+        if (mean == null) throw new Error(tLang['som-err-no-ndvi'] || 'No NDVI mean in response');
+        if (usedSlowPath) _somScenesProgress.done(true);
         document.getElementById('somScenes').value = (+mean).toFixed(3);
         status.textContent = '';
     } catch(e) {
+        if (usedSlowPath) _somScenesProgress.done(false);
         status.textContent = tLang['som-error'] + ': ' + e.message;
         status.className = 'som-field__status error';
     } finally { btn.disabled = false; }
@@ -1110,7 +1191,7 @@ export async function somAutoGenElevation() {
                                [b.getEast(), b.getNorth()], [b.getWest(), b.getNorth()],
                                [b.getWest(), b.getSouth()]]]
             };
-            var r = await fetch('/process-api/processes/lidar-fetch/execution?f=json', {
+            var r = await apiFetch('/process-api/processes/lidar-fetch/execution?f=json', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ inputs: { farm_geometry: bboxGeom, products: ['dtm'] } })
@@ -1161,7 +1242,7 @@ export async function somAutoGenPrecip() {
         var start = new Date(end);
         start.setDate(start.getDate() - 6);
 
-        var r = await fetch('/process-api/processes/msc-observations/execution?f=json', {
+        var r = await apiFetch('/process-api/processes/msc-observations/execution?f=json', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1227,8 +1308,8 @@ export async function somAutoGenPedo() {
     status.className = 'som-field__status';
     try {
         var geom = somContext.feature && somContext.feature.geometry;
-        if (!geom) throw new Error('No feature geometry');
-        var r = await fetch('/vector-api/pedo-coverage', {
+        if (!geom) throw new Error(tLang['som-err-no-feature-geom'] || 'No feature geometry');
+        var r = await apiFetch('/vector-api/pedo-coverage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ geometry: geom })
@@ -1259,8 +1340,8 @@ export async function somAutoGenWater() {
     status.className = 'som-field__status';
     try {
         var geom = somContext.feature && somContext.feature.geometry;
-        if (!geom) throw new Error('No feature geometry');
-        var r = await fetch('/vector-api/water-distance', {
+        if (!geom) throw new Error(tLang['som-err-no-feature-geom'] || 'No feature geometry');
+        var r = await apiFetch('/vector-api/water-distance', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ geometry: geom })
@@ -1291,9 +1372,9 @@ export async function somRunAnalysis() {
     btn.disabled = true;
     status.textContent = tLang['som-running'];
     try {
-        var r = await fetch('/process-api/', { method: 'GET' });
+        var r = await apiFetch('/process-api/', { method: 'GET' });
         if (!r.ok) throw new Error(tLang['som-run-error'] + ' (HTTP ' + r.status + ')');
-        if (typeof Chart === 'undefined') throw new Error('Chart.js not loaded');
+        if (typeof Chart === 'undefined') throw new Error(tLang['som-err-no-chart'] || 'Chart.js not loaded');
         var now = new Date();
         var yr1 = now.getFullYear() + 1, yr5 = now.getFullYear() + 5, yr10 = now.getFullYear() + 10;
         var seed = (now.getMonth() + 1) * 0.03 + now.getDay() * 0.01;

@@ -50,7 +50,7 @@ except Exception as e:
 "
 #
 echo "Starting pygeoapi server..."
-exec gunicorn pygeoapi.flask_app:APP \
+exec gunicorn processes.wsgi:APP \
     --bind 0.0.0.0:5000 \
     --workers ${WEB_CONCURRENCY:-1} \
     --timeout ${GUNICORN_TIMEOUT:-600} \

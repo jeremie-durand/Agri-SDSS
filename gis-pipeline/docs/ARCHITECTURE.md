@@ -70,7 +70,7 @@ graph TD
 - **core/logging_setup.py**: Centralized structured logging + helpers like `handle_error` for consistent failures.
 - **core/exceptions.py**: Thin layer for pipeline-specific exceptions.
 
-**Execution Flow (high level)**
+### Execution Flow (high level)
 
 ```mermaid
 graph TD
@@ -86,13 +86,14 @@ graph TD
 ## Module Structure
 
 - **modules/io_tools**: `input_data.py` handles discovery of rasters/vectors and robust CSV loading with encoding/geometry detection.
-- **modules/processing**: `geoprocessing.py` runs vector/raster workflows; `processing_stac.py` builds/ingests STAC collections/items; `stac_models.py` holds Pydantic STAC models.
+- **modules/processing**: `geoprocessing.py` runs vector/raster workflows; `processing_stac.py` builds/ingests STAC collections/items.
 - **modules/db**: `pg_utils.py` wraps PostGIS ingestion/indexing via SQLAlchemy; `duckdb_utils.py` manages DuckDB + spatial extension and Parquet export.
 - **services/mapping.py**: Enums for supported formats, column aliases, null normalization, and type mappings used across the pipeline.
 
 ## Data Flow
 
 ### Vector Pipeline
+
 ```mermaid
 graph TD
    V0[Input vectors<br/>CSV/Shapefile/GeoJSON/etc.] --> V1[discover_geodata]
@@ -128,8 +129,8 @@ graph TD
     R6 --> R7[build STAC collection]
     R7 --> R8[STAC API ingestion<br/>POST collection/items]
 ```
----
 
+---
 
 ## Database Integration
 
@@ -138,6 +139,7 @@ graph TD
 **Purpose**: Structured vector data storage with spatial indexing.
 
 **Key Features**:
+
 - Geometry column with SRID constraint (e.g., EPSG:4326)
 - Primary key (gid) for fast lookups
 - JSONB column for flexible metadata
@@ -172,6 +174,7 @@ with PostGISManager() as pm:
 **Purpose**: Analytical queries on non-spatial and spatial data.
 
 **Key Features**:
+
 - Parquet-based columnar storage
 - Spatial extension for geometry operations
 - No schema enforcement (flexible)
@@ -180,7 +183,7 @@ with PostGISManager() as pm:
 
 **File Organization**:
 
-```
+```text
 /data/duckdb/
 ├── eoapi.duckdb              # Main DuckDB database
 ├── duckdb_extensions/        # Extension directory
@@ -196,7 +199,7 @@ with PostGISManager() as pm:
 
 ### Test Structure
 
-```
+```text
 test/
 ├── modules/
 │   ├── db/               # Database utilities tests
@@ -226,6 +229,7 @@ test/
 **Example: Adding support for `.xyz` raster format**
 
 1. Update `SupportedRasterFormats` enum:
+
    ```python
    class SupportedRasterFormats(Enum):
        TIF = ".tif"
@@ -234,6 +238,7 @@ test/
    ```
 
 2. Implement reading logic:
+
    ```python
    def read_xyz_raster(raster_path: Path) -> rasterio.DatasetReader:
        """Read XYZ raster format"""
@@ -276,9 +281,13 @@ Now all variations are automatically normalized during processing.
    - Benefit: Handle arbitrarily large rasters without OOM errors
 
 4. **Enhanced Error Recovery**
-   - Current: Pipeline stops on first critical error
-   - Proposed: Implement retry logic with exponential backoff for transient failures
-   - Benefit: More resilient to network/API timeouts
+   - Current: A failing file or layer is logged and counted in the run report, and
+     the run continues; a raster batch aborts only when every raster fails. Only the
+     STAC API client retries (`urllib3.Retry` with backoff on 5xx); PostGIS writes
+     and the vector-api invalidate call are attempted once.
+   - Proposed: Extend retry with backoff to PostGIS writes and the vector-api
+     notification
+   - Benefit: More resilient to transient database and network failures
 
 ---
 
@@ -287,7 +296,7 @@ Now all variations are automatically normalized during processing.
 ### Common Issues
 
 | Issue | Cause | Solution |
-|-------|-------|----------|
+| ------- | ------- | ---------- |
 | `PostGIS extension not enabled` | Database not configured | `CREATE EXTENSION postgis;` in PostgreSQL |
 | `PROJ_LIB not found` | Projection database missing | Set env var: `PROJ_LIB=/usr/share/proj` |
 | `CSV not recognized as spatial` | Missing lat/lon columns | Ensure columns match `ColumnMappings.LATITUDE/LONGITUDE` aliases |

@@ -36,6 +36,21 @@ Notes:
 - Running Ollama inside the chatbot backend adds ~4 GiB during inference — the main reason to pick 16 GB for production.
 - Compose resource limits are ceilings, not reservations — idle usage of the whole stack is under 1 GiB.
 
+### Reference deployment
+
+The performance figures published for this platform were measured on this host;
+the table gives its configuration at the time of the v2.0.0 release.
+Service and library versions are pinned in each service's `Dockerfile.<service>`
+and `requirements-<service>.txt`; the host-side versions are not, so they are
+recorded here:
+
+| Item | Value |
+| --- | --- |
+| Host | OVHcloud virtual private server, Ubuntu 26.04 |
+| CPU / RAM / storage | 6 vCPU, 11 GiB RAM, two 100 GB virtual disks |
+| Docker Engine | 29.8.1 |
+| Docker Compose | 5.5.1 |
+
 ---
 
 ## 1. Clone & configure
@@ -64,6 +79,23 @@ Edit `.env` and set every value marked below. Leave others at their defaults unl
 | `HOST_URL` | Your domain name (e.g. `mon-domaine.ca`) or server IP |
 | `HOST_PROTOCOL` | `https` (once Caddy + TLS is configured) |
 | `OPENEO_REFRESH_TOKEN` | OIDC refresh token for Copernicus Data Space — see the [OpenEO setup guide](../process-api/docs/OPENEO_SETUP.md) |
+
+> **Gate: `HOST_URL` must be the real public domain before you publish anything.**
+> process-api and gis-pipeline both build STAC asset hrefs from
+> `HOST_PROTOCOL://HOST_URL` — the URL a client will later fetch the COG from. The
+> repo's own `.env.example` ships `HOST_PROTOCOL=https` with `HOST_URL=localhost`,
+> which is fine for a local demo but produces `https://localhost/cog/x.tif` if it
+> is still set that way when `lidar-fetch`, `sentinel-fetch`, or the gis-pipeline
+> COG step runs. That URL is syntactically valid and resolves for nobody, and it
+> gets written permanently into the public STAC catalog — arguably worse than a
+> container-local path, which at least looks obviously broken to a client.
+>
+> **Before running any STAC-publishing process:** set `HOST_URL` to the domain
+> or IP the deployment is actually reachable at, and confirm with
+> `echo "$HOST_PROTOCOL://$HOST_URL"` (or check the running containers'
+> environment) rather than trusting `.env` was edited. Items already published
+> with a wrong value are not fixed by changing `.env` after the fact — they need
+> the [republication sweep](#republishing-stac-items-after-an-href-change) below.
 
 ### Generate secrets
 
@@ -97,23 +129,27 @@ The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on
 
 ### Rate limiting
 
-PyGeoAPI process routes are rate limited by Caddy. Defaults (per IP):
+Caddy rate-limits per client IP. Defaults:
 
 | Route | Limit |
 | --- | --- |
 | `POST /process-api/processes/*/execution` | 10 requests / minute |
 | `GET /process-api/*` | 60 requests / minute |
+| `POST` chatbot LLM routes (`/api/query`, `/api/geoint/*`, `/sdss/*`, …) | 10 requests / minute |
+| `POST` chatbot catalogue searches (`/api/stac-search`, …) | 30 requests / minute |
+| `GET /api/*` | 60 requests / minute |
+| `GET /cog/*` | 30 requests / minute |
 
-Clients exceeding the limit receive `HTTP 429` with a `Retry-After` header. Adjust in `.env`:
+Clients exceeding a limit receive `HTTP 429` with a `Retry-After` header.
+
+The limits are set in `caddy/Caddyfile` itself — no `.env` variable changes them. To
+adjust one, edit the zone's `window` / `events`, then:
 
 ```bash
-RATE_LIMIT_PYGEOAPI_EXEC_EVENTS=10   # number of POST executions allowed
-RATE_LIMIT_PYGEOAPI_EXEC_WINDOW=1m   # per window duration
-RATE_LIMIT_PYGEOAPI_BROWSE_EVENTS=60
-RATE_LIMIT_PYGEOAPI_BROWSE_WINDOW=1m
+docker compose restart caddy   # Caddyfile is bind-mounted, no rebuild needed
 ```
 
-After changing these values: `docker compose up -d caddy` (no rebuild needed — values are env vars).
+Zone details: [caddy/CLAUDE.md](../caddy/CLAUDE.md#rate-limit-zones).
 
 ---
 
@@ -123,38 +159,35 @@ Caddy is the single entry point for all traffic (ports 80 and 443). Backend serv
 
 ### Local / staging (self-signed certificate)
 
-The default `Caddyfile` uses `tls internal` with `localhost, agri-sdss.local`. No changes needed — Caddy issues a self-signed cert automatically.
+With `SITE_ADDRESS` and `ACME_EMAIL` unset in `.env`, Caddy serves
+`localhost, agri-sdss.local` with `tls internal`. No changes needed — Caddy issues a
+self-signed cert automatically.
 
 To add `agri-sdss.local` to your local hosts file (Windows/Mac client):
-```
+
+```text
 <server-ip>  agri-sdss.local
 ```
 
 ### Production (real domain + Let's Encrypt)
 
-Once your DNS is pointed at the server:
+Once your DNS is pointed at the server, no file needs editing — the `Caddyfile` reads
+its site address and TLS mode from `.env`:
 
-1. Edit `Caddyfile` — replace the host block:
-   ```caddyfile
-   # Before
-   localhost, agri-sdss.local {
-       tls internal
-       reverse_proxy home:8080
-   }
+1. Update `.env`:
 
-   # After
-   mon-domaine.ca {
-       reverse_proxy home:8080
-   }
-   ```
-2. Update `.env`:
-   ```
+   ```ini
+   SITE_ADDRESS=mon-domaine.ca        # Caddy site address (default: localhost, agri-sdss.local)
+   ACME_EMAIL=admin@mon-domaine.ca    # Let's Encrypt account; unset = tls internal (self-signed)
    HOST_PROTOCOL=https
    HOST_URL=mon-domaine.ca
    ```
-3. Restart Caddy:
+
+2. Recreate the services so they pick up the new values (a plain `restart` keeps the
+   old environment):
+
    ```bash
-   docker compose restart caddy
+   docker compose up -d
    ```
 
 Caddy fetches and renews the Let's Encrypt certificate automatically. The `caddy_data` Docker volume persists the certificate across restarts — do not delete it.
@@ -191,6 +224,7 @@ docker build --target runtime -f gis-pipeline/Dockerfile.gis-pipeline .
 
 ## 6. Security checklist
 
+- [ ] `HOST_URL` set to the real public domain/IP, not the `localhost` default — see the [gate above](#2-environment-variables) before running any STAC-publishing process
 - [ ] `POSTGRES_PASS` set to a strong random value (never leave blank)
 - [ ] `DB_PASS` set to a different strong random value (never leave blank)
 - [ ] `API_KEY` generated with `openssl rand -hex 32`
@@ -253,6 +287,34 @@ docker compose exec database psql -U postgres -d agri_sdss \
 docker compose up -d
 ```
 
+### Republishing STAC items after an href change
+
+Items already in pgSTAC keep the hrefs they were published with. process-api
+skips republishing while a `<cog>.tif.stac.json` marker sits next to the COG,
+so the markers must be removed before the next run:
+
+```bash
+find ./data/output/raster_cog -name '*.stac.json' -delete
+```
+
+The next `lidar-fetch` or `sentinel-fetch` execution for a given geometry then
+republishes that item with corrected hrefs. Items whose process is never re-run
+keep the old hrefs; to force the whole catalog, re-run the fetch processes for
+each published geometry.
+
+**gis-pipeline (`demo_collection`) needs its own pass.** Those items come from a
+different codebase with no marker cache, so the sweep above does not touch them.
+Re-run the pipeline's COG step to republish them. Rows already in the metadata
+table also keep the old `file://` form in `file_url` — the `ON CONFLICT DO
+UPDATE` at `pg_utils.py:1220` only rewrites rows that are re-inserted. Nothing
+parses that column (`pg_utils.py:953` selects it into a GeoDataFrame untouched),
+so this is cosmetic, but a one-off
+`UPDATE <table> SET file_url = replace(file_url, 'file://', '')` cleans it.
+
+This is also the fix for items published while `HOST_URL` was wrong (see the
+[gate above](#2-environment-variables)): correct `.env` first, then run this
+sweep so the next publish uses the right value.
+
 ---
 
 ## Domain migration summary
@@ -261,8 +323,14 @@ All changes needed when moving from self-signed to a real domain:
 
 | File | Change |
 | --- | --- |
-| `Caddyfile` | Replace `localhost, agri-sdss.local {` + `tls internal` with `ton-domaine.ca {` |
-| `.env` | `HOST_URL=ton-domaine.ca`, `HOST_PROTOCOL=https` |
+| `.env` | `SITE_ADDRESS=ton-domaine.ca`, `ACME_EMAIL=<email>`, `HOST_URL=ton-domaine.ca`, `HOST_PROTOCOL=https` |
+
+Then `docker compose up -d` to recreate the services with the new values.
+
+Any STAC items published before the domain change carry hrefs built from the
+old `HOST_URL` — run the
+[republication sweep](#republishing-stac-items-after-an-href-change) afterward
+to correct them.
 
 ---
 
@@ -270,7 +338,7 @@ All changes needed when moving from self-signed to a real domain:
 
 Use this procedure when seeding a fresh database from a `pg_dump` backup of a previous deployment. Place your compressed dump in `data/demo/` (create the directory if needed) — the restore command below mounts it into the container.
 
-For a continuous connection to an existing PostgreSQL database (logical replication, foreign data wrapper) instead of one-off dumps, see [Database integration](data/database_integration.md).
+For a continuous connection to an existing PostgreSQL database (logical replication, foreign data wrapper) instead of one-off dumps, see [Database integration](data/guides/database_integration.md).
 
 ### Why a filtered restore
 
@@ -453,6 +521,37 @@ docker compose run --rm gis-pipeline python3 -m gis_pipeline.main \
 ```
 
 The final log lines report `Processed`, `Errors`, and `Non_spatial_csv` counts. `Errors: 0` is the target. After a successful run, vector layers, COGs, and STAC items are all up to date. The pipeline automatically stamps `has_gee_data` on `som_field_boundaries` at the end of every run — no manual post-step needed.
+
+### Step 8 — spatial index materialization (automatic + manual catch-up)
+
+Any Parquet collection with a geometry column can be served from a persistent, RTree-indexed on-disk DuckDB table instead of a per-request `read_parquet()` scan, as soon as a `<collection>.duckdb` file exists for it next to its `.parquet` file — `vector-api` auto-discovers it, no config needed.
+
+**This is automatic** for every table gis-pipeline writes, regardless of format or row count: right after step 7 writes a collection's Parquet file, gis-pipeline builds its spatial index and notifies `vector-api` to pick it up — no restart required.
+
+**One-time manual catch-up** is needed for collections that already existed before this automatic trigger was added — auto-discovery only takes effect once a `.duckdb` file exists; it doesn't retroactively index anything. Run the build script once per collection:
+
+```bash
+docker compose run --rm \
+  -v "$(pwd)/scripts/build_duckdb_spatial_index.py:/tmp/build_duckdb_spatial_index.py:ro" \
+  vector-api \
+  python3 /tmp/build_duckdb_spatial_index.py --collection <collection_id>
+```
+
+The script builds into `<collection_id>.duckdb.new`, atomically renames it over `<collection_id>.duckdb`, and notifies `vector-api`'s `/invalidate` endpoint so it drops any cached connection and picks up the fresh file on the next request — no restart needed. If `vector-api` is unreachable when the script runs, it prints a warning and `docker compose restart vector-api` remains available as a manual fallback.
+
+To confirm indexing is working and didn't change results, compare a bbox filter before and after:
+
+```bash
+docker compose run --rm \
+  -v "$(pwd)/scripts/benchmark_duckdb_bbox.py:/tmp/benchmark_duckdb_bbox.py:ro" \
+  vector-api \
+  python3 /tmp/benchmark_duckdb_bbox.py \
+  --collection <collection_id> \
+  --bbox <minx> <miny> <maxx> <maxy> \
+  --trials 10
+```
+
+`numberMatched` must be identical between the `read_parquet()` and materialized runs; only the timing should differ. A `MISMATCH` means the materialized table is stale relative to the source Parquet file — rerun the build command above.
 
 ---
 

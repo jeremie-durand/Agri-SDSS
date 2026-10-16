@@ -9,6 +9,57 @@
 
   var ctx = null;
 
+  /* ── Prompt text (FR/EN) ────────────────────────────────────────────────────
+     This script runs inside the chatbot page, where map.html's window.T does not
+     exist, so it carries its own dictionary and reads `sdss-lang` directly.
+     The injected text is what the user sees in the composer and sends, so it is
+     both the visible message and the LLM prompt — they cannot differ here. */
+  var _P = {
+    en: {
+      attrs:        'Recorded attributes:',
+      stacItem:     'Selected remote sensing item from the platform catalog:',
+      parcelIntro:  'I am looking at an agricultural parcel from the Agri-SDSS platform database. Here is its recorded information:',
+      parcelId:     'Parcel ID: ',
+      dataset:      'Dataset: ',
+      bdppadCtx:    'Dataset context: BDPPAD (Base de données sur les parcelles et propriétés agricoles du Québec) is the Quebec provincial registry of agricultural parcels. The "typpar" field is the official parcel type code; its meaning is given in the "description" field. The "suphec" field is the parcel area in hectares.',
+      featureIntro: 'I am looking at a geographic feature from the Agri-SDSS platform. Here is its recorded information:',
+      featureId:    'Feature ID: ',
+      stacAvail:    'Remote sensing datasets available for cross-referencing on this platform:',
+      askParcel:    'Please provide an agronomic analysis of this parcel based on the information above. What does the parcel type, area, and classification suggest? What kind of agricultural use or soil conditions might be expected for this type of parcel?',
+      askFeature:   'Please analyze this geographic feature based on the information above. What does the data suggest about this location in the context of Quebec agriculture or land use?',
+      fallbackA:    'I am looking at agricultural parcel ID ',
+      fallbackB:    ' from dataset ',
+      fallbackC:    ' Please provide an agronomic analysis of what you know about this kind of parcel.'
+    },
+    // NOTE: attrs / parcelId / featureId stay in English on purpose.
+    // The upstream router agent short-circuits to `contextual` via hardcoded
+    // English regexes (router_agent.py `_STRUCTURED_FEATURE_PATTERNS`:
+    // /(parcel|feature|object)\s+id\s*:/ and /attributes\s*:/). Translating
+    // them drops the query into the probabilistic LLM classifier, which is the
+    // misrouting these overrides exist to avoid.
+    fr: {
+      attrs:        'Recorded attributes:',
+      stacItem:     'Élément de télédétection sélectionné dans le catalogue de la plateforme :',
+      parcelIntro:  'Je consulte une parcelle agricole de la base de données de la plateforme Agri-SDSS. Voici ses informations enregistrées :',
+      parcelId:     'Parcel ID: ',
+      dataset:      'Jeu de données : ',
+      bdppadCtx:    'Contexte du jeu de données : BDPPAD (Base de données sur les parcelles et propriétés agricoles du Québec) est le registre provincial québécois des parcelles agricoles. Le champ « typpar » est le code officiel de type de parcelle ; sa signification est donnée dans le champ « description ». Le champ « suphec » correspond à la superficie de la parcelle en hectares.',
+      featureIntro: 'Je consulte une entité géographique de la plateforme Agri-SDSS. Voici ses informations enregistrées :',
+      featureId:    'Feature ID: ',
+      stacAvail:    'Jeux de données de télédétection disponibles pour recoupement sur cette plateforme :',
+      askParcel:    'Veuillez fournir une analyse agronomique de cette parcelle à partir des informations ci-dessus. Que suggèrent le type de parcelle, la superficie et la classification ? Quel usage agricole ou quelles conditions de sol peut-on attendre pour ce type de parcelle ?',
+      askFeature:   'Veuillez analyser cette entité géographique à partir des informations ci-dessus. Que suggèrent ces données sur ce lieu dans le contexte de l’agriculture ou de l’occupation du sol au Québec ?',
+      fallbackA:    'Je consulte la parcelle agricole ID ',
+      fallbackB:    ' du jeu de données ',
+      fallbackC:    ' Veuillez fournir une analyse agronomique de ce que vous savez sur ce type de parcelle.'
+    }
+  };
+
+  function _p(key) {
+    var lang = localStorage.getItem('sdss-lang') || 'fr';
+    return (_P[lang] || _P.fr)[key];
+  }
+
   /* ── Banner DOM ─────────────────────────────────────────────────────────── */
   var banner = document.createElement('div');
   banner.id = 'sdss-map-context';
@@ -92,9 +143,18 @@
   }
 
   /* ── Fetch helpers ──────────────────────────────────────────────────────── */
+  var _ACCEPT_LANGUAGE = { fr: 'fr-CA,fr;q=0.9', en: 'en-US,en;q=0.9' };
+
+  function _acceptLanguage() {
+    var lang = localStorage.getItem('sdss-lang') || 'fr';
+    return _ACCEPT_LANGUAGE[lang] || _ACCEPT_LANGUAGE.fr;
+  }
+
   async function fetchJson(url) {
     try {
-      var r = await fetch(url, { headers: { Accept: 'application/json' } });
+      var r = await fetch(url, {
+        headers: { Accept: 'application/json', 'Accept-Language': _acceptLanguage() }
+      });
       return r.ok ? r.json() : null;
     } catch (_) {
       return null;
@@ -107,7 +167,7 @@
       return v !== null && v !== undefined && v !== '';
     });
     if (!keys.length) return '';
-    var lines = ['Recorded attributes:'];
+    var lines = [_p('attrs')];
     keys.forEach(function (k) { lines.push('  ' + k + ': ' + props[k]); });
     return lines.join('\n');
   }
@@ -122,7 +182,7 @@
     if (!item || item.type !== 'Feature') return '';
     var lines = [];
     var props = item.properties || {};
-    lines.push('Selected remote sensing item from the platform catalog:');
+    lines.push(_p('stacItem'));
     lines.push('  id: ' + (item.id || 'unknown'));
     lines.push('  collection: ' + (item.collection || (props.collection || 'unknown')));
     if (item.bbox) {
@@ -172,17 +232,17 @@
       /* Coordinates intentionally omitted — the router agent misroutes lat/lon
          strings to navigate_to. Feature ID + dataset are sufficient for analysis. */
       if (isBdppad) {
-        lines.push('I am looking at an agricultural parcel from the Agri-SDSS platform database. Here is its recorded information:');
+        lines.push(_p('parcelIntro'));
         lines.push('');
-        if (id)  lines.push('Parcel ID: ' + id);
-        if (col) lines.push('Dataset: ' + col);
+        if (id)  lines.push(_p('parcelId') + id);
+        if (col) lines.push(_p('dataset') + col);
         lines.push('');
-        lines.push('Dataset context: BDPPAD (Base de données sur les parcelles et propriétés agricoles du Québec) is the Quebec provincial registry of agricultural parcels. The "typpar" field is the official parcel type code; its meaning is given in the "description" field. The "suphec" field is the parcel area in hectares.');
+        lines.push(_p('bdppadCtx'));
       } else {
-        lines.push('I am looking at a geographic feature from the Agri-SDSS platform. Here is its recorded information:');
+        lines.push(_p('featureIntro'));
         lines.push('');
-        if (id)  lines.push('Feature ID: ' + id);
-        if (col) lines.push('Dataset: ' + col);
+        if (id)  lines.push(_p('featureId') + id);
+        if (col) lines.push(_p('dataset') + col);
       }
 
       var propsSection = buildPropsSection(mergedProps);
@@ -200,7 +260,7 @@
         });
         if (realCollections.length) {
           lines.push('');
-          lines.push('Remote sensing datasets available for cross-referencing on this platform:');
+          lines.push(_p('stacAvail'));
           realCollections.forEach(function (c) {
             lines.push('  - ' + c.id);
           });
@@ -215,18 +275,18 @@
 
       lines.push('');
       if (isBdppad) {
-        lines.push('Please provide an agronomic analysis of this parcel based on the information above. What does the parcel type, area, and classification suggest? What kind of agricultural use or soil conditions might be expected for this type of parcel?');
+        lines.push(_p('askParcel'));
       } else {
-        lines.push('Please analyze this geographic feature based on the information above. What does the data suggest about this location in the context of Quebec agriculture or land use?');
+        lines.push(_p('askFeature'));
       }
 
       injectText(lines.join('\n'));
 
     }).catch(function () {
       /* Fallback if API calls fail */
-      var text = 'I am looking at agricultural parcel ID ' + id
-        + ' from dataset ' + col + '.'
-        + ' Please provide an agronomic analysis of what you know about this kind of parcel.';
+      var text = _p('fallbackA') + id
+        + _p('fallbackB') + col + '.'
+        + _p('fallbackC');
       injectText(text);
     }).finally(function () {
       analyseBtn.textContent = 'Analyse →';
@@ -400,28 +460,43 @@
     mountBanner();
   }
 
-  /* ── Welcome message translation ─────────────────────────────────────────── */
+  /* ── Agri-SDSS greeting override ─────────────────────────────────────────── */
+  /* Upstream owns the greeting and (since the chat.welcome key landed) translates
+     it. We override only the wording, to carry Agri-SDSS branding and the Québec
+     framing. Matching covers upstream's greeting in both languages and our own,
+     so one pass finds the message whatever it currently says and writes the text
+     for the active language — correct in both directions, and on upstream builds
+     that still fix the greeting in English at mount time. */
   (function () {
     var MSGS = {
-      en: 'Welcome to OpenGeo AI Assistant! I\'m here to help you find datasets that include location and date details. Whether you\'re tracking time-sensitive trends or exploring geospatial insights, I\'ve got you covered. Just tell me what you\'re working on, and we\'ll get started!',
+      en: 'Welcome to the Agri-SDSS AI Assistant! I\'m here to help you find geospatial data with location and date details. Whether you\'re analysing temporal trends or exploring spatial insights across Québec, I\'ve got you covered. Just tell me what you\'re working on, and we\'ll get started!',
       fr: 'Bienvenue sur l\'Assistant IA Agri-SDSS ! Je suis ici pour vous aider à trouver des données géospatiales avec des détails de localisation et de date. Que vous analysiez des tendances temporelles ou exploriez des aperçus spatiaux sur le Québec, je suis là pour vous. Dites-moi sur quoi vous travaillez, et commençons !'
     };
 
-    // Unique snippets to detect which language version is currently in the DOM
-    var SNIPPET = { en: 'Welcome to OpenGeo AI Assistant', fr: 'Bienvenue sur l\'Assistant IA' };
+    // Opening words of every greeting we may meet in the DOM — upstream's, and ours.
+    var SNIPPETS = [
+      'Welcome to OpenGeo AI Assistant',
+      'Bienvenue sur OpenGeo AI Assistant',
+      'Welcome to the Agri-SDSS AI Assistant',
+      'Bienvenue sur l\'Assistant IA Agri-SDSS'
+    ];
+
+    function isGreeting(text) {
+      for (var i = 0; i < SNIPPETS.length; i++) {
+        if (text.indexOf(SNIPPETS[i]) !== -1) return true;
+      }
+      return false;
+    }
 
     function applyWelcome(lang) {
-      // Search for the *opposite* language text currently in the DOM and replace with target
-      var currentLang = lang === 'fr' ? 'en' : 'fr';
-      var searchFor = SNIPPET[currentLang];
-      var to = MSGS[lang];
+      var to = MSGS[lang] || MSGS.fr;
 
       // Text node path (plain React render)
       var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
       var node;
       while ((node = walker.nextNode())) {
-        if (node.nodeValue && node.nodeValue.indexOf(searchFor) !== -1) {
-          node.nodeValue = to;
+        if (node.nodeValue && isGreeting(node.nodeValue)) {
+          if (node.nodeValue !== to) node.nodeValue = to;
           return true;
         }
       }
@@ -429,29 +504,34 @@
       var all = document.querySelectorAll('*');
       for (var i = 0; i < all.length; i++) {
         var el = all[i];
-        if (el.children.length === 0 && el.innerHTML && el.innerHTML.indexOf(searchFor) !== -1) {
-          el.innerHTML = to;
+        if (el.children.length === 0 && el.innerHTML && isGreeting(el.innerHTML)) {
+          if (el.innerHTML !== to) el.innerHTML = to;
           return true;
         }
       }
       return false;
     }
 
-    // Observer only needed when loading with FR: waits for the EN message to appear then swaps it
+    function currentLang() {
+      return localStorage.getItem('sdss-lang') || 'fr';
+    }
+
+    // Stays connected: the greeting is rendered on mount and, on upstream builds
+    // that translate it reactively, re-rendered on every host language switch.
+    // Loop-safe — applyWelcome writes nothing once the text already matches.
     var observer = new MutationObserver(function () {
-      if (applyWelcome('fr')) observer.disconnect();
+      applyWelcome(currentLang());
     });
 
     function start() {
-      var lang = localStorage.getItem('sdss-lang') || 'fr';
-      if (lang === 'fr' && !applyWelcome('fr')) {
-        observer.observe(document.body, { childList: true, subtree: true });
-      }
+      applyWelcome(currentLang());
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     }
 
-    // Handle language switch while already on the chatbot page
+    // Upstream builds that fix the greeting in English at mount never re-render
+    // it, so the observer alone would leave it stale — apply the switch directly.
     window.addEventListener('sdss-lang-change', function (e) {
-      applyWelcome(e.detail.lang);
+      applyWelcome((e.detail && e.detail.lang) || currentLang());
     });
 
     if (document.readyState === 'loading') {

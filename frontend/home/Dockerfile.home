@@ -10,15 +10,11 @@ COPY html/css /usr/share/nginx/html/css
 COPY html/js /usr/share/nginx/html/js
 COPY --chmod=755 scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-# Default values (overridden by docker-compose environment)
-ENV HOST_PROTOCOL=http
-ENV HOST_URL=localhost
-ENV STAC_BROWSER_PORT=8085
+# Ports entrypoint.sh patches into the nginx config (overridden by docker-compose).
+# The other proxy targets are fixed in entrypoint.sh.
 ENV STAC_API_PORT=8081
 ENV RASTER_API_PORT=8082
 ENV VECTOR_API_PORT=8083
-ENV PROCESS_API_PORT=5000
-ENV CHATBOT_BACKEND_PORT=8005
 
 EXPOSE 8080
 

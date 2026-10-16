@@ -6,6 +6,8 @@
 // year range). Live collections matching no registry entry are listed in an
 // auto-generated "Other datasets in the backend" section (data APIs only —
 // processes are services, not datasets, and are listed on /services).
+import { apiFetch } from './utils.js';
+
 
 const ENDPOINTS = {
     postgis: '/vector-api/postgis/collections?f=json&limit=500',
@@ -61,7 +63,7 @@ function el(tag, className, text) {
 // ── Fetching ──────────────────────────────────────────────────────────────────
 
 async function fetchJson(url) {
-    const r = await fetch(url, { cache: 'no-store' });
+    const r = await apiFetch(url, { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
 }

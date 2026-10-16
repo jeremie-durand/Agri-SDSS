@@ -1,4 +1,4 @@
-// ------------------ شماره‌گذاری زمین‌ها ------------------
+// ------------------ Field numbering ------------------
 var indexedFields = fields.toList(fields.size());
 fields = ee.FeatureCollection(
   ee.List.sequence(0, fields.size().subtract(1)).map(function(i) {
@@ -7,7 +7,7 @@ fields = ee.FeatureCollection(
   })
 );
 
-// ------------------ Spatial Join: پیدا کردن زمین‌هایی با حداقل یک نمونه خاک ------------------
+// ------------------ Spatial join: find fields with at least one soil sample ------------------
 var spatialFilter = ee.Filter.intersects({ leftField: '.geo', rightField: '.geo' });
 var saveJoin = ee.Join.saveAll({ matchesKey: 'matchedSamples' });
 var joined = saveJoin.apply(fields, soil_samples, spatialFilter);
@@ -18,17 +18,17 @@ var fieldsWithSamples = ee.FeatureCollection(joined.map(function(f) {
   return ee.Feature(f).set('sampleCount', count);
 })).filter(ee.Filter.gt('sampleCount', 0));
 
-// ------------------ استخراج نقاط نمونه داخل زمین‌های معتبر ------------------
+// ------------------ Extract sample points inside valid fields ------------------
 var filteredSamples = soil_samples.filterBounds(fieldsWithSamples.geometry());
 
-// ------------------ برچسب‌گذاری نمونه‌ها با نوع خاک ------------------
+// ------------------ Label samples with their soil type ------------------
 var labeledSamples = filteredSamples.map(function(sample) {
   var matchedSoil = soil_boundaries.filterBounds(sample.geometry()).first();
   var soilSymbol = ee.Algorithms.If(matchedSoil, matchedSoil.get('SYMBOL'), null);
   return sample.set('soilType', soilSymbol);
 });
 
-// ------------------ محاسبه آمار نمونه‌ها در هر زمین ------------------
+// ------------------ Compute sample statistics per field ------------------
 var fieldStats = fieldsWithSamples.map(function(field) {
   var geom = field.geometry();
   var samplesInField = labeledSamples.filterBounds(geom);
@@ -53,10 +53,10 @@ var fieldStats = fieldsWithSamples.map(function(field) {
   });
 });
 
-// ------------------ فیلتر زمین‌هایی که حداقل یک نوع خاک دارند ------------------
+// ------------------ Keep fields having at least one soil type ------------------
 var fieldStatsFiltered = fieldStats.filter(ee.Filter.gt('soilTypeCount', 0));
 
-// ------------------ خروجی CSV ------------------
+// ------------------ CSV export ------------------
 Export.table.toDrive({
   collection: fieldStatsFiltered,
   description: 'Field_SOM_Stats_Filtered',
@@ -64,11 +64,11 @@ Export.table.toDrive({
   selectors: ['FIELD_ID', 'sampleCount', 'mean_SOM', 'stdDev_SOM', 'soilTypes']
 });
 
-////////////////////////// Ta inja hameh dadehayeh zamini ro darim ///////////
-// ------------------ پارامترها ------------------
+////////////////////////// Up to here we have all the ground data ///////////
+// ------------------ Parameters ------------------
 var year = 2023;
 
-// ------------------ تقسیم زمین‌ها به 5 بخش ------------------
+// ------------------ Split the fields into 5 parts ------------------
 var total = fieldStatsFiltered.size();
 var list = fieldStatsFiltered.toList(total);
 var size = total.divide(5).floor();
@@ -79,10 +79,10 @@ var part3 = ee.FeatureCollection(list.slice(size.multiply(2), size.multiply(3)))
 var part4 = ee.FeatureCollection(list.slice(size.multiply(3), size.multiply(4)));
 var part5 = ee.FeatureCollection(list.slice(size.multiply(4), total));
 
-// 🟡 تغییر این قسمت بسته به پارت مورد نظر
+// 🟡 Change this depending on the part to process
 var currentFields = part4;
 
-// ------------------ بارگذاری تصاویر Sentinel-2 ------------------
+// ------------------ Load Sentinel-2 imagery ------------------
 var images = ee.ImageCollection("COPERNICUS/S2_SR")
   .filterBounds(currentFields.geometry())
   .filter(ee.Filter.calendarRange(year, year, 'year'))
@@ -92,7 +92,7 @@ var images = ee.ImageCollection("COPERNICUS/S2_SR")
   ))
   .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 1));
 
-// ------------------ تعریف شاخص‌ها ------------------
+// ------------------ Index definitions ------------------
 function addIndices(img) {
   var RED = img.select('B4');
   var GREEN = img.select('B3');
@@ -128,24 +128,24 @@ function addIndices(img) {
             .copyProperties(img, ['system:time_start']);
 }
 
-// ------------------ اعمال شاخص‌ها ------------------
+// ------------------ Apply the indices ------------------
 var withIndices = images.map(addIndices);
 
-// ------------------ لایه‌های ثابت توپوگرافی و اقلیمی ------------------
-// DEM 30m پایدار: NASADEM
+// ------------------ Static topographic and climatic layers ------------------
+// Stable 30 m DEM: NASADEM
 var dem30 = ee.Image('NASA/NASADEM_HGT/001').select('elevation');
 var terrain = ee.Terrain.products(dem30).select(['elevation','slope','aspect']);
 
 // WorldClim BIO (BIO1 = Annual Mean Temp*10, BIO12 = Annual Precipitation)
 var worldclim = ee.Image('WORLDCLIM/V1/BIO').select(['bio01','bio12']).rename(['BIO1','BIO12']);
 
-// ------------------ استخراج ویژگی‌ها برای هر تصویر و زمین ------------------
+// ------------------ Feature extraction for each image and field ------------------
 var features = withIndices.map(function(img) {
   return ee.FeatureCollection(currentFields.map(function(field) {
     var geom = field.geometry();
     var indexed = ee.Image(img);
 
-    // میانگین BSI
+    // Mean BSI
     var bsiMean = indexed.select('BSI').reduceRegion({
       reducer: ee.Reducer.mean(),
       geometry: geom,
@@ -168,7 +168,7 @@ var features = withIndices.map(function(img) {
           bestEffort: true
         });
 
-        // Topography (ثابت)
+        // Topography (static)
         var topoStats = terrain.reduceRegion({
           reducer: ee.Reducer.mean().combine({reducer2: ee.Reducer.stdDev(), sharedInputs: true}),
           geometry: geom,
@@ -177,7 +177,7 @@ var features = withIndices.map(function(img) {
           bestEffort: true
         });
 
-        // Climate (ثابت)
+        // Climate (static)
         var climStats = worldclim.reduceRegion({
           reducer: ee.Reducer.mean().combine({reducer2: ee.Reducer.stdDev(), sharedInputs: true}),
           geometry: geom,
@@ -204,13 +204,13 @@ var features = withIndices.map(function(img) {
   }));
 });
 
-// ------------------ فلت و فیلتر خروجی ------------------
+// ------------------ Flatten and filter the output ------------------
 var flattened = features.flatten().filter(ee.Filter.notNull([
   'NDVI_mean', 'BSI_mean', 'SAVI_mean', 'NDMI_mean', 'CI_mean',
   'OMI_mean', 'EVI_mean', 'SI_mean', 'RI_mean', 'CAI_mean', 'BI_mean'
 ]));
 
-// ------------------ خروجی CSV ------------------
+// ------------------ CSV export ------------------
 Export.table.toDrive({
   collection: flattened,
   description: 'BareSoil_TOPCLI_' + year + '_Part04',

@@ -69,15 +69,42 @@ Exactly one of `farm_id` or `farm_geometry` must be provided — not both.
 | `output_products` | array | yes | — | ≥ 1 value from the products table |
 | `aggregation_method` | string | no | `median` | `median` `mean` `min` `max` |
 | `cloud_cover_max` | number | no | `20` | 0–100 (%) |
+| `cloud_mask` | boolean | no | `true` | per-pixel cloud and shadow mask (below) |
+
+### Cloud filtering
+
+Two filters apply, in this order:
+
+1. **Scene level:** scenes whose STAC `eo:cloud_cover` exceeds `cloud_cover_max`
+   are not loaded.
+2. **Pixel level** (`cloud_mask`, on by default): inside each retained scene,
+   pixels whose Scene Classification Layer (`SCL`) class is 3 (cloud shadow),
+   8 (cloud, medium probability), 9 (cloud, high probability) or 10 (thin
+   cirrus) are masked before temporal compositing, so the reducer ignores them.
+   Class 7 (unclassified) is kept, because it is often valid bare soil or
+   vegetation. The mask is not dilated.
+
+The mask is built on the raw `SCL` codes, before the reflectance scale factor,
+and the `SCL` band is dropped from the products. Masked products are cached and
+published under names ending in `_scl` (for example
+`sentinel2_farm_4_scl_ndvi_2024-06-01_2024-08-31.tif`), so a COG computed
+without the mask is never served for a masked request; `cloud_mask: false`
+keeps the original names. Each published STAC item records the choice in its
+properties (`agri_sdss:cloud_mask`, `agri_sdss:scl_masked_classes`); the SOM
+form only reuses items where `agri_sdss:cloud_mask` is `true`.
 
 ---
 
 ## Examples
 
+All services are reached through the single public origin, never at a host port.
+Against a local deployment add `-k` (`curl -k https://localhost/...`) because the
+certificate is self-signed.
+
 ### NDVI + true color, summer composite (farm by ID)
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
+curl -s -X POST https://<host>/process-api/processes/sentinel-fetch/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -93,7 +120,7 @@ curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
 ### All vegetation indices, strict cloud filter
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
+curl -s -X POST https://<host>/process-api/processes/sentinel-fetch/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -109,7 +136,7 @@ curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
 ### Max-NDVI growing season (peak greenness)
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
+curl -s -X POST https://<host>/process-api/processes/sentinel-fetch/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -125,7 +152,7 @@ curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
 ### Raw bands via explicit polygon geometry
 
 ```bash
-curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
+curl -s -X POST https://<host>/process-api/processes/sentinel-fetch/execution \
   -H "Content-Type: application/json" \
   -d '{
     "inputs": {
@@ -163,7 +190,7 @@ curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
         "type": "image/tiff; application=geotiff"
       }
     },
-    "preview_url": "http://<host>:8082/cog/preview.png?url=/data/sentinel2_farm_4_ndvi_...tif&rescale=0,1",
+    "preview_url": "https://<host>/raster-api/cog/preview.png?url=/data/sentinel2_farm_4_ndvi_...tif&rescale=0,1",
     "bbox": [-71.5, 45.5, -71.4, 45.6],
     "temporal_extent": ["2024-06-01", "2024-08-31"],
     "area_km2": 98.5
@@ -185,10 +212,10 @@ curl -s -X POST http://<host>:5000/processes/sentinel-fetch/execution \
 
 ```bash
 # TiTiler preview
-http://<host>:8082/cog/preview.png?url=/data/{filename}&rescale=0,1
+https://<host>/raster-api/cog/preview.png?url=/data/{filename}&rescale=0,1
 
 # STAC Browser
-http://<host>:8085
+https://<host>/stac/
 ```
 
 ---
@@ -201,6 +228,7 @@ http://<host>:8085
 | Sentinel-2 archive | Data starts June 2015. Requests before 2015-06-01 return no data. |
 | Revisit time | ~5-day revisit. Periods shorter than 10 days may have very few or no cloud-free scenes. |
 | Cloud cover | Low `cloud_cover_max` on a short period may return no valid scenes. Widen the window or raise the threshold. |
+| Cloud mask | With `cloud_mask` on, a pixel covered by cloud or shadow on every retained date has no value and appears as nodata in the composite. |
 | Aggregation | `median` is recommended for vegetation indices — suppresses cloud edge artifacts better than `mean`. |
 | Processing time | Fetching and processing is slow (minutes for large areas). Prefer farm-scale polygons over large bboxes. |
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
+import agri_i18n
 import pytest
 import requests
 from processes.msc_observations import MSCObservationsProcessor
@@ -25,6 +26,14 @@ from processes.weather_backend.msc_backend import (
     _make_cache_key,
 )
 from pygeoapi.process.base import ProcessorExecuteError
+
+
+@pytest.fixture(autouse=True)
+def _english_messages():
+    """Assert against the English msgids rather than the French default."""
+    with agri_i18n.use_locale("en"):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -346,30 +355,39 @@ class TestMSCBackendFetchPage:
 
     def test_http_404_raises(self, msc_backend: MSCBackend) -> None:
         resp = MagicMock()
-        http_err = requests.exceptions.HTTPError(response=MagicMock(status_code=404))
+        http_err = requests.exceptions.HTTPError(
+            "404 Client Error for url: https://internal.example/items",
+            response=MagicMock(status_code=404),
+        )
         resp.raise_for_status.side_effect = http_err
         with patch.object(msc_backend._session, "get", return_value=resp):
-            with pytest.raises(ProcessorExecuteError, match="HTTP error 404"):
+            with pytest.raises(
+                ProcessorExecuteError, match="HTTP error 404"
+            ) as excinfo:
                 msc_backend._fetch_page(
                     collection="climate-daily",
                     bbox=_BBOX_QC,
                     datetime_interval="2024-01-01/2024-01-07",
                     offset=0,
                 )
+        assert "internal.example" not in str(excinfo.value)
 
     def test_timeout_raises(self, msc_backend: MSCBackend) -> None:
         with patch.object(
             msc_backend._session,
             "get",
-            side_effect=requests.exceptions.Timeout("timed out"),
+            side_effect=requests.exceptions.Timeout(
+                "HTTPSConnectionPool(host='internal.example'): read timeout=30"
+            ),
         ):
-            with pytest.raises(ProcessorExecuteError, match="timed out"):
+            with pytest.raises(ProcessorExecuteError, match="timed out") as excinfo:
                 msc_backend._fetch_page(
                     collection="climate-daily",
                     bbox=_BBOX_QC,
                     datetime_interval="2024-01-01/2024-01-07",
                     offset=0,
                 )
+        assert "HTTPSConnectionPool" not in str(excinfo.value)
 
     def test_pagination_second_page_offset(self, msc_backend: MSCBackend) -> None:
         """Two pages: first full (PAGE_SIZE), second partial → two GET calls."""

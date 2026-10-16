@@ -3,18 +3,26 @@ import subprocess
 import time
 import unicodedata
 from pathlib import Path
+from typing import Optional
 
 import duckdb
 import fiona
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import rasterio
 import structlog
-from gis_pipeline.core.config import Config
+from gis_pipeline.core.config import (
+    Config,
+    public_cog_url,
+    public_preview_url,
+    public_tilejson_url,
+)
 from gis_pipeline.core.exceptions import RasterProcessingError, VectorProcessingError
 from gis_pipeline.core.logging_setup import handle_error
-from gis_pipeline.core.utils import harmonize_name
+from gis_pipeline.core.utils import add_process_to_logger, harmonize_name
 from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
+from gis_pipeline.modules.db.materialize_trigger import trigger_materialize_and_notify
 from gis_pipeline.modules.db.pg_utils import PostGISManager
 from gis_pipeline.modules.io_tools.input_data import read_csv_file
 from gis_pipeline.modules.processing.processing_stac import (
@@ -28,10 +36,19 @@ from gis_pipeline.services.mapping import (
     CSVDataRegistryForSourceCRS,
     NamingPatterns,
     QGISInternalLayers,
+    RasterTargetCRSOverrides,
 )
-from gis_pipeline.utils import add_process_to_logger
+from pyproj import CRS
+from pyproj.exceptions import CRSError
+from rasterio.coords import BoundingBox
+from rasterio.warp import transform_bounds
+from shapely import get_dimensions, get_parts, make_valid
+from shapely.ops import unary_union
 
 logger = structlog.get_logger()
+
+# Assumed when a coordinate CSV declares no CRS by any other means.
+DEFAULT_CSV_CRS = "EPSG:4326"
 
 
 class GeoprocessingVector:
@@ -46,12 +63,38 @@ class GeoprocessingVector:
         self.collection_id = collection_id
 
     @staticmethod
-    def _harmonize_name_gdf(name: str) -> str:
-        return harmonize_name(
-            name,
-            NamingPatterns.PATTERN_GDF_NAME.value,
-            Config.POSTGRES_MAX_NAME_LENGTH,
-        )
+    def _repair_geometry(geom):
+        """Return a valid geometry of the same dimension, or None if unrepairable.
+
+        make_valid resolves self-intersections without discarding area the way
+        buffer(0) does, but its linework method can return a GeometryCollection
+        mixing dimensions -- a repaired polygon plus the dangling lines that
+        caused the invalidity. Only parts matching the input dimension are kept,
+        so a polygon layer never receives stray lines or points.
+
+        Args:
+            geom: The geometry to repair.
+
+        Returns:
+            A valid geometry of the same dimension, or None if the repair left
+            nothing of that dimension (caller drops these rows).
+        """
+        if geom is None or geom.is_empty:
+            return geom
+
+        repaired = make_valid(geom)
+
+        dimension = get_dimensions(geom)
+
+        if repaired.geom_type == "GeometryCollection":
+            parts = [p for p in get_parts(repaired) if get_dimensions(p) == dimension]
+            if not parts:
+                return None
+            repaired = parts[0] if len(parts) == 1 else unary_union(parts)
+
+        if repaired.is_empty or get_dimensions(repaired) != dimension:
+            return None
+        return repaired
 
     def _find_overlapping_polygons(self, geometry_column: str) -> list[tuple[int, int]]:
         """Find overlapping polygons in a GeoDataFrame.
@@ -146,7 +189,42 @@ class GeoprocessingVector:
         self.gdf = self.gdf.replace(mapping)
 
     @staticmethod
-    def _read_csv_as_gdf(vector_file: Path) -> gpd.GeoDataFrame:
+    def _resolve_csv_source_crs(
+        vector_file: Path, source_crs: str | None
+    ) -> tuple[str, bool]:
+        """Resolve the source CRS of a coordinate CSV.
+
+        A CSV carries no projection of its own, so the CRS is resolved in
+        descending order of reliability: an explicit argument, the dataset
+        registry, a sidecar .prj, and finally an assumption.
+
+        Args:
+            vector_file: Path to the CSV file.
+            source_crs: Explicit CRS supplied by the caller, if any.
+
+        Returns:
+            The resolved CRS and whether it had to be assumed.
+        """
+        if source_crs:
+            return source_crs, False
+
+        stem = vector_file.stem.lower()
+        if stem in CSVDataRegistryForSourceCRS.__members__:
+            return CSVDataRegistryForSourceCRS[stem].value[1], False
+
+        prj_path = vector_file.with_suffix(".prj")
+        if prj_path.is_file():
+            try:
+                return CRS.from_wkt(prj_path.read_text().strip()).to_string(), False
+            except (CRSError, OSError) as exc:
+                logger.warning("Unreadable sidecar .prj for %s: %s", vector_file, exc)
+
+        return DEFAULT_CSV_CRS, True
+
+    @staticmethod
+    def _read_csv_as_gdf(
+        vector_file: Path, source_crs: str | None = None
+    ) -> gpd.GeoDataFrame:
         """
         Read a spatial CSV file and return a GeoDataFrame.
 
@@ -169,21 +247,21 @@ class GeoprocessingVector:
             df.columns = df.columns.str.lower()
 
             # Identify coordinate columns
-            x_col = set(
-                ColumnMappings.LONGITUDE.value.alias
-                + [ColumnMappings.LONGITUDE.value.canonical]
-            ).intersection(df.columns)
-            y_col = set(
-                ColumnMappings.LATITUDE.value.alias
-                + [ColumnMappings.LATITUDE.value.canonical]
-            ).intersection(df.columns)
+            x_col = ColumnMappings.LONGITUDE.value.all_names() & set(df.columns)
+            y_col = ColumnMappings.LATITUDE.value.all_names() & set(df.columns)
 
-            # Determine CRS from registry (if defined)
-            source_crs = (
-                CSVDataRegistryForSourceCRS[vector_file.stem.lower()].value[1]
-                if vector_file.stem.lower() in CSVDataRegistryForSourceCRS.__members__
-                else None
+            # Determine the source CRS: explicit > registry > sidecar .prj > assumed
+            resolved_crs, was_assumed = GeoprocessingVector._resolve_csv_source_crs(
+                vector_file, source_crs
             )
+            if was_assumed:
+                logger.warning(
+                    "No source CRS for %s; assuming %s. Coordinates in any other "
+                    "reference system will be silently misplaced. Supply a sidecar "
+                    ".prj or register the dataset to remove this assumption.",
+                    vector_file.name,
+                    resolved_crs,
+                )
 
             # Validate geometry columns
             if not x_col or not y_col:
@@ -195,7 +273,7 @@ class GeoprocessingVector:
             gdf = gpd.GeoDataFrame(
                 df,
                 geometry=gpd.points_from_xy(df[list(x_col)[0]], df[list(y_col)[0]]),
-                crs=source_crs if source_crs else "EPSG:4326",
+                crs=resolved_crs,
             )
             return gdf
 
@@ -246,11 +324,12 @@ class GeoprocessingVector:
 
         try:
             epsg_code = self.gdf.crs.to_epsg()
-            if epsg_code is None:
-                error_msg = "GeoDataFrame CRS is invalid or not EPSG compatible."
-                handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
         except Exception:
             error_msg = "GeoDataFrame CRS is invalid or unreadable."
+            handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
+        if epsg_code is None:
+            error_msg = "GeoDataFrame CRS is invalid or not EPSG compatible."
             handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
         # Final cleanup
@@ -342,10 +421,31 @@ class GeoprocessingVector:
 
         # Fix invalid geometries if requested
         if is_fix_invalid:
-            logger.info("Fixing invalid geometries...")
             if geometry_column not in self.gdf.columns:
                 error_msg = f"GeoDataFrame must contain a geometry column named '{geometry_column}'."
                 handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
+
+            geometries = self.gdf[geometry_column]
+            invalid_mask = geometries.notna() & ~geometries.is_valid
+            invalid_count = int(invalid_mask.sum())
+
+            if invalid_count:
+                logger.info(f"Repairing {invalid_count} invalid geometries...")
+                self.gdf.loc[invalid_mask, geometry_column] = self.gdf.loc[
+                    invalid_mask, geometry_column
+                ].apply(self._repair_geometry)
+
+                unrepaired = int(
+                    self.gdf.loc[invalid_mask, geometry_column].isna().sum()
+                )
+                logger.info(f"Repaired {invalid_count - unrepaired} geometries.")
+                if unrepaired:
+                    logger.warning(
+                        f"{unrepaired} geometries could not be repaired and will be "
+                        "dropped."
+                    )
+            else:
+                logger.info("No invalid geometries found.")
 
         # Remove geometries that are still invalid after fixing and listed them in a warning
         if self.gdf[geometry_column].isnull().any():
@@ -465,6 +565,7 @@ def _process_spatial_table(
     override_method: str = "replace",
     write_parquet: bool = True,
     gid_offset: int = 0,
+    chunk_index: int | None = None,
 ) -> gpd.GeoDataFrame | None:
     """Validate, harmonize, and persist a spatial table to PostGIS and GeoParquet.
 
@@ -472,7 +573,14 @@ def _process_spatial_table(
         table: Target table name.
         processor: Configured GeoprocessingVector instance.
         override_method: PostGIS insert mode — 'replace' for first/only chunk, 'append' for subsequent chunks.
-        write_parquet: Whether to export GeoParquet via DuckDB. Set False for chunked large layers.
+        write_parquet: Whether to export GeoParquet via DuckDB.
+        gid_offset: Added to generated GIDs so chunks have globally unique IDs.
+        chunk_index: If set, this call is one chunk of a larger chunked
+            ingestion; the GeoParquet output is staged under
+            .chunks/<table>/partNNNN.parquet instead of the final
+            <table>.parquet, and the materialize trigger is not fired here
+            -- main.py fires it once, after finalize_chunked_geoparquet()
+            combines every chunk for this table.
 
     Returns:
         Processed GeoDataFrame, or None if the result is empty.
@@ -495,6 +603,10 @@ def _process_spatial_table(
         )
         return None
 
+    # insert_table_data() mutates processed_gdf["gid"] in place to apply
+    # gid_offset -- the GeoParquet export below relies on that same
+    # already-offset gid column, so don't add a defensive .copy() here
+    # without also updating the Parquet path to apply gid_offset itself.
     with PostGISManager() as pg_manager:
         pg_manager.insert_table_data(
             gdf=processed_gdf,
@@ -504,7 +616,15 @@ def _process_spatial_table(
         )
 
     if write_parquet:
-        DuckDBManager.save_gdf_to_geoparquet(gdf=processed_gdf, output_file_name=table)
+        if chunk_index is not None:
+            output_file_name = f".chunks/{table}/part{chunk_index:04d}"
+        else:
+            output_file_name = table
+        DuckDBManager.save_gdf_to_geoparquet(
+            gdf=processed_gdf, output_file_name=output_file_name
+        )
+        if chunk_index is None:
+            trigger_materialize_and_notify(table)
     return processed_gdf
 
 
@@ -538,6 +658,27 @@ def _process_non_spatial_table(
 
 
 GEE_TABLE_NAME = "som_field_boundaries"
+FIELD_ID_MAP_PATH = (
+    Path(__file__).resolve().parents[2] / "resources" / "som_field_id_to_gid.csv"
+)
+
+
+def load_field_id_to_gid(path: Path = FIELD_ID_MAP_PATH) -> dict[int, int]:
+    """Return the GEE FIELD_ID -> som_field_boundaries gid lookup.
+
+    GEE numbers fields by the order of ``fields.toList()``, a block permutation
+    of the shapefile row order that the platform uses as gid, so the two
+    identifiers differ. The table is built by
+    ``gis-pipeline/scripts/build_field_id_map.py``.
+
+    Args:
+        path: CSV with ``FIELD_ID`` and ``gid`` columns.
+
+    Returns:
+        Mapping of FIELD_ID to gid.
+    """
+    df = pd.read_csv(path, usecols=["FIELD_ID", "gid"])
+    return dict(zip(df["FIELD_ID"].astype(int), df["gid"].astype(int)))
 
 
 def get_gee_field_ids(duckdb_data_dir: str) -> set[int]:
@@ -565,20 +706,52 @@ def get_gee_field_ids(duckdb_data_dir: str) -> set[int]:
         return set()
 
 
+def get_gee_gid_map(duckdb_data_dir: str) -> dict[int, int]:
+    """Return gid -> FIELD_ID for the fields that have GEE data.
+
+    FIELD_IDs present in the BareSoil parquet files but missing from the lookup
+    table are logged and left out.
+
+    Args:
+        duckdb_data_dir: Directory containing BareSoil_TOPCLI_*.parquet files.
+
+    Returns:
+        Mapping of som_field_boundaries gid to GEE FIELD_ID.
+    """
+    field_ids = get_gee_field_ids(duckdb_data_dir)
+    field_id_to_gid = load_field_id_to_gid()
+    unmapped = field_ids - field_id_to_gid.keys()
+    if unmapped:
+        logger.warning(
+            "gee_field_ids_unmapped", count=len(unmapped), field_ids=sorted(unmapped)
+        )
+    return {field_id_to_gid[fid]: fid for fid in field_ids & field_id_to_gid.keys()}
+
+
 def stamp_gee_flags_on_field_boundaries() -> None:
-    """Stamp has_gee_data on som_field_boundaries and refresh its GeoParquet.
+    """Stamp gee_field_id and has_gee_data, then refresh the GeoParquet.
 
     Called once after all vector tables are loaded (end of process_vector_pipeline).
     Skipped quietly when som_field_boundaries has not been ingested yet. Fully
-    non-fatal: any failure is logged as a warning and does not abort the pipeline.
+    non-fatal: any failure is logged and does not abort the pipeline. An
+    unreadable FIELD_ID lookup still stamps the columns, with no field flagged,
+    so som-predict-soil reports missing GEE data instead of a missing column.
     """
     try:
         with PostGISManager() as pg_manager:
             if not pg_manager.has_table(GEE_TABLE_NAME):
                 logger.info("gee_flags_table_missing", table=GEE_TABLE_NAME)
                 return
-            field_ids = get_gee_field_ids(Config.DUCKDB_DATA_DIR)
-            pg_manager.stamp_gee_flags(GEE_TABLE_NAME, field_ids)
+            try:
+                gid_to_field_id = get_gee_gid_map(Config.DUCKDB_DATA_DIR)
+            except (OSError, ValueError) as exc:
+                logger.error(
+                    "gee_field_id_map_unreadable",
+                    path=str(FIELD_ID_MAP_PATH),
+                    error=str(exc),
+                )
+                gid_to_field_id = {}
+            pg_manager.stamp_gee_flags(GEE_TABLE_NAME, gid_to_field_id)
     except Exception as exc:
         logger.warning("gee_stamp_postgis_failed", error=str(exc))
         return
@@ -604,6 +777,7 @@ def _refresh_gee_geoparquet() -> None:
             )
         DuckDBManager.save_gdf_to_geoparquet(gdf=gdf, output_file_name=GEE_TABLE_NAME)
         logger.info("gee_parquet_refreshed", rows=len(gdf))
+        trigger_materialize_and_notify(GEE_TABLE_NAME)
     except Exception as exc:
         logger.warning("gee_parquet_refresh_failed", error=str(exc))
 
@@ -615,6 +789,7 @@ def geoprocessing_vector_data(
     override_method: str = "replace",
     write_parquet: bool = True,
     gid_offset: int = 0,
+    chunk_index: int | None = None,
 ):
     """Process vector data and insert into PostGIS and Vector API.
 
@@ -623,8 +798,9 @@ def geoprocessing_vector_data(
         target_crs: Target CRS as an EPSG code (e.g., 4326).
         collection_id: Unique ID for the Vector collection.
         override_method: PostGIS insert mode — 'replace' for first/only chunk, 'append' for subsequent chunks.
-        write_parquet: Whether to export GeoParquet via DuckDB. Set False for chunked large layers.
+        write_parquet: Whether to export GeoParquet via DuckDB.
         gid_offset: Added to generated GIDs so chunks have globally unique IDs.
+        chunk_index: Passed through to _process_spatial_table -- see its docstring.
     """
     add_process_to_logger(logger, "Processing Vector Data PostGIS")
 
@@ -638,60 +814,29 @@ def geoprocessing_vector_data(
         for table, gdf in gdf_list:
             logger.info(f"Processing vector data for table: {table}")
 
-        processor = GeoprocessingVector(
-            gdf=gdf,
-            target_crs=target_crs,
-            collection_id=collection_id,
-        )
+            processor = GeoprocessingVector(
+                gdf=gdf,
+                target_crs=target_crs,
+                collection_id=collection_id,
+            )
 
-        geometry_cols = set(
-            ColumnMappings.GEOMETRY.value.alias
-            + [ColumnMappings.GEOMETRY.value.canonical]
-        ).intersection(gdf.columns)
+            geometry_cols = ColumnMappings.GEOMETRY.value.all_names() & set(gdf.columns)
 
-        if geometry_cols:
-            logger.info(f"Table {table} is spatial. Processing geometry steps.")
-            if (
+            if geometry_cols:
+                logger.info(f"Table {table} is spatial. Processing geometry steps.")
                 _process_spatial_table(
                     table,
                     processor,
                     override_method=override_method,
                     write_parquet=write_parquet,
                     gid_offset=gid_offset,
+                    chunk_index=chunk_index,
                 )
-                is None
-            ):
-                return
-
-        # Fallback non-spatial table handling
-        if not geometry_cols:
-            logger.warning(
-                f"Table {table} is non-spatial. Skipping geometry processing steps."
-            )
-
-            geometry_cols = set(
-                ColumnMappings.GEOMETRY.value.alias
-                + [ColumnMappings.GEOMETRY.value.canonical]
-            ).intersection(gdf.columns)
-
-            if geometry_cols:
-                logger.info(f"Table {table} is spatial. Processing geometry steps.")
-                if (
-                    _process_spatial_table(
-                        table,
-                        processor,
-                        override_method=override_method,
-                        write_parquet=write_parquet,
-                    )
-                    is None
-                ):
-                    return
             else:
                 logger.warning(
                     f"Table {table} is non-spatial. Skipping geometry processing steps."
                 )
-                if _process_non_spatial_table(table, processor) is None:
-                    return
+                _process_non_spatial_table(table, processor)
     except VectorProcessingError:
         raise
     except Exception as e:
@@ -791,6 +936,7 @@ class GeoprocessingRaster:
                     "width": src.width,
                     "height": src.height,
                     "crs": str(src.crs) if src.crs else None,
+                    "epsg": src.crs.to_epsg() if src.crs else None,
                     "nodata": src.nodata,
                     "dtype": str(src.dtypes[0]) if src.dtypes else None,
                     "tags": tags,
@@ -859,6 +1005,7 @@ class GeoprocessingRaster:
         cog_profile: str,
         reference_nodata: float = None,
         overwrite_existing: bool = True,
+        resampling_method: str = "bilinear",
         additional_options: list[str] = None,
     ) -> list[str]:
         """Build gdalwarp command for COG creation.
@@ -870,6 +1017,9 @@ class GeoprocessingRaster:
             cog_profile: COG creation profile name.
             reference_nodata: NoData value to set in the output raster.
             overwrite_existing: Whether to overwrite existing files.
+            resampling_method: GDAL resampling algorithm (`-r`). Defaults to
+                'bilinear', suited to continuous data (soil properties, DTM/CHM);
+                pass 'near' for categorical/classified rasters.
             additional_options: Additional gdalwarp options.
 
         Returns:
@@ -880,6 +1030,8 @@ class GeoprocessingRaster:
             "gdalwarp",
             "-t_srs",
             f"EPSG:{target_crs}",
+            "-r",
+            resampling_method,
             "-of",
             "COG",
         ]
@@ -912,6 +1064,72 @@ class GeoprocessingRaster:
         warp_cmd.extend([str(input_raster_path), str(output_path)])
 
         return warp_cmd
+
+    def _build_gdaltranslate_cog_command(
+        self,
+        input_raster_path: Path,
+        output_path: Path,
+        cog_profile: str,
+        reference_nodata: float = None,
+        additional_options: list[str] = None,
+    ) -> list[str]:
+        """Build a gdal_translate command for COG creation without reprojection.
+
+        Used instead of gdalwarp when the source raster is already in the target
+        CRS, since gdalwarp always resamples even for a same-CRS pass.
+
+        Args:
+            input_raster_path: Path to input raster file.
+            output_path: Path to output COG file.
+            cog_profile: COG creation profile name.
+            reference_nodata: NoData value to set in the output raster.
+            additional_options: Additional gdal_translate options.
+
+        Returns:
+            List of command arguments for gdal_translate.
+        """
+        translate_cmd = ["gdal_translate", "-of", "COG"]
+
+        # COG profile
+        profile = self._get_cog_creation_profile(profile=cog_profile)
+
+        # Apply profile options
+        for key, value in profile.items():
+            if value is not None:
+                option_name = key.upper()
+                translate_cmd.extend(["-co", f"{option_name}={value}"])
+
+        # NoData value
+        if reference_nodata is not None:
+            translate_cmd.extend(["-a_nodata", str(reference_nodata)])
+
+        # Additional custom options
+        if additional_options:
+            translate_cmd.extend(additional_options)
+
+        # Input and output files
+        translate_cmd.extend([str(input_raster_path), str(output_path)])
+
+        return translate_cmd
+
+    def _resolve_target_crs(self, raster_path: Path, default_target_crs: int) -> int:
+        """Resolve the effective target CRS for one raster.
+
+        Args:
+            raster_path: Path to the source raster file.
+            default_target_crs: Batch-wide target CRS to fall back to.
+
+        Returns:
+            EPSG code this raster should be harmonized to: the matching entry
+            in RasterTargetCRSOverrides if the file stem contains its keyword,
+            otherwise default_target_crs.
+        """
+        stem_lower = raster_path.stem.lower()
+        for override in RasterTargetCRSOverrides:
+            keyword, crs_str = override.value
+            if keyword in stem_lower:
+                return int(crs_str.split(":")[1])
+        return default_target_crs
 
     def _restore_backup_file(self, backup_file: Path, restore_path: Path):
         """Restore a backup file in case of an error.
@@ -1015,6 +1233,50 @@ class GeoprocessingRaster:
             "data_type": "raster",
         }
 
+    @staticmethod
+    def _render_params(
+        src: rasterio.io.DatasetReader,
+    ) -> tuple[Optional[int], Optional[str]]:
+        """Return the ``(bidx, rescale)`` TiTiler needs to render a COG.
+
+        TiTiler encodes a 1-band COG as greyscale and a 3-band uint8 one as
+        RGB, but can encode nothing else — a 6-band soil COG answers 500 — so
+        any other shape renders band 1 explicitly. It also casts a float band
+        straight to uint8 when given no rescale, which renders a continuous
+        raster flat, so a rendered band carries its own value range, read
+        downsampled since only its extremes are needed.
+
+        NaN is not covered by the nodata mask — the soil COGs carry both — so
+        non-finite pixels are dropped before taking the extremes, or a single
+        NaN would publish ``rescale=nan,nan``. The rescale is None for an RGB
+        composite, already displayable as-is, and whenever nothing usable is
+        left: no real pixels, or a constant band, which would make rio-tiler
+        divide by zero — leaving the href unrescaled rather than failing the
+        whole metadata step.
+
+        Args:
+            src: Open rasterio dataset for the COG.
+        """
+        if src.count == 3 and set(src.dtypes) == {"uint8"}:
+            return None, None
+        bidx = None if src.count == 1 else 1
+        try:
+            step = max(1, max(src.height, src.width) // 1024)
+            band = src.read(
+                1, masked=True, out_shape=(src.height // step, src.width // step)
+            )
+        except (rasterio.errors.RasterioIOError, OSError) as exc:
+            logger.warning("Could not read %s for render rescale: %s", src.name, exc)
+            return bidx, None
+        values = band.compressed()
+        values = values[np.isfinite(values)]
+        if values.size == 0:
+            return bidx, None
+        low, high = float(values.min()), float(values.max())
+        if low == high:
+            return bidx, None
+        return bidx, f"{low},{high}"
+
     def prepare_cog_metadata_for_stac(
         self, original_raster_path: Path, cog_file_path: Path
     ) -> dict:
@@ -1043,6 +1305,14 @@ class GeoprocessingRaster:
             bounds = src.bounds
             crs = src.crs
 
+            # STAC's core bbox/geometry are spec-required to be WGS84 lon/lat,
+            # regardless of the asset's own CRS (proj:epsg carries the true
+            # native CRS separately via _build_stac_properties).
+            if crs and crs.to_epsg() != 4326:
+                wgs84_bounds = BoundingBox(*transform_bounds(crs, "EPSG:4326", *bounds))
+            else:
+                wgs84_bounds = bounds
+
             raster_bands = [
                 {
                     "nodata": (src.nodatavals[i - 1] if src.nodatavals else src.nodata),
@@ -1069,14 +1339,32 @@ class GeoprocessingRaster:
                 dt_val = dt_val.isoformat()
 
             # Return a plain dict (compatible with other gis_pipeline code / tests)
+            cog_url = public_cog_url(cog_file_path)
+            bidx, rescale = self._render_params(src)
             assets = {
                 "cog": {
-                    "href": f"file://{cog_file_path.absolute()}",
+                    "href": cog_url,
                     "type": "image/tiff; application=geotiff; profile=cloud-optimized",
                     "roles": ["data"],
                     "title": cog_file_path.name,
                     "raster_bands": raster_bands,
-                }
+                },
+                "preview": {
+                    "href": public_preview_url(
+                        cog_file_path, rescale=rescale, bidx=bidx
+                    ),
+                    "type": "image/png",
+                    "roles": ["overview"],
+                    "title": "PNG preview",
+                },
+                "tilejson": {
+                    "href": public_tilejson_url(
+                        cog_file_path, rescale=rescale, bidx=bidx
+                    ),
+                    "type": "application/json",
+                    "roles": ["tiles"],
+                    "title": "TileJSON (XYZ tiles)",
+                },
             }
 
             return {
@@ -1085,15 +1373,20 @@ class GeoprocessingRaster:
                     "type": "Polygon",
                     "coordinates": [
                         [
-                            [bounds.left, bounds.bottom],
-                            [bounds.right, bounds.bottom],
-                            [bounds.right, bounds.top],
-                            [bounds.left, bounds.top],
-                            [bounds.left, bounds.bottom],
+                            [wgs84_bounds.left, wgs84_bounds.bottom],
+                            [wgs84_bounds.right, wgs84_bounds.bottom],
+                            [wgs84_bounds.right, wgs84_bounds.top],
+                            [wgs84_bounds.left, wgs84_bounds.top],
+                            [wgs84_bounds.left, wgs84_bounds.bottom],
                         ]
                     ],
                 },
-                "bbox": [bounds.left, bounds.bottom, bounds.right, bounds.top],
+                "bbox": [
+                    wgs84_bounds.left,
+                    wgs84_bounds.bottom,
+                    wgs84_bounds.right,
+                    wgs84_bounds.top,
+                ],
                 "datetime": dt_val,
                 "properties": self._build_stac_properties(
                     src=src,
@@ -1107,7 +1400,8 @@ class GeoprocessingRaster:
                     "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
                     "https://stac-extensions.github.io/projection/v1.1.0/schema.json",
                 ],
-                "file_url": f"file://{cog_file_path.absolute()}",
+                "file_url": str(cog_file_path.absolute()),
+                "href": cog_url,
             }
 
     def _process_single_raster_to_cog(
@@ -1155,18 +1449,29 @@ class GeoprocessingRaster:
             logger.info(f"Overwriting existing file: {output_cog}")
 
         try:
-            warp_cmd = self._build_gdalwarp_command(
-                input_raster_path=raster_path,
-                output_path=output_cog,
-                target_crs=target_crs,
-                cog_profile=cog_profile,
-                reference_nodata=reference_nodata,
-                overwrite_existing=overwrite_existing,
-            )
+            effective_target_crs = self._resolve_target_crs(raster_path, target_crs)
+            source_epsg = self.raster_metadata.get(raster_path, {}).get("epsg")
 
-            # Execute the gdalwarp command
+            if source_epsg is not None and source_epsg == effective_target_crs:
+                cmd = self._build_gdaltranslate_cog_command(
+                    input_raster_path=raster_path,
+                    output_path=output_cog,
+                    cog_profile=cog_profile,
+                    reference_nodata=reference_nodata,
+                )
+            else:
+                cmd = self._build_gdalwarp_command(
+                    input_raster_path=raster_path,
+                    output_path=output_cog,
+                    target_crs=effective_target_crs,
+                    cog_profile=cog_profile,
+                    reference_nodata=reference_nodata,
+                    overwrite_existing=overwrite_existing,
+                )
+
+            # Execute the gdalwarp/gdal_translate command
             self._warp_raster(
-                warp_cmd=warp_cmd, raster_path=raster_path, output_path=output_cog
+                warp_cmd=cmd, raster_path=raster_path, output_path=output_cog
             )
 
             # Verify output file was created
@@ -1183,17 +1488,10 @@ class GeoprocessingRaster:
 
             return (raster_path, output_cog)
 
-        except subprocess.CalledProcessError as e:
-            error_msg = f"gdalwarp failed for {raster_path}: exit code {e.returncode}"
-            logger.error(error_msg)
-            logger.error(f"STDERR:\n{e.stderr}")
-            self._restore_backup_file(backup_file, output_path)
-            raise RuntimeError(error_msg) from e
-
         except Exception as e:
             error_msg = f"Unexpected error processing {raster_path}: {e}"
             logger.error(error_msg, exc_info=True)
-            self._restore_backup_file(backup_file, output_path)
+            self._restore_backup_file(backup_file, output_cog)
             raise RuntimeError(error_msg) from e
 
     def process_raster_to_cog(
@@ -1319,11 +1617,11 @@ def _process_single_cog(
         Metadata dict, or None if processing failed.
     """
     logger.info(f"Processing COG file: {cog_file}")
-    try:
-        if not cog_file.exists():
-            error_msg = f"COG file does not exist: {cog_file}"
-            handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
+    if not cog_file.exists():
+        logger.warning("COG file does not exist: %s", cog_file)
+        return None
 
+    try:
         metadata = processing.prepare_cog_metadata_for_stac(
             original_raster_path=original_raster, cog_file_path=cog_file
         )
@@ -1425,12 +1723,16 @@ def geoprocessing_raster_data(
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
         processing = GeoprocessingRaster(config=Config, raster_paths=rasters)
-        harmonized_cog_pairs = _create_cog_files(
-            rasters, output_dir, target_crs, processing
-        )
-        all_raster_metadata = _collect_cog_metadata(harmonized_cog_pairs, processing)
-        _publish_stac(all_raster_metadata, stac_collection_id, api_url)
-        processing.close_all_rasters()
+        try:
+            harmonized_cog_pairs = _create_cog_files(
+                rasters, output_dir, target_crs, processing
+            )
+            all_raster_metadata = _collect_cog_metadata(
+                harmonized_cog_pairs, processing
+            )
+            _publish_stac(all_raster_metadata, stac_collection_id, api_url)
+        finally:
+            processing.close_all_rasters()
     except RasterProcessingError:
         raise
     except Exception as e:

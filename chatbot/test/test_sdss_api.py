@@ -1,9 +1,15 @@
 from unittest.mock import AsyncMock, patch
 
+import agri_i18n
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sdss_api import _build_process_catalog, _extract_text_tool_call, router
+from sdss_api import (
+    _build_process_catalog,
+    _extract_text_tool_call,
+    _QueryRequest,
+    router,
+)
 
 
 @pytest.mark.unit
@@ -176,3 +182,79 @@ def test_sdss_query_passes_correct_key_when_auth_enabled(monkeypatch):
         headers={"X-API-Key": "secret"},
     )
     assert resp.status_code == 503  # auth passed, LLM key missing
+
+
+_FALLBACK_MSGID = "I was unable to complete the spatial analysis."
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "language,expected_fragment",
+    [
+        ("fr", "analyse spatiale"),
+        ("en", "spatial analysis"),
+        ("FR", "analyse spatiale"),
+        ("fr-CA", "analyse spatiale"),
+        ("en-US", "spatial analysis"),
+        ("  en  ", "spatial analysis"),
+    ],
+)
+def test_fallback_message_follows_requested_language(language, expected_fragment):
+    """The tool-loop failure message resolves through the gettext catalog.
+
+    Replaces the hand-written _FALLBACK_MESSAGES dict; asserting real French
+    here also proves the compiled .mo ships in the image.
+    """
+    with agri_i18n.use_locale(language):
+        assert expected_fragment in agri_i18n._(_FALLBACK_MSGID)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("language", [None, "", "de", "xx"])
+def test_fallback_message_defaults_to_french(language):
+    """Absent or unsupported languages fall back to the platform default."""
+    with agri_i18n.use_locale(language):
+        assert "analyse spatiale" in agri_i18n._(_FALLBACK_MSGID)
+
+
+@pytest.mark.unit
+def test_query_request_accepts_language():
+    req = _QueryRequest(query="hello", language="en")
+    assert req.language == "en"
+
+
+@pytest.mark.unit
+def test_query_request_language_is_optional():
+    assert _QueryRequest(query="hello").language is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "language,expected",
+    [("en", "en"), ("fr", "fr"), ("en-US", "en"), (None, "fr"), ("de", "fr")],
+)
+def test_sdss_query_binds_locale_from_body(monkeypatch, language, expected):
+    """The body's `language` binds the gettext locale for the request.
+
+    The chatbot receives its language in the request body rather than a
+    header, so it binds the locale in the handler instead of via middleware.
+    Asserted before the LLM call, which 503s here for lack of a key.
+    """
+    monkeypatch.setenv("ENABLE_AUTH", "false")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    observed = {}
+
+    def _record(code):
+        observed["locale"] = agri_i18n.normalize(code) or agri_i18n.DEFAULT
+
+    app = FastAPI()
+    app.include_router(router, prefix="/sdss")
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch("sdss_api.set_locale", side_effect=_record):
+        payload = {"query": "hello"}
+        if language is not None:
+            payload["language"] = language
+        client.post("/sdss/query", json=payload)
+
+    assert observed["locale"] == expected

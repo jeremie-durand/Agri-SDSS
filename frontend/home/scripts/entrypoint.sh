@@ -1,17 +1,37 @@
 #!/bin/sh
 set -e
 
-# Substitute environment variables into the HTML template
+# index.html is baked in as a template and copied as is (no substitution)
 cp /usr/share/nginx/html/index.html.template /usr/share/nginx/html/index.html
+
+cat > /usr/share/nginx/html/runtime-config.js <<RUNTIME_EOF
+window.AGRI_CONFIG = {
+    primaryCollectionPrefix: "${PRIMARY_COLLECTION_PREFIX:-bdppad}",
+    mapCenter: [${MAP_CENTER_LAT:-46.8139}, ${MAP_CENTER_LON:--71.2080}],
+    mapZoom: ${MAP_ZOOM:-6}
+};
+RUNTIME_EOF
 
 # Generate full nginx server block (single-quoted heredoc prevents shell expansion of $host etc.)
 cat > /etc/nginx/conf.d/default.conf << 'NGINX_EOF'
+limit_conn_zone $server_name zone=chatbot_conn:1m;
+
+# Original request scheme: the value Caddy forwarded, or this server's own
+# scheme when the request arrived directly.
+map $http_x_forwarded_proto $forwarded_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+
 server {
     listen 8080;
     listen [::]:8080;
     server_name localhost;
     resolver 127.0.0.11 valid=5s ipv6=off;
     root /usr/share/nginx/html;
+    client_header_timeout 10s;
+    client_body_timeout   15s;
+    limit_conn_status     503;
 
     gzip on;
     gzip_types text/html text/css application/javascript application/json;
@@ -95,34 +115,71 @@ server {
     # ── Chatbot API routes ────────────────────────────────
     # The React SPA uses window.location.origin as its Axios base URL, so API
     # calls from /chatbot/ arrive at home nginx as root-relative paths.
-    location ~ ^/(api|query|chat|unified-chat|enhanced-chat|collections|stac-search|veda|search|intelligent-route|health|debug|maps-config|pc_collections_metadata\.json)(/|$) {
+    # The backend surface is /api/*, /sdss/* and three root-level JSON
+    # documents (checked against its OpenAPI schema). Paths outside that set
+    # are not proxied at all, so a bogus request is refused here instead of
+    # being handed a 600s slot to reach a 404.
+
+    # Static JSON documents — no LLM work, so no long timeout.
+    location ~ ^/(pc_collections_metadata|pc_rendering_config|stac_collections)\.json$ {
         proxy_pass http://chatbot-backend:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 120s;
+        proxy_read_timeout 30s;
+    }
+
+    location ~ ^/api(/|$) {
+        limit_conn chatbot_conn 24;
+        proxy_pass http://chatbot-backend:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # CPU-only local Ollama can take >120s for a single completion, and
+        # one chat turn can chain several completions in the agent's tool
+        # loop (observed ~325s total across 3 completions in production, on
+        # top of process/STAC lookups) — 300s was sized for one completion
+        # and isn't enough headroom for the full loop.
+        # Concurrency is bounded by the Caddy chatbot_* zones and by
+        # OLLAMA_NUM_PARALLEL / OLLAMA_MAX_QUEUE, not by this timeout.
+        proxy_read_timeout 600s;
     }
 
     # ── SDSS spatial process routes ────────────────────────────
     location /sdss/ {
+        limit_conn chatbot_conn 24;
         proxy_pass http://chatbot-backend:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 120s;
+        proxy_read_timeout 600s;
     }
 
     # ── Local Agri-SDSS API proxies (used by chatbot-bridge.js) ────────────────
+    # Read-only in public: stac-api runs the Transactions extension with no auth,
+    # for gis-pipeline and process-api, which publish on the internal URL.
     location /stac-api/ {
+        limit_except GET OPTIONS { deny all; }
         proxy_pass http://stac-api:8080/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        add_header Access-Control-Allow-Origin *;
+    }
+    # POST /search is a read (CQL2 filters in the body), used by STAC Browser.
+    location = /stac-api/search {
+        limit_except GET POST OPTIONS { deny all; }
+        proxy_pass http://stac-api:8080/search;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
         add_header Access-Control-Allow-Origin *;
     }
     location /vector-api/ {
         proxy_pass http://vector-api:8080/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
         proxy_set_header Accept-Encoding "";
         add_header Access-Control-Allow-Origin *;
         proxy_read_timeout 120s;
@@ -134,12 +191,14 @@ server {
         proxy_pass http://raster-api:8080/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
         add_header Access-Control-Allow-Origin *;
     }
     location /process-api/ {
         proxy_pass http://process-api:5000/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
         add_header Access-Control-Allow-Origin *;
         proxy_read_timeout 630s;
     }
@@ -158,6 +217,16 @@ server {
         add_header Cache-Control "no-cache, must-revalidate";
     }
 
+    # ── COG downloads ─────────────────────────────────────────────────────────
+    # Serves the raster files referenced by STAC asset hrefs
+    location ~ ^/cog/[^/]+\.tiff?$ {
+        root /usr/share/nginx;
+        add_header Access-Control-Allow-Origin *;
+        add_header Cache-Control "public, max-age=0, must-revalidate";
+        limit_rate_after 16m;
+        limit_rate       6m;
+    }
+
     location / { try_files $uri $uri/ =404; }
 
     error_page 500 502 503 504 /50x.html;
@@ -169,5 +238,12 @@ NGINX_EOF
 sed -i "s|proxy_pass http://stac-api:8080/|proxy_pass http://stac-api:${STAC_API_PORT}/|g" /etc/nginx/conf.d/default.conf
 sed -i "s|proxy_pass http://vector-api:8080/|proxy_pass http://vector-api:${VECTOR_API_PORT}/|g" /etc/nginx/conf.d/default.conf
 sed -i "s|proxy_pass http://raster-api:8080/|proxy_pass http://raster-api:${RASTER_API_PORT}/|g" /etc/nginx/conf.d/default.conf
+
+# Config-only mode for `make lint-nginx`: parse what this script just generated
+# and exit, instead of serving. nginx renders its config at container start, so
+# a bad directive would otherwise surface on deploy rather than in CI.
+if [ "${1:-}" = "validate" ]; then
+    exec nginx -t
+fi
 
 exec nginx -g 'daemon off;'

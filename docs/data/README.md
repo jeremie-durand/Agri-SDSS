@@ -5,6 +5,7 @@ Scope: This page is a navigational index and how-to guide. For authoritative, up
 ## Data Catalog/Sources
 
 See [CATALOG.md](CATALOG.md) for the single source of truth about integrated data sources, including:
+
 - Data type (raster, vector, tabular)
 - CRS and file formats
 - Update frequency
@@ -15,7 +16,7 @@ See [CATALOG.md](CATALOG.md) for the single source of truth about integrated dat
 
 Templates and real examples from the project:
 
-- [PostGIS Schema](examples/postgis_schema.md) - Standard table structure and geometry types
+- [PostGIS Schema](postgis_schema.md) - Standard table structure and geometry types
 - [STAC Metadata](examples/stac_metadata.md) - Metadata template and examples
 
 ## Implementation Guides

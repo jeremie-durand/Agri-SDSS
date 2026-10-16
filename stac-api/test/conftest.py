@@ -1,37 +1,40 @@
-import os
+import uuid
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from stac_fastapi.pgstac.app import app as stac_app
+from stac_api.app import app as stac_app
 
 
 @pytest.fixture(scope="session")
-def stac_api_url_fixture():
-    return os.getenv("STAC_API_URL", "http://localhost:8081")
+def unique_suffix() -> str:
+    """Short random suffix so concurrent or repeated runs never collide."""
+    return uuid.uuid4().hex[:8]
 
 
 @pytest.fixture(scope="session")
 def stac_integration_client():
     """Session-scoped TestClient against real stac-fastapi/pgstac.
 
-    Skips automatically if PostgreSQL or pgstac schema is unavailable
-    (e.g. unit-test runs without Docker Compose). Safe to run in CI.
+    Skips only when the database is unreachable. Any other failure — a broken
+    migration, a bad credential, an app-startup bug — propagates, because a
+    reachable-but-failing stack is a bug rather than an absent environment.
     """
     try:
         with TestClient(stac_app, raise_server_exceptions=False) as client:
             yield client
-    except Exception as exc:
+    except OSError as exc:
         pytest.skip(
             f"pgstac database unavailable — skipping STAC integration tests: {exc}"
         )
 
 
 @pytest.fixture(scope="session")
-def sample_stac_collection():
+def sample_stac_collection(unique_suffix: str) -> dict[str, Any]:
     """Minimal valid STAC Collection for integration tests."""
     return {
         "type": "Collection",
-        "id": "test-integration-collection",
+        "id": f"test-integration-collection-{unique_suffix}",
         "stac_version": "1.0.0",
         "description": "Integration test collection — created and deleted by test suite",
         "links": [],
@@ -45,13 +48,13 @@ def sample_stac_collection():
 
 
 @pytest.fixture(scope="session")
-def sample_stac_item():
+def sample_stac_item(unique_suffix: str) -> dict[str, Any]:
     """Minimal valid STAC Item for integration tests (polygon near Montreal)."""
     return {
         "type": "Feature",
         "stac_version": "1.0.0",
         "stac_extensions": [],
-        "id": "test-integration-item-001",
+        "id": f"test-integration-item-{unique_suffix}",
         "geometry": {
             "type": "Polygon",
             "coordinates": [

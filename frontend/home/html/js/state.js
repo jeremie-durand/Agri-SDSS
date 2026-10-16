@@ -1,10 +1,10 @@
+import { config } from './config.js';
+
 // ── Default API endpoints (must come before state objects that reference them) ─
 export const defaultStacEndpoint = `${window.location.origin}/stac-api/`;
 export const defaultVectorEndpoint = `${window.location.origin}/vector-api/parquet/collections`;
 export const defaultRasterApiBase = `${window.location.origin}/raster-api`;
-export const defaultRasterCogUrl = "file:///data/corg_fr_siigsol_cog.tif";
-export const defaultVectorCollectionId = "bdppad_v03_an_2025_s_20260504";
-export const defaultView = { center: [46.8139, -71.2080], zoom: 6 };
+export const defaultView = { center: config.mapCenter, zoom: config.mapZoom };
 
 // ── Map instance ──────────────────────────────────────────────────────────────
 export const map = L.map("map", { zoomControl: false, worldCopyJump: true })

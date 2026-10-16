@@ -21,6 +21,40 @@ docker compose up -d vector-api
 | `GET /postgis/collections/{id}/queryables` | Filterable properties for a collection |
 | `GET /parquet/collections` | List all GeoParquet collections |
 | `GET /parquet/collections/{id}/items` | Parquet features with spatial filtering |
+| `POST /pedo-properties` | IRDA soil components of a parcel, with NRCS hydrologic group and bulk density by depth |
+
+### `POST /pedo-properties`
+
+Body: `{"geometry": <GeoJSON geometry>}`. Joins the IRDA pedological coverage (2026_01)
+for the parcel: the polygons it overlaps (PostGIS), their soil components
+(`couverture_pps`), each component's hydrologic group (BDHP 2026) and its bulk density
+by horizon (`ppc_eessaq`, falling back to the 1990 inventory without depths).
+
+```json
+{
+  "components": [
+    {
+      "composante": "21Cw", "code_sol": "CWA", "share_pct": 55.0,
+      "hydrologic_group": "C",
+      "bulk_density": {
+        "source": "eessaq",
+        "horizons": [
+          {"horizon": "Ap1", "depth_top_cm": 0.0, "depth_bottom_cm": 15.0, "g_cm3": 1.167}
+        ]
+      }
+    }
+  ],
+  "dominant_hydrologic_group": "C",
+  "described_pct": 75.0
+}
+```
+
+- `share_pct` is the share of the parcel attributed to a component (overlap × component
+  percentage); `described_pct` is their sum — the rest of the parcel has no component data.
+- `hydrologic_group` is `A`–`D` or a dual group such as `C/D`; `null` when unknown.
+- `bulk_density.source` is `eessaq` (depths known), `inventaire_1990` (no depths) or `null`.
+- Table names are configurable: `PEDO_POLYGON_TABLE_NAME`, `PEDO_COMPONENTS_COLLECTION`,
+  `PEDO_HYDRO_COLLECTION`, `PEDO_BULK_DENSITY_COLLECTION`, `PEDO_BULK_DENSITY_1990_COLLECTION`.
 
 ## Backends
 
@@ -36,6 +70,18 @@ docker compose up -d vector-api
 - **CQL filtering** — attribute and spatial filters on PostGIS collections (`/postgis/` only)
 - **Output formats** — GeoJSON (default), CSV (`?f=csv`), GeoJSON-seq (`?f=geojsonseq`)
 - **Pagination** — `limit` + `offset` on all item endpoints
+- **Localised errors** — French by default; send `Accept-Language: en` or `?lang=en` for English
+
+## Language
+
+Error messages are returned in **French by default**:
+
+```bash
+curl -H "Accept-Language: en" .../vector-api/som-field-match
+```
+
+Status codes and response structure are identical in both languages — only the `detail` text
+changes. See [Internationalization](../docs/I18N.md).
 
 ## Configuration
 

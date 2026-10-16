@@ -536,6 +536,92 @@ def test_extract_gpkg_fk_schema_unknown_ref_table_skipped(tmp_path):
     assert result == []
 
 
+class _FlakyCursor:
+    """Cursor that delegates to a real one but fails on the Nth execute()."""
+
+    def __init__(self, cursor, fail_on: int) -> None:
+        self._cursor = cursor
+        self._fail_on = fail_on
+        self._calls = 0
+
+    def execute(self, sql, *args, **kwargs):
+        self._calls += 1
+        if self._calls == self._fail_on:
+            raise sqlite3.OperationalError("disk I/O error")
+        return self._cursor.execute(sql, *args, **kwargs)
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+
+class _FlakyConnection:
+    """Connection wrapper handing out a _FlakyCursor."""
+
+    def __init__(self, connection, fail_on: int) -> None:
+        self._connection = connection
+        self._fail_on = fail_on
+
+    def cursor(self):
+        return _FlakyCursor(self._connection.cursor(), self._fail_on)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+@pytest.mark.unit
+def test_extract_gpkg_fk_schema_layer_failure_keeps_other_layers(tmp_path):
+    """A layer that cannot be read is skipped; the remaining FKs still come back."""
+    gpkg = tmp_path / "flaky.gpkg"
+    with sqlite3.connect(str(gpkg)) as conn:
+        for i in (1, 2, 3):
+            conn.execute(f"CREATE TABLE Parent{i} (code TEXT PRIMARY KEY)")
+            conn.execute(
+                f"CREATE TABLE Child{i} (id INTEGER, code TEXT, "
+                f"FOREIGN KEY (code) REFERENCES Parent{i} (code))"
+            )
+
+    layer_map = {f"Child{i}": f"child{i}" for i in (1, 2, 3)}
+    layer_map.update({f"Parent{i}": f"parent{i}" for i in (1, 2, 3)})
+
+    real_connect = sqlite3.connect
+    with patch(
+        "gis_pipeline.modules.io_tools.input_data.sqlite3.connect",
+        lambda path, *a, **k: _FlakyConnection(real_connect(path), fail_on=2),
+    ):
+        result = extract_gpkg_fk_schema(gpkg, layer_map)
+
+    # Child2 raised; Child3 is read anyway. Aborting the whole loop would lose it.
+    assert [fk["from_table"] for fk in result] == ["child1", "child3"]
+
+
+@pytest.mark.unit
+def test_extract_gpkg_fk_schema_layer_failure_is_logged(tmp_path):
+    """The failing layer is named in the logs rather than silently dropped."""
+    gpkg = tmp_path / "flaky_log.gpkg"
+    with sqlite3.connect(str(gpkg)) as conn:
+        conn.execute("CREATE TABLE Parent (code TEXT PRIMARY KEY)")
+        conn.execute(
+            "CREATE TABLE Child (id INTEGER, code TEXT, "
+            "FOREIGN KEY (code) REFERENCES Parent (code))"
+        )
+
+    real_connect = sqlite3.connect
+    with patch(
+        "gis_pipeline.modules.io_tools.input_data.sqlite3.connect",
+        lambda path, *a, **k: _FlakyConnection(real_connect(path), fail_on=1),
+    ):
+        with patch("gis_pipeline.modules.io_tools.input_data.logger") as mock_logger:
+            result = extract_gpkg_fk_schema(gpkg, {"Child": "child"})
+
+    assert result == []
+    events = [call.args[0] for call in mock_logger.warning.call_args_list]
+    assert "gpkg_fk_layer_failed" in events
+    assert "gpkg_fk_partial_extraction" in events
+
+
 @pytest.mark.unit
 def test_extract_gpkg_fk_schema_bad_file_returns_empty(tmp_path):
     """Returns empty list (no raise) when the file is not a valid SQLite database."""

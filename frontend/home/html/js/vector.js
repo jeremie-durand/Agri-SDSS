@@ -1,7 +1,8 @@
 import { map, vectorState, vectorSelectionLayer, somContext } from './state.js';
-import { normalizeUrl, getColorForCollection } from './utils.js';
+import { normalizeUrl, getColorForCollection, apiFetch } from './utils.js';
 import { openSomModal } from './som.js';
 import { showHoverHint, hideHoverHint } from './hover-hint.js';
+import { config } from './config.js';
 
 function _tL() { return (window.T && window.T[window.lang]) || {}; }
 // import { sendFeatureContext } from './chat.js'; // disabled: farm context auto-population
@@ -39,7 +40,7 @@ async function fetchCollectionFeatures(itemsUrl) {
         const pagedUrl = new URL(nextUrl, window.location.origin);
         if (!pagedUrl.searchParams.has("f")) pagedUrl.searchParams.set("f", "json");
         pagedUrl.searchParams.set("limit", "2000");
-        const response = await fetch(pagedUrl.toString(), { headers: { Accept: "application/geo+json,application/json" } });
+        const response = await apiFetch(pagedUrl.toString(), { headers: { Accept: "application/geo+json,application/json" } });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         const features = Array.isArray(data.features) ? data.features : [];
@@ -114,7 +115,7 @@ function buildVectorTileLayer(collectionId, color) {
         const searchPad = 0.0002;
         const clickBbox = [e.latlng.lng - searchPad, e.latlng.lat - searchPad, e.latlng.lng + searchPad, e.latlng.lat + searchPad].join(',');
         const snap = feature;
-        fetch('/vector-api/parquet/collections/' + collectionId + '/items?bbox=' + clickBbox + '&limit=10&f=json')
+        apiFetch('/vector-api/parquet/collections/' + collectionId + '/items?bbox=' + clickBbox + '&limit=10&f=json')
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(fc) {
                 var areaEl = document.getElementById('somArea');
@@ -166,7 +167,7 @@ function _setVectorStatus(msg) { if (vectorStatusEl) vectorStatusEl.textContent 
 
 export async function setVectorCollectionVisible(collectionId, shouldShow, zoomToLayer = false, skipTileProbe = false) {
     const collection = vectorState.collections.find((item) => item.id === collectionId);
-    if (!collection) { _setVectorStatus("Vector: collection introuvable."); return; }
+    if (!collection) { _setVectorStatus(_tL()['vector-collection-missing'] || 'Vector : collection introuvable.'); return; }
 
     if (!shouldShow) {
         const existingLayer = vectorState.layers.get(collectionId);
@@ -177,25 +178,25 @@ export async function setVectorCollectionVisible(collectionId, shouldShow, zoomT
 
     let layer = vectorState.layers.get(collectionId);
     if (!layer) {
-        _setVectorStatus(`Vector: chargement ${collectionId}...`);
+        _setVectorStatus(`${_tL()['vector-loading-collection'] || 'Vector : chargement'} ${collectionId}…`);
         const itemsUrl = getCollectionItemsUrl(collection);
-        if (!itemsUrl) { _setVectorStatus(`Vector: URL items introuvable pour ${collectionId}.`); return; }
+        if (!itemsUrl) { _setVectorStatus(`${_tL()['vector-items-url-missing'] || 'Vector : URL items introuvable pour'} ${collectionId}.`); return; }
 
         const postgisId = 'public.' + collectionId;
         const tileJsonUrl = '/vector-api/postgis/collections/' + encodeURIComponent(postgisId) + '/tiles/WebMercatorQuad/tilejson.json';
         let useTiles = skipTileProbe;
         if (!useTiles) {
-            try { const probe = await fetch(tileJsonUrl); useTiles = probe.ok; } catch(_) {}
+            try { const probe = await apiFetch(tileJsonUrl); useTiles = probe.ok; } catch(_) {}
         }
 
         const color = getColorForCollection(collectionId);
         if (useTiles) {
             layer = buildVectorTileLayer(collectionId, color);
-            _setVectorStatus(`Vector: ${collectionId} (tuiles MVT).`);
+            _setVectorStatus(`Vector: ${collectionId} (${_tL()['vector-mvt'] || 'tuiles MVT'}).`);
         } else {
             const featureCollection = await fetchCollectionFeatures(itemsUrl);
             layer = buildVectorLayer(collectionId, featureCollection);
-            _setVectorStatus(`Vector: ${collectionId} chargé (${featureCollection.features.length} feature(s)).`);
+            _setVectorStatus(`Vector: ${collectionId} ${_tL()['vector-loaded'] || 'chargé'} (${featureCollection.features.length} ${_tL()['vector-features'] || 'entité(s)'}).`);
         }
         vectorState.layers.set(collectionId, layer);
     }
@@ -229,7 +230,7 @@ export function renderVectorCollectionsList() {
     if (!vectorState.collections.length) {
         const empty = document.createElement("p");
         empty.className = "legend";
-        empty.textContent = "Aucune collection vectorielle.";
+        empty.textContent = _tL()['vector-none'] || "Aucune collection vectorielle.";
         vectorListEl.appendChild(empty);
         return;
     }
@@ -243,7 +244,7 @@ export function renderVectorCollectionsList() {
         checkbox.checked = vectorState.visible.has(collection.id);
         checkbox.addEventListener("change", async () => {
             try { await setVectorCollectionVisible(collection.id, checkbox.checked, checkbox.checked); }
-            catch (error) { vectorStatusEl.textContent = `Vector: erreur (${error.message}).`; checkbox.checked = false; }
+            catch (error) { vectorStatusEl.textContent = `Vector: ${_tL()['vector-error'] || 'erreur'} (${error.message}).`; checkbox.checked = false; }
         });
         const title = document.createElement("span");
         title.className = "vector-title";
@@ -258,7 +259,7 @@ export function renderVectorCollectionsList() {
         zoomBtn.style.fontSize = "0.7rem";
         zoomBtn.addEventListener("click", async () => {
             try { checkbox.checked = true; await setVectorCollectionVisible(collection.id, true, true); }
-            catch (error) { vectorStatusEl.textContent = `Vector: erreur (${error.message}).`; }
+            catch (error) { vectorStatusEl.textContent = `Vector: ${_tL()['vector-error'] || 'erreur'} (${error.message}).`; }
         });
         row.appendChild(label);
         row.appendChild(zoomBtn);
@@ -268,22 +269,22 @@ export function renderVectorCollectionsList() {
 
 export async function loadVectorCollections() {
     const endpoint = normalizeUrl(vectorEndpointEl.value);
-    if (!endpoint) { vectorStatusEl.textContent = "Vector: endpoint invalide."; return; }
-    vectorStatusEl.textContent = "Vector: chargement des collections...";
+    if (!endpoint) { vectorStatusEl.textContent = _tL()['vector-endpoint-invalid'] || "Vector : endpoint invalide."; return; }
+    vectorStatusEl.textContent = _tL()['vector-loading'] || "Vector : chargement des collections…";
     vectorState.collectionsEndpoint = endpoint;
     vectorState.layers.forEach((layer) => { if (map.hasLayer(layer)) map.removeLayer(layer); });
     vectorState.visible.clear();
     try {
         const url = new URL(endpoint);
         if (!url.searchParams.has("f")) url.searchParams.set("f", "json");
-        const response = await fetch(url.toString(), { headers: { Accept: "application/json,application/geo+json" } });
+        const response = await apiFetch(url.toString(), { headers: { Accept: "application/json,application/geo+json" } });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         vectorState.collections = Array.isArray(data.collections) ? data.collections : [];
-        vectorStatusEl.textContent = `Vector: ${vectorState.collections.length} collection(s) detectee(s).`;
+        vectorStatusEl.textContent = `Vector: ${vectorState.collections.length} ${_tL()['vector-detected'] || 'collection(s) détectée(s).'}`;
         renderVectorCollectionsList();
     } catch (error) {
-        _setVectorStatus(`Vector: erreur de chargement (${error.message}).`);
+        _setVectorStatus(`Vector: ${_tL()['vector-load-error'] || 'erreur de chargement'} (${error.message}).`);
     }
 }
 
@@ -334,7 +335,7 @@ function _renderBdppadList(collections) {
     if (!collections.length) {
         const p = document.createElement('p');
         p.className = 'legend';
-        p.textContent = 'Aucun jeu BDPPAD disponible.';
+        p.textContent = _tL()['bdppad-none'] || 'Aucun jeu BDPPAD disponible.';
         bdppadListEl.appendChild(p);
         return;
     }
@@ -368,7 +369,9 @@ export async function loadBdppadCollections() {
 
     if (bdppads && bdppads.length) {
         vectorState.collectionsEndpoint = '/vector-api/parquet/collections';
-        const others = vectorState.collections.filter(function(c) { return !c.id.startsWith('bdppad'); });
+        const others = vectorState.collections.filter(function(c) {
+            return !c.id.startsWith(config.primaryCollectionPrefix);
+        });
         vectorState.collections = others.concat(bdppads);
         _renderBdppadList(bdppads);
         if (bdppadStatusEl) bdppadStatusEl.textContent =
@@ -396,7 +399,7 @@ export async function loadBdppadCollections() {
 
 async function _refreshBdppadList() {
     const tL = function() { return (window.T && window.T[window.lang]) || (window.T && window.T.fr) || {}; };
-    const r = await fetch('/vector-api/postgis/collections?f=json&limit=500');
+    const r = await apiFetch('/vector-api/postgis/collections?f=json&limit=500');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     const all = Array.isArray(data.collections) ? data.collections : [];
@@ -409,7 +412,9 @@ async function _refreshBdppadList() {
     try { sessionStorage.setItem(_BDPPAD_CACHE_KEY, JSON.stringify(bdppads)); } catch(_) {}
 
     vectorState.collectionsEndpoint = '/vector-api/parquet/collections';
-    const others = vectorState.collections.filter(function(c) { return !c.id.startsWith('bdppad'); });
+    const others = vectorState.collections.filter(function(c) {
+        return !c.id.startsWith(config.primaryCollectionPrefix);
+    });
     vectorState.collections = others.concat(bdppads);
 
     const prevActiveId = _bdppadActiveId;
