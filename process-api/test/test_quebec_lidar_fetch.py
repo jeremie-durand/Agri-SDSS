@@ -8,6 +8,7 @@ import math
 import multiprocessing
 import os
 import signal
+import subprocess
 import time
 from unittest.mock import MagicMock, patch
 
@@ -33,6 +34,11 @@ def _english_messages():
     """
     with agri_i18n.use_locale("en"):
         yield
+
+
+def _deadline(seconds=60.0):
+    """A GDAL deadline ``seconds`` from now, on the clock the processor uses."""
+    return time.monotonic() + seconds
 
 
 def _write_test_raster(path, values, nodata=None):
@@ -502,7 +508,7 @@ def test_compute_aspect_cog_invokes_gdaldem(processor_instance, tmp_path):
 
     with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stderr="")
-        processor_instance._compute_aspect_cog(dtm_path, aspect_path)
+        processor_instance._compute_aspect_cog(dtm_path, aspect_path, _deadline())
 
     args = mock_run.call_args.args[0]
     assert args[0] == "gdaldem"
@@ -521,7 +527,7 @@ def test_compute_aspect_cog_raises_on_gdal_failure(processor_instance, tmp_path)
             ProcessorExecuteError, match="Could not compute the aspect raster"
         ) as excinfo:
             processor_instance._compute_aspect_cog(
-                str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif")
+                str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif"), _deadline()
             )
 
     assert "gdaldem: some error" not in str(
@@ -541,6 +547,7 @@ def test_clip_uses_nearest_resampling_for_warp_and_overviews(
             ["/vsicurl/https://example/Pentes.tif"],
             str(tmp_path / "slope.tif"),
             (-72.0, 45.98, -71.98, 46.0),
+            _deadline(),
         )
 
     args = mock_run.call_args.args[0]
@@ -554,10 +561,105 @@ def test_aspect_cog_overviews_use_nearest_resampling(processor_instance, tmp_pat
     with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stderr="")
         processor_instance._compute_aspect_cog(
-            str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif")
+            str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif"), _deadline()
         )
 
     assert "OVERVIEW_RESAMPLING=NEAREST" in mock_run.call_args.args[0]
+
+
+@pytest.mark.unit
+def test_gdal_gets_the_remaining_time_budget_as_timeout(processor_instance, tmp_path):
+    """Every GDAL call is bounded by what is left of the request's budget."""
+    with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        processor_instance._clip_and_convert_to_cog(
+            ["/vsicurl/https://example/MNT.tif"],
+            str(tmp_path / "dtm.tif"),
+            (-72.0, 45.98, -71.98, 46.0),
+            _deadline(100.0),
+        )
+        processor_instance._compute_aspect_cog(
+            str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif"), _deadline(50.0)
+        )
+
+    clip_timeout, aspect_timeout = (
+        call.kwargs["timeout"] for call in mock_run.call_args_list
+    )
+    assert 99.0 < clip_timeout <= 100.0
+    assert 49.0 < aspect_timeout <= 50.0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("command", ["gdalwarp", "gdaldem"])
+def test_gdal_timeout_raises_a_clear_error(processor_instance, tmp_path, command):
+    """subprocess.run kills the command on timeout; the caller gets a message
+    naming the limit, not gunicorn's HTML error page after 600 s."""
+    with patch(
+        "processes.quebec_lidar_fetch.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(command, 1.0),
+    ):
+        with pytest.raises(ProcessorExecuteError, match="exceeded the time limit"):
+            if command == "gdalwarp":
+                processor_instance._clip_and_convert_to_cog(
+                    ["/vsicurl/https://example/Pentes.tif"],
+                    str(tmp_path / "slope.tif"),
+                    (-72.0, 45.98, -71.98, 46.0),
+                    _deadline(),
+                )
+            else:
+                processor_instance._compute_aspect_cog(
+                    str(tmp_path / "dtm.tif"), str(tmp_path / "aspect.tif"), _deadline()
+                )
+
+
+@pytest.mark.unit
+def test_run_gdal_kills_a_real_command_at_the_deadline(processor_instance, tmp_path):
+    """The command is killed and reaped, not left running past the request."""
+    pid_file = tmp_path / "pid"
+    started = time.monotonic()
+
+    with pytest.raises(ProcessorExecuteError, match="exceeded the time limit"):
+        processor_instance._run_gdal(
+            ["sh", "-c", f"echo $$ > {pid_file}; exec sleep 30"], _deadline(0.5)
+        )
+
+    assert time.monotonic() - started < 5
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text()), 0)
+
+
+@pytest.mark.unit
+def test_spent_budget_does_not_start_gdal(processor_instance, tmp_path):
+    """Once the deadline has passed, the next product is not even started."""
+    with patch("processes.quebec_lidar_fetch.subprocess.run") as mock_run:
+        with pytest.raises(ProcessorExecuteError, match="exceeded the time limit"):
+            processor_instance._clip_and_convert_to_cog(
+                ["/vsicurl/https://example/MNT.tif"],
+                str(tmp_path / "dtm.tif"),
+                (-72.0, 45.98, -71.98, 46.0),
+                _deadline(-1.0),
+            )
+
+    mock_run.assert_not_called()
+
+
+@pytest.mark.unit
+def test_timeout_error_is_french_by_default(processor_instance, tmp_path):
+    """Callers get the timeout message in French unless they ask otherwise."""
+    with (
+        agri_i18n.use_locale("fr"),
+        patch(
+            "processes.quebec_lidar_fetch.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("gdalwarp", 1.0),
+        ),
+    ):
+        with pytest.raises(ProcessorExecuteError, match="limite de temps de 570"):
+            processor_instance._clip_and_convert_to_cog(
+                ["/vsicurl/https://example/MNT.tif"],
+                str(tmp_path / "dtm.tif"),
+                (-72.0, 45.98, -71.98, 46.0),
+                _deadline(),
+            )
 
 
 @pytest.mark.unit
@@ -583,7 +685,10 @@ def test_clip_keeps_values_within_source_range(processor_instance, tmp_path):
     output = tmp_path / "clipped.tif"
 
     processor_instance._clip_and_convert_to_cog(
-        [str(source)], str(output), (-71.99873, 45.98127, -71.98127, 45.99873)
+        [str(source)],
+        str(output),
+        (-71.99873, 45.98127, -71.98127, 45.99873),
+        _deadline(),
     )
 
     with rasterio.open(output) as src:
@@ -702,7 +807,7 @@ def test_execute_no_dtm_tiles_for_aspect_raises(
             )
 
 
-def _fake_gdalwarp(cmd, capture_output, text):
+def _fake_gdalwarp(cmd, **kwargs):
     """subprocess.run stand-in that actually writes the output COG file, so
     the on-disk cache check in _get_or_build_cog behaves realistically
     across repeated execute() calls."""
@@ -712,7 +817,7 @@ def _fake_gdalwarp(cmd, capture_output, text):
     return MagicMock(returncode=0, stderr="")
 
 
-def _fake_compute_aspect(dtm_path, output_path):
+def _fake_compute_aspect(dtm_path, output_path, deadline):
     """_compute_aspect_cog stand-in that writes its output, like gdaldem."""
     with open(output_path, "wb") as f:
         f.write(b"fake")
@@ -1047,6 +1152,38 @@ def test_execute_gdal_failure_raises(
     ), "gdalwarp stderr must stay in the logs, not reach the caller"
 
 
+@pytest.mark.mocked
+def test_execute_timeout_leaves_nothing_behind(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """A product that runs out of time is neither cached nor published, and
+    gdalwarp is bounded by the request budget, below gunicorn's 600 s."""
+    processor_instance.output_dir = str(tmp_path)
+    tile_urls = {"slope": ["https://example.com/Pentes_31H05NE.tif"]}
+
+    with (
+        patch(
+            "processes.quebec_lidar_fetch.LidarTileIndex.get_tile_urls",
+            return_value=tile_urls,
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("gdalwarp", 570.0),
+        ) as mock_run,
+        patch.object(processor_instance, "_post_to_stac_api") as mock_post,
+        patch.object(processor_instance, "_ensure_collection_exists"),
+    ):
+        with pytest.raises(ProcessorExecuteError, match="exceeded the time limit"):
+            processor_instance.execute(
+                {"farm_geometry": sample_farm_geometry, "products": ["slope"]}
+            )
+
+    timeout = mock_run.call_args.kwargs["timeout"]
+    assert 0 < timeout <= LidarFetchProcessor.PROCESS_TIME_BUDGET_SECONDS < 600
+    mock_post.assert_not_called()
+    assert os.listdir(tmp_path) == []
+
+
 # ---------------------------------------------------------------------------
 # STAC publish caching tests (marker written after a successful publish;
 # skips republishing on a warm COG cache; retries after a failed publish;
@@ -1239,7 +1376,7 @@ def test_get_or_build_cog_with_real_gdalwarp_yields_a_cog(processor_instance, tm
         cog_path,
         "dtm",
         lambda output_path: processor_instance._clip_and_convert_to_cog(
-            [str(source)], output_path, (-72.0, 45.98, -71.98, 46.0)
+            [str(source)], output_path, (-72.0, 45.98, -71.98, 46.0), _deadline()
         ),
     )
 
@@ -1260,7 +1397,9 @@ def test_worker_killed_mid_write_leaves_no_cog_and_next_call_rebuilds(
     _write_test_raster(str(source), [[1.0, 2.0], [3.0, 4.0]])
     bbox = (-72.0, 45.98, -71.98, 46.0)
     reference = tmp_path / "reference.tif"
-    processor_instance._clip_and_convert_to_cog([str(source)], str(reference), bbox)
+    processor_instance._clip_and_convert_to_cog(
+        [str(source)], str(reference), bbox, _deadline()
+    )
     truncated_bytes = reference.read_bytes()[: reference.stat().st_size // 2]
     reference.unlink()
 
@@ -1298,7 +1437,7 @@ def test_worker_killed_mid_write_leaves_no_cog_and_next_call_rebuilds(
         cog_path,
         "dtm",
         lambda output_path: processor_instance._clip_and_convert_to_cog(
-            [str(source)], output_path, bbox
+            [str(source)], output_path, bbox, _deadline()
         ),
     )
 
