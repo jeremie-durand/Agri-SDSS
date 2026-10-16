@@ -15,6 +15,7 @@ import math
 import os
 import re
 import subprocess
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -78,6 +79,8 @@ class LidarFetchProcessor(BaseProcessor):
     COG_OVERVIEW_RESAMPLING: str = "NEAREST"
     # Not ".tif": raster-api's /collections lists every *.tif in /data.
     PARTIAL_COG_SUFFIX: str = ".partial"
+    # Shared by every GDAL call of one request.
+    PROCESS_TIME_BUDGET_SECONDS: int = 570
 
     # STAC settings
     STAC_COLLECTION_ID: str = "lidar_quebec"
@@ -136,6 +139,7 @@ class LidarFetchProcessor(BaseProcessor):
             Tuple of (mimetype, result_dict).
         """
         mimetype = "application/json"
+        deadline = time.monotonic() + self.PROCESS_TIME_BUDGET_SECONDS
 
         try:
             farm_geometry: Optional[Dict[str, Any]] = data.get("farm_geometry")
@@ -265,7 +269,7 @@ class LidarFetchProcessor(BaseProcessor):
                     cog_path,
                     product,
                     lambda output_path: self._clip_and_convert_to_cog(
-                        vsicurl_paths, output_path, bbox
+                        vsicurl_paths, output_path, bbox, deadline
                     ),
                 )
 
@@ -298,7 +302,7 @@ class LidarFetchProcessor(BaseProcessor):
                     aspect_cog_path,
                     self.ASPECT_PRODUCT,
                     lambda output_path: self._compute_aspect_cog(
-                        dtm_cog_path, output_path
+                        dtm_cog_path, output_path, deadline
                     ),
                 )
 
@@ -459,13 +463,15 @@ class LidarFetchProcessor(BaseProcessor):
         input_paths: List[str],
         output_path: str,
         bbox: Tuple[float, float, float, float],
+        deadline: float,
     ) -> None:
         """
         Clip one or more raster sources to bbox and write a COG.
 
         Sources are passed directly to gdalwarp — use /vsicurl/<url> paths to
         stream only the required blocks over HTTP without a full download.
-        Multiple inputs are mosaicked implicitly by gdalwarp.
+        Multiple inputs are mosaicked implicitly by gdalwarp. gdalwarp is
+        killed at deadline (a time.monotonic() value).
         """
         west, south, east, north = bbox
         cmd: List[str] = [
@@ -499,21 +505,22 @@ class LidarFetchProcessor(BaseProcessor):
             *input_paths,
             output_path,
         ]
-        result: subprocess.CompletedProcess = subprocess.run(
-            cmd, capture_output=True, text=True
-        )
+        result = self._run_gdal(cmd, deadline)
         if result.returncode != 0:
             logger.error("gdalwarp clip/COG conversion failed: %s", result.stderr)
             raise ProcessorExecuteError(
                 _("Could not clip and convert the LiDAR raster to COG format.")
             )
 
-    def _compute_aspect_cog(self, dtm_path: str, output_path: str) -> None:
+    def _compute_aspect_cog(
+        self, dtm_path: str, output_path: str, deadline: float
+    ) -> None:
         """
         Derive an aspect raster (compass bearing in degrees, 0=North) from a
         clipped DTM COG. Aspect is not a native MRNF product, so it's
         computed locally instead of fetched from a tile URL. Flat cells get
         nodata (-9999) by default, which _masked_zonal_values excludes.
+        gdaldem is killed at deadline (a time.monotonic() value).
         """
         cmd: List[str] = [
             "gdaldem",
@@ -533,14 +540,38 @@ class LidarFetchProcessor(BaseProcessor):
             "-co",
             f"BLOCKSIZE={self.COG_BLOCKSIZE}",
         ]
-        result: subprocess.CompletedProcess = subprocess.run(
-            cmd, capture_output=True, text=True
-        )
+        result = self._run_gdal(cmd, deadline)
         if result.returncode != 0:
             logger.error("gdaldem aspect computation failed: %s", result.stderr)
             raise ProcessorExecuteError(
                 _("Could not compute the aspect raster from the terrain model.")
             )
+
+    def _run_gdal(self, cmd: List[str], deadline: float) -> subprocess.CompletedProcess:
+        """
+        Run a GDAL command with whatever is left of the request's time budget.
+        subprocess.run kills the command when that runs out, so no GDAL
+        process outlives the request; a spent budget never starts one.
+        """
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            try:
+                return subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=remaining
+                )
+            except subprocess.TimeoutExpired:
+                pass
+        logger.error(
+            "%s stopped: LiDAR time budget of %s s exhausted",
+            cmd[0],
+            self.PROCESS_TIME_BUDGET_SECONDS,
+        )
+        raise ProcessorExecuteError(
+            _(
+                "LiDAR processing exceeded the time limit of {seconds} seconds. "
+                "Try a smaller area or fewer products."
+            ).format(seconds=self.PROCESS_TIME_BUDGET_SECONDS)
+        )
 
     # ------------------------------------------------------------------
     # Zonal statistics (exact polygon, not bounding box)
