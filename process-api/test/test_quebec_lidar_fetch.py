@@ -5,7 +5,10 @@ Tests quebec_lidar_fetch.py and lidar_backend/quebec_lidar_tile_index.py.
 
 import json
 import math
+import multiprocessing
 import os
+import signal
+import time
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -699,6 +702,22 @@ def test_execute_no_dtm_tiles_for_aspect_raises(
             )
 
 
+def _fake_gdalwarp(cmd, capture_output, text):
+    """subprocess.run stand-in that actually writes the output COG file, so
+    the on-disk cache check in _get_or_build_cog behaves realistically
+    across repeated execute() calls."""
+    output_path = cmd[-1]
+    with open(output_path, "wb") as f:
+        f.write(b"fake")
+    return MagicMock(returncode=0, stderr="")
+
+
+def _fake_compute_aspect(dtm_path, output_path):
+    """_compute_aspect_cog stand-in that writes its output, like gdaldem."""
+    with open(output_path, "wb") as f:
+        f.write(b"fake")
+
+
 @pytest.mark.mocked
 def test_execute_default_products_excludes_aspect(
     processor_instance, sample_farm_geometry, tmp_path
@@ -749,7 +768,7 @@ def test_execute_default_products_excludes_aspect(
         patch.object(processor_instance, "_post_to_stac_api", return_value=True),
         patch.object(processor_instance, "_ensure_collection_exists"),
     ):
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        mock_run.side_effect = _fake_gdalwarp
 
         mimetype, result = processor_instance.execute(
             {"farm_geometry": sample_farm_geometry}
@@ -805,7 +824,7 @@ def test_execute_success_with_geometry(
         patch.object(processor_instance, "_post_to_stac_api", return_value=True),
         patch.object(processor_instance, "_ensure_collection_exists"),
     ):
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        mock_run.side_effect = _fake_gdalwarp
 
         mimetype, result = processor_instance.execute(
             {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
@@ -860,7 +879,7 @@ def test_execute_success_with_farm_id(processor_instance, mock_db_connection, tm
         patch.object(processor_instance, "_post_to_stac_api", return_value=True),
         patch.object(processor_instance, "_ensure_collection_exists"),
     ):
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        mock_run.side_effect = _fake_gdalwarp
 
         mimetype, result = processor_instance.execute(
             {"farm_id": 4, "products": ["slope"]}
@@ -905,7 +924,11 @@ def test_execute_aspect_only_fetches_dtm_as_dependency(
         patch(
             "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
         ),
-        patch.object(processor_instance, "_compute_aspect_cog"),
+        patch.object(
+            processor_instance,
+            "_compute_aspect_cog",
+            side_effect=_fake_compute_aspect,
+        ),
         patch.object(
             processor_instance,
             "_aspect_statistics",
@@ -914,7 +937,7 @@ def test_execute_aspect_only_fetches_dtm_as_dependency(
         patch.object(processor_instance, "_post_to_stac_api", return_value=True),
         patch.object(processor_instance, "_ensure_collection_exists"),
     ):
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        mock_run.side_effect = _fake_gdalwarp
 
         mimetype, result = processor_instance.execute(
             {"farm_geometry": sample_farm_geometry, "products": ["aspect"]}
@@ -964,7 +987,11 @@ def test_execute_dtm_and_aspect_both_explicitly_requested(
         patch(
             "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
         ),
-        patch.object(processor_instance, "_compute_aspect_cog"),
+        patch.object(
+            processor_instance,
+            "_compute_aspect_cog",
+            side_effect=_fake_compute_aspect,
+        ),
         patch.object(
             processor_instance,
             "_aspect_statistics",
@@ -973,7 +1000,7 @@ def test_execute_dtm_and_aspect_both_explicitly_requested(
         patch.object(processor_instance, "_post_to_stac_api", return_value=True),
         patch.object(processor_instance, "_ensure_collection_exists"),
     ):
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        mock_run.side_effect = _fake_gdalwarp
 
         mimetype, result = processor_instance.execute(
             {"farm_geometry": sample_farm_geometry, "products": ["dtm", "aspect"]}
@@ -1025,16 +1052,6 @@ def test_execute_gdal_failure_raises(
 # skips republishing on a warm COG cache; retries after a failed publish;
 # invalidated when the COG is rebuilt)
 # ---------------------------------------------------------------------------
-
-
-def _fake_gdalwarp(cmd, capture_output, text):
-    """subprocess.run stand-in that actually writes the output COG file, so
-    the on-disk cache check in _get_or_build_cog behaves realistically
-    across repeated execute() calls."""
-    output_path = cmd[-1]
-    with open(output_path, "wb") as f:
-        f.write(b"fake")
-    return MagicMock(returncode=0, stderr="")
 
 
 @pytest.mark.mocked
@@ -1158,15 +1175,156 @@ def test_get_or_build_cog_invalidates_stale_marker_on_rebuild(
 
     build_called = []
 
-    def fake_build():
+    def fake_build(output_path):
         build_called.append(True)
-        with open(cog_path, "wb") as f:
+        with open(output_path, "wb") as f:
             f.write(b"fake")
 
     processor_instance._get_or_build_cog(cog_path, "dtm", fake_build)
 
     assert build_called == [True]
     assert not os.path.exists(marker_path)
+
+
+@pytest.mark.unit
+def test_get_or_build_cog_exposes_the_cog_only_once_complete(
+    processor_instance, tmp_path
+):
+    """An interrupted build must never leave a file at cog_path, or the next
+    call would serve it as a cache hit. The temporary name must not end in
+    .tif either, or raster-api's /collections would list it mid-write."""
+    cog_path = str(tmp_path / "lidar_dtm_test.tif")
+    seen = {}
+
+    def fake_build(output_path):
+        seen["output_path"] = output_path
+        seen["cog_existed_during_build"] = os.path.exists(cog_path)
+        with open(output_path, "wb") as f:
+            f.write(b"complete")
+
+    processor_instance._get_or_build_cog(cog_path, "dtm", fake_build)
+
+    assert seen["output_path"] != cog_path
+    assert not seen["output_path"].endswith(".tif")
+    assert seen["cog_existed_during_build"] is False
+    with open(cog_path, "rb") as f:
+        assert f.read() == b"complete"
+    assert os.listdir(tmp_path) == ["lidar_dtm_test.tif"]
+
+
+@pytest.mark.unit
+def test_get_or_build_cog_removes_partial_file_on_failure(processor_instance, tmp_path):
+    """A failed build leaves neither the COG nor its temporary file behind."""
+    cog_path = str(tmp_path / "lidar_dtm_test.tif")
+
+    def failing_build(output_path):
+        with open(output_path, "wb") as f:
+            f.write(b"trunc")
+        raise ProcessorExecuteError("gdalwarp failed")
+
+    with pytest.raises(ProcessorExecuteError):
+        processor_instance._get_or_build_cog(cog_path, "dtm", failing_build)
+
+    assert os.listdir(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_get_or_build_cog_with_real_gdalwarp_yields_a_cog(processor_instance, tmp_path):
+    """GDAL picks the format from -of COG, not from the .partial extension."""
+    source = tmp_path / "source.tif"
+    _write_test_raster(str(source), [[1.0, 2.0], [3.0, 4.0]])
+    cog_path = str(tmp_path / "lidar_dtm_test.tif")
+
+    processor_instance._get_or_build_cog(
+        cog_path,
+        "dtm",
+        lambda output_path: processor_instance._clip_and_convert_to_cog(
+            [str(source)], output_path, (-72.0, 45.98, -71.98, 46.0)
+        ),
+    )
+
+    with rasterio.open(cog_path) as src:
+        assert src.driver == "GTiff"
+        assert src.read(1).tolist() == [[1.0, 2.0], [3.0, 4.0]]
+    assert sorted(os.listdir(tmp_path)) == ["lidar_dtm_test.tif", "source.tif"]
+
+
+@pytest.mark.unit
+def test_worker_killed_mid_write_leaves_no_cog_and_next_call_rebuilds(
+    processor_instance, tmp_path
+):
+    """gunicorn SIGKILLs a worker past its timeout, so no finally block runs.
+    The truncated output must stay under the temporary name, and the next
+    call must rebuild a valid COG instead of serving the truncated one."""
+    source = tmp_path / "source.tif"
+    _write_test_raster(str(source), [[1.0, 2.0], [3.0, 4.0]])
+    bbox = (-72.0, 45.98, -71.98, 46.0)
+    reference = tmp_path / "reference.tif"
+    processor_instance._clip_and_convert_to_cog([str(source)], str(reference), bbox)
+    truncated_bytes = reference.read_bytes()[: reference.stat().st_size // 2]
+    reference.unlink()
+
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    cog_path = str(output_dir / "lidar_dtm_test.tif")
+
+    context = multiprocessing.get_context("fork")
+    writing = context.Event()
+
+    def build_until_killed(output_path):
+        with open(output_path, "wb") as f:
+            f.write(truncated_bytes)
+            f.flush()
+            writing.set()
+            time.sleep(60)
+
+    worker = context.Process(
+        target=processor_instance._get_or_build_cog,
+        args=(cog_path, "dtm", build_until_killed),
+    )
+    worker.start()
+    try:
+        assert writing.wait(timeout=10), "worker never started writing"
+        os.kill(worker.pid, signal.SIGKILL)
+        worker.join(timeout=10)
+    finally:
+        if worker.is_alive():
+            worker.kill()
+
+    assert worker.exitcode == -signal.SIGKILL
+    assert os.listdir(output_dir) == ["lidar_dtm_test.tif.partial"]
+
+    processor_instance._get_or_build_cog(
+        cog_path,
+        "dtm",
+        lambda output_path: processor_instance._clip_and_convert_to_cog(
+            [str(source)], output_path, bbox
+        ),
+    )
+
+    with rasterio.open(cog_path) as src:
+        assert src.read(1).tolist() == [[1.0, 2.0], [3.0, 4.0]]
+    assert os.listdir(output_dir) == ["lidar_dtm_test.tif"]
+
+
+@pytest.mark.unit
+def test_get_or_build_cog_overwrites_a_leftover_partial_file(
+    processor_instance, tmp_path
+):
+    """A partial file left by a killed worker must not block the next build."""
+    cog_path = str(tmp_path / "lidar_dtm_test.tif")
+    with open(f"{cog_path}.partial", "wb") as f:
+        f.write(b"stale")
+
+    def fake_build(output_path):
+        with open(output_path, "wb") as f:
+            f.write(b"fresh")
+
+    processor_instance._get_or_build_cog(cog_path, "dtm", fake_build)
+
+    with open(cog_path, "rb") as f:
+        assert f.read() == b"fresh"
+    assert os.listdir(tmp_path) == ["lidar_dtm_test.tif"]
 
 
 @pytest.mark.unit
@@ -1181,7 +1339,7 @@ def test_get_or_build_cog_keeps_marker_on_cache_hit(processor_instance, tmp_path
 
     build_called = []
     processor_instance._get_or_build_cog(
-        cog_path, "dtm", lambda: build_called.append(True)
+        cog_path, "dtm", lambda output_path: build_called.append(True)
     )
 
     assert build_called == []
