@@ -1,5 +1,7 @@
 # Agri-SDSS
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23369081.svg)](https://doi.org/10.5281/zenodo.23369081)
+
 Geospatial data platform for sustainable agriculture research in Quebec. Automated pipeline from raw geodata to OGC-compliant APIs, a STAC catalog, and an AI assistant.
 
 Currently specialized for Soil Organic Matter (SOM) potential mapping and decision support for Quebec agricultural parcels. The modular architecture based on microservices and Docker makes each service independently reusable. Adapt or replace individual components (pipeline, APIs, frontend, chatbot) for your own geospatial use case.
@@ -74,7 +76,7 @@ This project was originally developed as part of a master's degree at Universit√
 
 ### Authors
 
-Authors and their affiliations are listed in [CITATION.cff](CITATION.cff), which also provides GitHub's "Cite this repository" button.
+Authors and their affiliations are listed in [CITATION.cff](CITATION.cff), which also provides GitHub's "Cite this repository" button. The software is archived on Zenodo under [10.5281/zenodo.23369081](https://doi.org/10.5281/zenodo.23369081) (all versions).
 
 ### Contributors
 
