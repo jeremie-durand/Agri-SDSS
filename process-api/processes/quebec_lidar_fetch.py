@@ -76,6 +76,8 @@ class LidarFetchProcessor(BaseProcessor):
     # edges: negative slopes, and aspect overviews past 0-360.
     WARP_RESAMPLING: str = "near"
     COG_OVERVIEW_RESAMPLING: str = "NEAREST"
+    # Not ".tif": raster-api's /collections lists every *.tif in /data.
+    PARTIAL_COG_SUFFIX: str = ".partial"
 
     # STAC settings
     STAC_COLLECTION_ID: str = "lidar_quebec"
@@ -262,8 +264,8 @@ class LidarFetchProcessor(BaseProcessor):
                 self._get_or_build_cog(
                     cog_path,
                     product,
-                    lambda: self._clip_and_convert_to_cog(
-                        vsicurl_paths, cog_path, bbox
+                    lambda output_path: self._clip_and_convert_to_cog(
+                        vsicurl_paths, output_path, bbox
                     ),
                 )
 
@@ -295,7 +297,9 @@ class LidarFetchProcessor(BaseProcessor):
                 self._get_or_build_cog(
                     aspect_cog_path,
                     self.ASPECT_PRODUCT,
-                    lambda: self._compute_aspect_cog(dtm_cog_path, aspect_cog_path),
+                    lambda output_path: self._compute_aspect_cog(
+                        dtm_cog_path, output_path
+                    ),
                 )
 
                 self._add_product_asset(
@@ -420,12 +424,16 @@ class LidarFetchProcessor(BaseProcessor):
     # ------------------------------------------------------------------
 
     def _get_or_build_cog(
-        self, cog_path: str, product: str, build: Callable[[], None]
+        self, cog_path: str, product: str, build: Callable[[str], None]
     ) -> None:
         """
         Reuse an existing COG at cog_path, or build it via the supplied
         callback. Shared by the tile-fetch loop and the aspect-derivation
         step, which both cache by output path.
+
+        The callback writes to a temporary path that is renamed onto
+        cog_path only once it succeeds, so an interrupted build never leaves
+        a truncated file that later calls would take for a cache hit.
 
         Rebuilding invalidates any cached STAC-publish marker for the same
         path, so a stale item describing the previous raster isn't served
@@ -435,9 +443,16 @@ class LidarFetchProcessor(BaseProcessor):
             logger.info(
                 "Cache hit: reusing existing COG for '%s': %s", product, cog_path
             )
-        else:
-            build()
-            self._invalidate_stac_marker(cog_path)
+            return
+
+        partial_path = f"{cog_path}{self.PARTIAL_COG_SUFFIX}"
+        try:
+            build(partial_path)
+            os.replace(partial_path, cog_path)
+        finally:
+            if os.path.exists(partial_path):
+                os.remove(partial_path)
+        self._invalidate_stac_marker(cog_path)
 
     def _clip_and_convert_to_cog(
         self,
