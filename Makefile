@@ -78,7 +78,7 @@ test-caddy:
 		-e RATE_LIMIT_CHATBOT_SEARCH_EVENTS=3 \
 		-e RATE_LIMIT_CHATBOT_BROWSE_EVENTS=4 \
 		-e RATE_LIMIT_COG_DOWNLOAD_EVENTS=4 \
-		python:3.12-slim \
+		python:3.13-slim \
 		sh -c "pip install pytest requests urllib3 -q && pytest /test/ -v -m integration -p no:cacheprovider" \
 		|| status=$$?; \
 	echo "Restoring production Caddyfile..."; \
