@@ -207,7 +207,7 @@ pre-commit.
 - Use builtin generics (`list[str]`, `dict[str, int]`) and `X | None` rather than
   `typing.List` / `typing.Optional` in new code; add
   `from __future__ import annotations` when a module must stay importable on the
-  oldest interpreter it ships on (3.11).
+  oldest interpreter it ships on (3.12).
 - Annotate collections you build up (`handlers: list[logging.Handler] = []`) so
   the intent survives refactors.
 - There is no mypy gate in CI — ruff and the tests are the only automated check,
