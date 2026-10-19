@@ -1,5 +1,5 @@
 # Raster API - Additional dependencies
 # Base TiTiler dependencies are included in the base image
-numpy==2.5.3
+numpy==2.5.4
 rasterio==1.5.2
 
