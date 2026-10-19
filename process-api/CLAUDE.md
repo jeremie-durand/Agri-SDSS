@@ -7,7 +7,7 @@ unless overridden here.
 ## Service Overview
 
 OGC API – Processes on pygeoapi (Flask), served by gunicorn on port 5000
-(`expose:` only), with public prefix `/process-api`. Python 3.12 runtime; the
+(`expose:` only), with public prefix `/process-api`. Python 3.13 runtime; the
 Dockerfile's `i18n` build stage compiles the catalogs.
 
 | Process id | Processor | External source | Spec |
