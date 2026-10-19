@@ -109,7 +109,7 @@ the `Caddyfile` needs a restart, not a rebuild.
 `make test-caddy` works against the **running** stack:
 
 1. It copies `Caddyfile.test` into the container and hot-reloads Caddy with it.
-2. It runs `caddy/test/` from a `python:3.11-slim` container on
+2. It runs `caddy/test/` from a `python:3.12-slim` container on
    `eoapi-network` against `https://caddy`.
 3. It reloads the production `Caddyfile`.
 
