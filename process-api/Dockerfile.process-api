@@ -6,7 +6,7 @@ RUN --mount=type=bind,source=agri_i18n/requirements-i18n.txt,target=/tmp/require
 COPY agri_i18n/locales /build/locales
 RUN pybabel compile -d /build/locales -D messages --statistics
 
-FROM python:3.12-slim AS runtime
+FROM python:3.13-slim AS runtime
 
 ARG USER_GID=1000
 ARG USER_UID=1000
