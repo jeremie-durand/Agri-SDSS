@@ -14,10 +14,9 @@ window.STAC_BROWSER_CONFIG = {
     apiCatalogPriority: null,
     useTileLayerAsFallback: true,
     displayGeoTiffByDefault: true,
-    buildTileUrlTemplate: function(opts) {
-        var href = opts.href, asset = opts.asset;
-        return "https://${HOST_URL}/raster-api/cog/tiles/{z}/{x}/{y}@2x?url=" +
-            encodeURIComponent(asset.href.indexOf("/vsi") === 0 ? asset.href : href);
+    buildTileUrlTemplate: function(asset) {
+        return "https://${HOST_URL}/raster-api/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=" +
+            encodeURIComponent(asset.href.indexOf("/vsi") === 0 ? asset.href : asset.getAbsoluteUrl());
     },
     preprocessSTAC: function(stac) {
         var lang = localStorage.getItem('sdss-lang') || 'fr';
@@ -55,18 +54,12 @@ window.STAC_BROWSER_CONFIG = {
 
         return stac;
     },
-    stacProxyUrl: null,
     pathPrefix: "/stac/",
     historyMode: "hash",
     cardViewMode: "cards",
-    cardViewSort: "desc",
     showThumbnailsAsAssets: false,
-    stacLint: true,
-    geoTiffResolution: 128,
-    redirectLegacyUrls: false,
     itemsPerPage: 12,
     defaultThumbnailSize: null,
-    maxPreviewsOnMap: 50,
     crossOriginMedia: null,
     requestHeaders: {},
     requestQueryParameters: {},
