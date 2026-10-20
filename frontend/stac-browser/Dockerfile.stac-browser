@@ -14,5 +14,7 @@ ENV STAC_API_PORT=8081
 ENV RASTER_API_PORT=8082
 ENV VECTOR_API_PORT=8083
 ENV PROCESS_API_PORT=5000
+# home proxies /stac/ without stripping it; must match pathPrefix in browser_config.js
+ENV SB_pathPrefix=/stac/
 
 EXPOSE ${STAC_BROWSER_PORT}
