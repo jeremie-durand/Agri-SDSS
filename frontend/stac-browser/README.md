@@ -17,7 +17,7 @@ docker compose up -d stac-browser
 - **Proxy-based URLs** — the catalog URL points at the nginx proxy (`https://${HOST_URL}/stac-api/`), not the stac-api port directly; tile previews go through `/raster-api/`. No CORS configuration needed.
 - **Bilingual FR/EN** — `preprocessSTAC` swaps collection titles and descriptions based on the `sdss-lang` localStorage key set by the shared nav bar.
 - **COG rendering** — `buildTileUrlTemplate` sends COG assets to the raster-api tile endpoint for interactive map display.
-- **Config is a startup template** — `config.js` is expanded by `entrypoint.sh` with `envsubst` (`${HOST_URL}`, `${STAC_BROWSER_PORT}`) every time the container starts. Edits made inside a running container are overwritten on restart — always change `config/browser_config.js` and rebuild.
+- **Config is a startup template** — `scripts/50-agri-browser-config.sh` runs from upstream's `/docker-entrypoint.d/` after its own `40-stac-browser-entrypoint.sh`, expands `config/browser_config.js` with `envsubst` (`${HOST_URL}`, `${STAC_BROWSER_PORT}`) and writes it over `runtime-config.js` every time the container starts. Edits made inside a running container are overwritten on restart — always change `config/browser_config.js` and rebuild.
 
 ## Configuration
 
@@ -39,7 +39,7 @@ docker compose up -d stac-browser --build
 ```bash
 # Collections not loading — check the STAC API and the generated config
 curl https://<host>/stac-api/collections
-docker compose exec stac-browser cat /usr/share/nginx/html/config.js
+docker compose exec stac-browser cat /usr/share/nginx/html/runtime-config.js
 
 # Tiles not rendering — check the raster-api
 docker compose logs raster-api

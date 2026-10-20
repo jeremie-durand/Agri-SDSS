@@ -188,7 +188,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 
 | Path | Proxied To | Notes |
 | ------ | ----------- | ------- |
-| `/stac/` | `stac-browser:8080` | `sub_filter` rewrites asset paths and injects nav |
+| `/stac/` | `stac-browser:8080/stac/` | Prefix kept (`SB_pathPrefix`); `sub_filter` injects nav |
 | `/chatbot/` | `chatbot-frontend:3001` | `sub_filter` injects chatbot-bridge.js and nav |
 | `/api/*` and `/{pc_collections_metadata,pc_rendering_config,stac_collections}.json` | `chatbot-backend:8000` | Chatbot SPA uses `window.location.origin` as base URL; nothing else is proxied to the backend. Mirrored in `chatbot/overrides/frontend/nginx.conf` |
 | `/sdss/` | `chatbot-backend:8000` | SDSS spatial process routes |

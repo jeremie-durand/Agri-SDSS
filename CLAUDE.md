@@ -48,7 +48,7 @@ Branches and commit prefixes are in
   that turn.
 
 CI (`.github/workflows/action.yml`) checks `ARGS.md` sync, i18n catalogs, nginx
-configs, image builds and `make test-all`.
+configs, image builds, the stac-browser smoke test and `make test-all`.
 
 ## Common Commands
 
@@ -60,6 +60,7 @@ docker compose up -d <service>    # Start one service
 docker compose build              # Rebuild images (make build also creates data dirs)
 docker compose logs -f <service>  # Follow logs
 make smoke-entrypoints            # Verify every service entrypoint still imports
+make smoke-stac-browser           # Start stac-browser and probe /stac/, its config and bundle
 
 # home has no published port — reach it from inside the Docker network
 docker run --rm --network eoapi-network curlimages/curl:latest -sI http://home:8080/
