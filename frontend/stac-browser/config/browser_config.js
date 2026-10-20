@@ -12,9 +12,19 @@ window.STAC_BROWSER_CONFIG = {
     fallbackLocale: "en",
     supportedLocales: ["en", "fr"],
     apiCatalogPriority: null,
-    useTileLayerAsFallback: true,
+    useTileLayerAsFallback: false,
     displayGeoTiffByDefault: true,
     buildTileUrlTemplate: function(asset) {
+        // The pipeline stores the display rescale/bidx on the item's "tiles"
+        // asset; without them float rasters render as solid black.
+        var file = "/" + asset.href.split("/").pop();
+        var item = asset.getContext();
+        var tiles = item && item.getAssets().find(function(a) {
+            return (a.roles || []).indexOf("tiles") !== -1 && a.href.indexOf(file) !== -1;
+        });
+        if (tiles) {
+            return tiles.href.replace("/WebMercatorQuad/tilejson.json", "/tiles/WebMercatorQuad/{z}/{x}/{y}");
+        }
         return "https://${HOST_URL}/raster-api/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=" +
             encodeURIComponent(asset.href.indexOf("/vsi") === 0 ? asset.href : asset.getAbsoluteUrl());
     },
@@ -61,6 +71,10 @@ window.STAC_BROWSER_CONFIG = {
     itemsPerPage: 12,
     defaultThumbnailSize: null,
     crossOriginMedia: null,
+    transactions: "off",
+    crs: {
+        "EPSG:32198": "+proj=lcc +lat_0=44 +lon_0=-68.5 +lat_1=60 +lat_2=46 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+    },
     requestHeaders: {},
     requestQueryParameters: {},
     authConfig: null,

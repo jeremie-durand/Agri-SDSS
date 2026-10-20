@@ -132,7 +132,7 @@
 		X-Frame-Options           "SAMEORIGIN"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		Referrer-Policy           "strict-origin-when-cross-origin"
-		Content-Security-Policy   "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' https://planetarycomputer.microsoft.com; frame-src 'self'; font-src 'self' https://cdn.jsdelivr.net"
+		Content-Security-Policy   "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' https://planetarycomputer.microsoft.com; worker-src 'self' blob: data:; frame-src 'self'; font-src 'self' https://cdn.jsdelivr.net"
 		-Server
 	}
 
