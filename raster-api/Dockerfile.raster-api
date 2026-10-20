@@ -1,5 +1,5 @@
 # Official TiTiler image
-FROM ghcr.io/developmentseed/titiler:2.0.5 AS runtime
+FROM ghcr.io/developmentseed/titiler:2.4.0 AS runtime
 
 ARG USER_GID=1000
 ARG USER_UID=1000
@@ -7,8 +7,14 @@ ARG USER_UID=1000
 # Set environment variables
 ENV RASTER_API_PORT=8082
 ENV HOST=0.0.0.0
-ENV PATH="/home/appuser/.local/bin:${PATH}"
 ENV PYTHONPATH=/app
+ENV HOME=/tmp
+
+# The Wolfi-based TiTiler image ships its venv without pip, and its busybox
+# timeout makes wait-for-it.sh probe the database with nc
+USER root
+RUN apk add --no-cache netcat-openbsd \
+    && python -m ensurepip
 
 # Copy canonical wait-for-it script and entrypoint
 COPY --chmod=755 scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
@@ -16,18 +22,15 @@ COPY --chmod=755 raster-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Install dependencies
 RUN --mount=type=bind,source=raster-api/requirements-raster-api.txt,target=/tmp/requirements-raster-api.txt \
-    pip install --no-cache-dir -r /tmp/requirements-raster-api.txt
+    python -m pip install --no-cache-dir -r /tmp/requirements-raster-api.txt
 
-# Create non-root user and set ownership
-RUN mkdir -p /app \
-    && groupadd --gid ${USER_GID} appuser \
-    && useradd --uid ${USER_UID} --gid ${USER_GID} --create-home --shell /bin/bash appuser \
-    && chown -R appuser:appuser /app
+# Wolfi has no useradd; run as a numeric UID that matches the host data dirs
+RUN mkdir -p /app && chown ${USER_UID}:${USER_GID} /app
 
 # Copy custom application code (extends TiTiler with a /collections endpoint)
-COPY --chown=appuser:appuser raster-api/src /app/raster_api
+COPY --chown=${USER_UID}:${USER_GID} raster-api/src /app/raster_api
 
-USER appuser
+USER ${USER_UID}:${USER_GID}
 
 EXPOSE ${RASTER_API_PORT}
 
@@ -36,10 +39,12 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["sh", "-c", "uvicorn raster_api.main:app --host 0.0.0.0 --port ${RASTER_API_PORT:-8082} --root-path ${APP_ROOT_PATH:-}"]
 
 FROM runtime AS test
+ARG USER_GID=1000
+ARG USER_UID=1000
 USER root
 RUN --mount=type=bind,source=raster-api/requirements-raster-api-test.txt,target=/tmp/requirements-raster-api-test.txt \
-    pip install --no-cache-dir -r /tmp/requirements-raster-api-test.txt
-USER appuser
-COPY --chown=appuser:appuser raster-api/test /app/raster_api/test
-COPY --chown=appuser:appuser raster-api/pytest.ini /app/pytest.ini
-COPY --chown=appuser:appuser raster-api/.coveragerc /app/.coveragerc
+    python -m pip install --no-cache-dir -r /tmp/requirements-raster-api-test.txt
+USER ${USER_UID}:${USER_GID}
+COPY --chown=${USER_UID}:${USER_GID} raster-api/test /app/raster_api/test
+COPY --chown=${USER_UID}:${USER_GID} raster-api/pytest.ini /app/pytest.ini
+COPY --chown=${USER_UID}:${USER_GID} raster-api/.coveragerc /app/.coveragerc

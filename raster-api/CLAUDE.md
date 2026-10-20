@@ -6,7 +6,7 @@ unless overridden here.
 
 ## Service Overview
 
-The stock TiTiler application (`ghcr.io/developmentseed/titiler:2.0.5`, Python
+The stock TiTiler application (`ghcr.io/developmentseed/titiler:2.4.0`, Python
 3.14) plus a single custom route: `GET /collections`, which lists the COG files
 on disk. It runs on port 8082 (`expose:` only), with public prefix
 `/raster-api`.
