@@ -103,6 +103,9 @@ the `Caddyfile` needs a restart, not a rebuild.
   new browser-side API origin in any UI must be added here, or the browser
   blocks it silently. Caddy's headers apply on top of the chatbot nginx's own
   headers.
+- STAC Browser's validation badge needs `'unsafe-eval'` and stays broken on
+  purpose. Its COGs render through raster-api tiles, so no `worker-src` is
+  needed for its in-browser GeoTIFF decoder.
 
 ## Testing
 

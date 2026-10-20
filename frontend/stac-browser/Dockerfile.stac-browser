@@ -1,9 +1,10 @@
 # Official STAC Browser image
-FROM ghcr.io/radiantearth/stac-browser:4.0.1
+FROM ghcr.io/radiantearth/stac-browser:5.1.0
 
-# Copy config and entrypoint script
-COPY --chown=nginx:nginx config/browser_config.js /usr/share/nginx/html/config.js
-COPY --chmod=755 scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+# Upstream's /docker-entrypoint.sh renders the nginx config and runs
+# /docker-entrypoint.d/ scripts in order; ours expands the browser config.
+COPY --chown=nginx:nginx config/browser_config.js /opt/agri/browser_config.js
+COPY --chmod=755 scripts/50-agri-browser-config.sh /docker-entrypoint.d/50-agri-browser-config.sh
 
 # Set environment variables
 ENV HOST_PROTOCOL=http
@@ -13,12 +14,7 @@ ENV STAC_API_PORT=8081
 ENV RASTER_API_PORT=8082
 ENV VECTOR_API_PORT=8083
 ENV PROCESS_API_PORT=5000
+# home proxies /stac/ without stripping it; must match pathPrefix in browser_config.js
+ENV SB_pathPrefix=/stac/
 
 EXPOSE ${STAC_BROWSER_PORT}
-
-# Grant nginx write access to the config dir so entrypoint.sh can sed -i it
-USER root
-RUN chown -R nginx:nginx /etc/nginx/conf.d
-USER nginx
-
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

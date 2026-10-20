@@ -44,46 +44,22 @@ server {
     location = /report-bug { try_files /report-bug.html =404; }
     location = /about      { try_files /about.html =404; }
 
-    # Serve local files first; fall back to stac-browser for webpack lazy chunks
-    # (publicPath "/" is baked into the upstream image build, cannot be changed)
     location /js/ {
-        try_files $uri @stac_js;
         add_header Cache-Control "no-cache, must-revalidate";
-    }
-    location @stac_js {
-        proxy_pass http://stac-browser:8080;
-    }
-
-    location /css/ {
-        try_files $uri @stac_css;
-    }
-    location @stac_css {
-        proxy_pass http://stac-browser:8080;
     }
 
     # ── STAC Browser ──────────────────────────────────────
-    # sub_filter rewrites absolute asset paths in HTML so they load correctly
-    # under /stac/. Hash routing (set in browser_config.js) prevents nginx from
-    # receiving STAC Browser's internal route paths.
+    # stac-browser itself serves under /stac/ (SB_pathPrefix), so the URI is
+    # forwarded unchanged. Hash routing (set in browser_config.js) prevents
+    # nginx from receiving STAC Browser's internal route paths.
     location /stac/ {
-        proxy_pass http://stac-browser:8080/;
+        proxy_pass http://stac-browser:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header Accept-Encoding "";
         sub_filter_once off;
-        sub_filter 'src="/js/'       'src="/stac/js/';
-        sub_filter 'href="/css/'     'href="/stac/css/';
-        sub_filter 'src="/config.js"'   'src="/stac/config.js"';
-        sub_filter 'src="/sw.js"'       'src="/stac/sw.js"';
-        sub_filter '"/mitm.html"'       '"/stac/mitm.html"';
         sub_filter '<body>' '<body><script src="/sdss-nav.js"></script>';
     }
-    location /stac/js/       { proxy_pass http://stac-browser:8080/js/; }
-    location /stac/css/      { proxy_pass http://stac-browser:8080/css/; }
-    location /stac/img/      { proxy_pass http://stac-browser:8080/img/; }
-    location /stac/config.js { proxy_pass http://stac-browser:8080/config.js; }
-    location /stac/sw.js     { proxy_pass http://stac-browser:8080/sw.js; }
-    location /stac/mitm.html { proxy_pass http://stac-browser:8080/mitm.html; }
 
     # ── Chatbot frontend ──────────────────────────────────
     # Vite build uses relative asset paths (./assets/) so no sub_filter needed

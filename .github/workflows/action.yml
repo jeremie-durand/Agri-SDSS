@@ -59,5 +59,8 @@ jobs:
       - name: Smoke-test service entrypoints
         run: make smoke-entrypoints
 
+      - name: Smoke-test stac-browser
+        run: make smoke-stac-browser
+
       - name: Run all tests
         run: make test-all
