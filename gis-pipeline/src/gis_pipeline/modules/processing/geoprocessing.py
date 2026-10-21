@@ -1234,32 +1234,34 @@ class GeoprocessingRaster:
     def _build_stac_properties(
         src: rasterio.DatasetReader,
         crs: rasterio.crs.CRS,
-        raster_bands: list[dict],
         proj_transform: list[float],
         dt_val: str,
     ) -> dict:
         """Build the STAC ``properties`` sub-dict from an open rasterio dataset.
 
+        Band descriptions live on the COG asset (see ``_build_stac_bands``),
+        not here.
+
         Args:
             src: Open rasterio dataset for the COG.
             crs: CRS of the dataset.
-            raster_bands: Pre-built list of band descriptors.
             proj_transform: GDAL-order affine coefficients.
             dt_val: ISO-8601 datetime string.
 
         Returns:
             dict: STAC properties sub-dict.
         """
-        return {
+        epsg = crs.to_epsg() if crs else 4326
+        properties = {
             "datetime": dt_val,
-            "proj:epsg": crs.to_epsg() if crs else 4326,
+            "proj:code": f"EPSG:{epsg}" if epsg else None,
             "proj:shape": [src.height, src.width],
             "proj:transform": proj_transform,
-            "raster:bands": raster_bands,
-            "bands": src.count,
             "source": "cog_processing",
-            "data_type": "raster",
         }
+        if epsg is None:
+            properties["proj:wkt2"] = crs.to_wkt(version="WKT2_2019")
+        return properties
 
     @staticmethod
     def _render_params(
@@ -1334,21 +1336,14 @@ class GeoprocessingRaster:
             crs = src.crs
 
             # STAC's core bbox/geometry are spec-required to be WGS84 lon/lat,
-            # regardless of the asset's own CRS (proj:epsg carries the true
+            # regardless of the asset's own CRS (proj:code carries the true
             # native CRS separately via _build_stac_properties).
             if crs and crs.to_epsg() != 4326:
                 wgs84_bounds = BoundingBox(*transform_bounds(crs, "EPSG:4326", *bounds))
             else:
                 wgs84_bounds = bounds
 
-            raster_bands = [
-                {
-                    "nodata": (src.nodatavals[i - 1] if src.nodatavals else src.nodata),
-                    "data_type": str(src.dtypes[i - 1]),
-                    "spatial_resolution": abs(src.transform[0]),
-                }
-                for i in range(1, src.count + 1)
-            ]
+            bands = self._build_stac_bands(src)
 
             stored_metadata = self.raster_metadata[original_raster_path]
 
@@ -1375,7 +1370,7 @@ class GeoprocessingRaster:
                     "type": "image/tiff; application=geotiff; profile=cloud-optimized",
                     "roles": ["data"],
                     "title": cog_file_path.name,
-                    "raster_bands": raster_bands,
+                    "bands": bands,
                 },
                 "preview": {
                     "href": public_preview_url(
@@ -1419,14 +1414,13 @@ class GeoprocessingRaster:
                 "properties": self._build_stac_properties(
                     src=src,
                     crs=crs,
-                    raster_bands=raster_bands,
                     proj_transform=proj_transform,
                     dt_val=dt_val,
                 ),
                 "assets": assets,
                 "stac_extensions": [
-                    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
-                    "https://stac-extensions.github.io/projection/v1.1.0/schema.json",
+                    "https://stac-extensions.github.io/raster/v2.0.0/schema.json",
+                    "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
                 ],
                 "file_url": str(cog_file_path.absolute()),
                 "href": cog_url,

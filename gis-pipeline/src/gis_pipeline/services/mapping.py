@@ -278,7 +278,7 @@ class SqlAlchemyTypes(Enum):
 # ---------------------------------------------------------------
 STAC_ITEM_TEMPLATE = {
     "type": "Feature",
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "stac_extensions": [],
     "id": None,
     "geometry": None,
@@ -288,7 +288,6 @@ STAC_ITEM_TEMPLATE = {
         "created": None,
         "updated": None,
         "title": None,
-        "data_type": None,
         "source": None,
     },
     "links": [],
