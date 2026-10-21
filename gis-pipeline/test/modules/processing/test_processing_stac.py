@@ -522,7 +522,7 @@ def test_create_stac_item_from_raster_valid_input(tmp_path):
     assert item.id == "raster_1"
     # properties contain automatic fields
     assert item.properties["title"] == "raster_1"
-    assert item.properties["data_type"] == "raster"
+    assert "data_type" not in item.properties
     assert item.properties["source"] == "cog_processing"
     # the provided property was preserved (after cleaning)
     assert item.properties["sensor"] == "test-sensor"
@@ -605,6 +605,73 @@ def test_create_stac_item_from_raster_falls_back_to_aux_parse(tmp_path):
     assert item.assets["data"].href == str(raster_file)
 
 
+RASTER_V2 = "https://stac-extensions.github.io/raster/v2.0.0/schema.json"
+PROJECTION_V2 = "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
+
+
+def _cog_raster_dict(**overrides: object) -> dict:
+    raster_dict = {
+        "geometry": mapping(Point(0, 0)),
+        "bbox": [0.0, 0.0, 0.0, 0.0],
+        "datetime": "2024-01-15T12:00:00Z",
+        "properties": {},
+        "metadata": {},
+        "href": "https://example.test/cog/r.tif",
+    }
+    raster_dict.update(overrides)
+    return raster_dict
+
+
+def test_create_stac_item_from_raster_publishes_asset_bands() -> None:
+    bands = [
+        {"name": "b1", "data_type": "float32", "nodata": "nan"},
+        {"name": "b2", "data_type": "float32", "nodata": -9999.0},
+    ]
+    raster_dict = _cog_raster_dict(assets={"cog": {"bands": bands}})
+
+    item = _create_stac_item_from_raster(raster_dict=raster_dict, unique_id="r")
+
+    assert item.assets["data"].extra_fields["bands"] == bands
+    assert "bands" not in item.properties
+
+
+def test_create_stac_item_from_raster_without_bands_has_no_asset_bands() -> None:
+    item = _create_stac_item_from_raster(raster_dict=_cog_raster_dict(), unique_id="r")
+
+    assert "bands" not in item.assets["data"].extra_fields
+
+
+def test_create_stac_item_from_raster_keeps_stac_extensions() -> None:
+    extensions = [RASTER_V2, PROJECTION_V2]
+    raster_dict = _cog_raster_dict(stac_extensions=extensions)
+
+    item = _create_stac_item_from_raster(raster_dict=raster_dict, unique_id="r")
+
+    assert item.stac_extensions == extensions
+
+
+def test_create_stac_item_from_raster_without_extensions_defaults_to_empty() -> None:
+    item = _create_stac_item_from_raster(raster_dict=_cog_raster_dict(), unique_id="r")
+
+    assert item.stac_extensions == []
+
+
+def test_create_stac_item_from_raster_publishes_no_null_properties() -> None:
+    """STAC 1.1 rejects null for created, description and similar fields."""
+    item = _create_stac_item_from_raster(raster_dict=_cog_raster_dict(), unique_id="r")
+
+    assert all(value is not None for value in item.properties.values())
+
+
+def test_create_stac_item_from_raster_aux_path_has_no_null_properties() -> None:
+    raster_dict = _cog_raster_dict()
+    raster_dict.pop("metadata")
+
+    item = _create_stac_item_from_raster(raster_dict=raster_dict, unique_id="r")
+
+    assert all(value is not None for value in item.properties.values())
+
+
 # ------------------------------------------
 # Test cases for build_stac_items_from_cog()
 # ------------------------------------------
@@ -648,9 +715,8 @@ def test_build_stac_items_from_cog_success():
         )
 
         assert len(items) == 2
-        # properties should include source and data_type set by builder
         assert all(item.properties.get("source") == "MySource" for item in items)
-        assert all(item.properties.get("data_type") == "raster" for item in items)
+        assert all("data_type" not in item.properties for item in items)
         # validate_stac called once per created item
         assert mock_validate.call_count == 2
 
@@ -1766,9 +1832,7 @@ def test_raster_item_does_not_duplicate_the_main_cog_asset() -> None:
         "bbox": [0, 0, 1, 1],
         "href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif",
         "properties": {},
-        "assets": {
-            "cog": {"href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif"}
-        },
+        "assets": {"cog": {"href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif"}},
     }
 
     item = _create_stac_item_from_raster(raster_dict=raster_dict, unique_id="demo_cog")

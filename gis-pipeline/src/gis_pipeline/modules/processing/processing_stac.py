@@ -332,10 +332,11 @@ def _create_stac_item_from_raster(
             "updated": Config.NOW_DATETIME,
             "title": unique_id,
             "source": "cog_processing",
-            "data_type": "raster",
             "description": raster_dict.get("description"),
         }
     )
+
+    properties = {key: value for key, value in properties.items() if value is not None}
 
     # Create item
     item = Item(
@@ -344,19 +345,24 @@ def _create_stac_item_from_raster(
         bbox=bbox,
         datetime=dt_value,
         properties=properties,
-        stac_extensions=template.get("stac_extensions", []),
+        stac_extensions=raster_dict.get("stac_extensions")
+        or template.get("stac_extensions", []),
     )
 
     # Add main asset. `href` is the public URL; `file_url` is the local path
     # kept for older callers that never set one.
     asset_href = raster_dict.get("href") or raster_dict.get("file_url")
     if asset_href:
+        cog_bands = (raster_dict.get("assets") or {}).get("cog", {}).get("bands")
         item.add_asset(
             asset_key,
             Asset(
                 href=asset_href,
                 media_type="image/tiff; application=geotiff",
                 roles=["data"],
+                extra_fields=(
+                    {"bands": _clean_metadata(cog_bands)} if cog_bands else None
+                ),
             ),
         )
 
@@ -421,7 +427,7 @@ def _build_single_stac_item(raster_dict: dict, idx: int, source_name: str) -> It
         error_msg = f"Failed to create valid Item object: {type(item)}"
         handle_error(logger=logger, error_msg=error_msg, exc_class=ValueError)
 
-    item.properties.update({"source": source_name, "data_type": "raster"})
+    item.properties.update({"source": source_name})
     logger.debug(f"Successfully created item {unique_id}")
     return item
 
