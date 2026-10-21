@@ -953,14 +953,26 @@ class SentinelFetchProcessor(BaseProcessor):
         end: datetime = datetime.fromisoformat(temporal_extent[1])
         midpoint: datetime = start + (end - start) / 2
 
+        stac_extensions: list[str] = [
+            "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
+        ]
+        if any(
+            key.startswith("eo:")
+            for asset in assets.values()
+            for band in asset.get("bands", [])
+            for key in band
+        ):
+            stac_extensions.append(
+                "https://stac-extensions.github.io/eo/v2.0.0/schema.json"
+            )
+        stac_extensions.append(
+            "https://stac-extensions.github.io/processing/v1.2.0/schema.json"
+        )
+
         stac_item: Dict[str, Any] = {
             "type": "Feature",
             "stac_version": self.STAC_VERSION,
-            "stac_extensions": [
-                "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
-                "https://stac-extensions.github.io/eo/v2.0.0/schema.json",
-                "https://stac-extensions.github.io/processing/v1.2.0/schema.json",
-            ],
+            "stac_extensions": stac_extensions,
             "id": item_id,
             "geometry": geometry,
             "bbox": list(bbox),
@@ -976,8 +988,8 @@ class SentinelFetchProcessor(BaseProcessor):
                 "constellation": "sentinel-2",
                 "mission": "copernicus",
                 "processing:level": "L2A",
-                "eo:cloud_cover": cloud_cover_max,
                 "proj:code": "EPSG:4326",
+                "agri_sdss:cloud_cover_max": cloud_cover_max,
                 "agri_sdss:cloud_mask": cloud_mask,
                 "agri_sdss:scl_masked_classes": (
                     list(self.SCL_MASKED_CLASSES) if cloud_mask else []

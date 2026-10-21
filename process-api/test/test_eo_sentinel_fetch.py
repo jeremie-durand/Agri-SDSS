@@ -826,7 +826,8 @@ def test_create_stac_item_structure(
     assert "properties" in item
     assert "assets" in item
     assert "datetime" in item["properties"]
-    assert "eo:cloud_cover" in item["properties"]
+    assert "eo:cloud_cover" not in item["properties"]
+    assert item["properties"]["agri_sdss:cloud_cover_max"] == 20
     assert item["properties"]["platform"] == "sentinel-2"
 
 
@@ -892,6 +893,28 @@ def test_create_stac_item_stac_extensions(
         assets={},
         cloud_cover_max=20,
         marker_path=str(tmp_path / "test_ext.stac.json"),
+    )
+
+    assert item["stac_extensions"] == [
+        "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/processing/v1.2.0/schema.json",
+    ]
+
+
+def test_create_stac_item_declares_eo_when_a_band_has_a_common_name(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    assets = _make_assets(("true_color",))
+    assets["true_color"]["bands"] = processor_instance._get_bands_metadata("true_color")
+
+    item = processor_instance._create_stac_item(
+        item_id="test_ext_eo",
+        geometry=sample_farm_geometry,
+        bbox=(-71.5, 45.5, -71.4, 45.6),
+        temporal_extent=["2024-06-01", "2024-08-31"],
+        assets=assets,
+        cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_ext_eo.stac.json"),
     )
 
     assert item["stac_extensions"] == [
