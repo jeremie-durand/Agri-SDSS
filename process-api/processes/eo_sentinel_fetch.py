@@ -127,7 +127,7 @@ class SentinelFetchProcessor(BaseProcessor):
 
     # STAC configuration
     STAC_COLLECTION_ID: str = "sentinel2_eo_products"
-    STAC_VERSION: str = "1.0.0"
+    STAC_VERSION: str = "1.1.0"
     STAC_SPATIAL_EXTENT_BBOX: List[float] = [
         -79.75,
         41.75,
@@ -937,7 +937,7 @@ class SentinelFetchProcessor(BaseProcessor):
                 tell masked from unmasked ones
 
         Returns:
-            STAC Item compliant with STAC v1.0.0 specification, including:
+            STAC Item compliant with STAC v1.1.0 specification, including:
                 - type: "Feature"
                 - stac_version: STAC specification version
                 - stac_extensions: List of extension schemas used
@@ -957,9 +957,9 @@ class SentinelFetchProcessor(BaseProcessor):
             "type": "Feature",
             "stac_version": self.STAC_VERSION,
             "stac_extensions": [
-                "https://stac-extensions.github.io/projection/v1.0.0/schema.json",
-                "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
-                "https://stac-extensions.github.io/eo/v1.0.0/schema.json",
+                "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
+                "https://stac-extensions.github.io/eo/v2.0.0/schema.json",
+                "https://stac-extensions.github.io/processing/v1.2.0/schema.json",
             ],
             "id": item_id,
             "geometry": geometry,
@@ -977,7 +977,7 @@ class SentinelFetchProcessor(BaseProcessor):
                 "mission": "copernicus",
                 "processing:level": "L2A",
                 "eo:cloud_cover": cloud_cover_max,
-                "proj:epsg": 4326,
+                "proj:code": "EPSG:4326",
                 "agri_sdss:cloud_mask": cloud_mask,
                 "agri_sdss:scl_masked_classes": (
                     list(self.SCL_MASKED_CLASSES) if cloud_mask else []
@@ -1000,17 +1000,24 @@ class SentinelFetchProcessor(BaseProcessor):
         """Path to the sidecar marker recording a successful STAC publish."""
         return os.path.join(self.output_dir, f"{stac_item_id}.stac.json")
 
-    @staticmethod
-    def _load_cached_stac_item(marker_path: str) -> Optional[Dict[str, Any]]:
-        """Return the previously-published STAC item, or None if unpublished."""
+    @classmethod
+    def _load_cached_stac_item(cls, marker_path: str) -> Optional[Dict[str, Any]]:
+        """Return the previously-published STAC item, or None if unpublished.
+
+        A marker written under another STAC version describes an item in an
+        outdated shape, so it counts as unpublished and the item is republished.
+        """
         if not os.path.exists(marker_path):
             return None
         try:
             with open(marker_path, "r") as f:
-                return json.load(f)
+                item = json.load(f)
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Could not read STAC marker %s: %s", marker_path, exc)
             return None
+        if item.get("stac_version") != cls.STAC_VERSION:
+            return None
+        return item
 
     @staticmethod
     def _write_stac_marker(marker_path: str, stac_item: Dict[str, Any]) -> None:
@@ -1050,7 +1057,7 @@ class SentinelFetchProcessor(BaseProcessor):
                 "stac_version": self.STAC_VERSION,
                 "title": "Sentinel-2 Earth Observation Products",
                 "description": "Processed Sentinel-2 products (NDVI, EVI, SAVI, True Color) generated from openEO backend",
-                "license": "proprietary",
+                "license": "other",
                 "extent": {
                     "spatial": {"bbox": [self.STAC_SPATIAL_EXTENT_BBOX]},
                     "temporal": {"interval": [[self.STAC_TEMPORAL_START, None]]},

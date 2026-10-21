@@ -817,7 +817,9 @@ def test_create_stac_item_structure(
     )
 
     assert item["type"] == "Feature"
-    assert item["stac_version"] == "1.0.0"
+    assert item["stac_version"] == "1.1.0"
+    assert item["properties"]["proj:code"] == "EPSG:4326"
+    assert "proj:epsg" not in item["properties"]
     assert item["id"] == "test_item"
     assert "geometry" in item
     assert "bbox" in item
@@ -881,7 +883,7 @@ def test_create_stac_item_temporal_properties(
 def test_create_stac_item_stac_extensions(
     processor_instance, sample_farm_geometry, tmp_path
 ):
-    """_create_stac_item includes the proj, raster, and eo extension URIs."""
+    """_create_stac_item declares exactly the extensions whose fields it uses."""
     item = processor_instance._create_stac_item(
         item_id="test_ext",
         geometry=sample_farm_geometry,
@@ -892,10 +894,11 @@ def test_create_stac_item_stac_extensions(
         marker_path=str(tmp_path / "test_ext.stac.json"),
     )
 
-    extensions = item["stac_extensions"]
-    assert any("projection" in e for e in extensions), "Missing projection extension"
-    assert any("raster" in e for e in extensions), "Missing raster extension"
-    assert any("/eo/" in e for e in extensions), "Missing eo extension"
+    assert item["stac_extensions"] == [
+        "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/eo/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/processing/v1.2.0/schema.json",
+    ]
 
 
 def test_create_stac_item_calls_post_to_stac_api(
@@ -976,12 +979,30 @@ def test_load_cached_stac_item_missing_returns_none(processor_instance, tmp_path
 def test_write_and_load_stac_marker_round_trip(processor_instance, tmp_path):
     """A written marker can be read back as the same STAC item dict."""
     marker_path = str(tmp_path / "roundtrip.stac.json")
-    stac_item = {"id": "sentinel2_farm_test", "type": "Feature"}
+    stac_item = {
+        "id": "sentinel2_farm_test",
+        "type": "Feature",
+        "stac_version": "1.1.0",
+    }
 
     processor_instance._write_stac_marker(marker_path, stac_item)
     loaded = processor_instance._load_cached_stac_item(marker_path)
 
     assert loaded == stac_item
+
+
+@pytest.mark.unit
+def test_load_cached_stac_item_ignores_a_marker_from_an_older_stac_version(
+    processor_instance, tmp_path
+):
+    """A 1.0.0 marker describes an item in the legacy shape; it must be
+    republished, not served."""
+    marker_path = str(tmp_path / "legacy.stac.json")
+    processor_instance._write_stac_marker(
+        marker_path, {"id": "legacy", "type": "Feature", "stac_version": "1.0.0"}
+    )
+
+    assert processor_instance._load_cached_stac_item(marker_path) is None
 
 
 @pytest.mark.unit
@@ -1020,7 +1041,11 @@ def test_execute_skips_stac_publish_when_all_products_cached_and_assets_match(
     # plus the raster-api siblings built for it.
     seeded_assets = _make_assets(("ndvi",))
     seeded_assets.update(processor_instance._render_assets(seeded_assets))
-    seeded_item = {"id": stac_item_id, "assets": seeded_assets}
+    seeded_item = {
+        "id": stac_item_id,
+        "stac_version": "1.1.0",
+        "assets": seeded_assets,
+    }
     processor_instance._write_stac_marker(marker_path, seeded_item)
 
     with (
@@ -1057,7 +1082,11 @@ def test_execute_republishes_when_marker_asset_set_differs(
     stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
     marker_path = processor_instance._stac_marker_path(stac_item_id)
     # Marker only has "ndvi" published; this call also wants "true_color".
-    seeded_item = {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+    seeded_item = {
+        "id": stac_item_id,
+        "stac_version": "1.1.0",
+        "assets": _make_assets(("ndvi",)),
+    }
     processor_instance._write_stac_marker(marker_path, seeded_item)
 
     with (
@@ -2333,7 +2362,7 @@ def sample_stac_item():
     """Sample STAC item for testing."""
     return {
         "type": "Feature",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "id": "sentinel2_farm_4_2024-06-01_2024-08-31",
         "geometry": {
             "type": "Polygon",
@@ -2397,6 +2426,9 @@ def test_ensure_collection_exists_creates_new(processor_instance):
 
                 # Check the collection payload
                 assert "sentinel2_eo_products" in str(call_args)
+                body = call_args.kwargs["json"]
+                assert body["license"] == "other"
+                assert body["stac_version"] == "1.1.0"
                 assert SentinelFetchProcessor._collection_checked is True
 
 
@@ -3427,7 +3459,12 @@ def test_execute_republishes_when_marker_predates_the_render_assets(
     marker_path = processor_instance._stac_marker_path(stac_item_id)
     # Pre-fix marker: products only, no preview/tilejson siblings.
     processor_instance._write_stac_marker(
-        marker_path, {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+        marker_path,
+        {
+            "id": stac_item_id,
+            "stac_version": "1.1.0",
+            "assets": _make_assets(("ndvi",)),
+        },
     )
 
     with (
@@ -3446,3 +3483,48 @@ def test_execute_republishes_when_marker_predates_the_render_assets(
     published = mock_post.call_args[0][0]
     assert "ndvi_preview" in published["assets"]
     assert "ndvi_tilejson" in published["assets"]
+
+
+@pytest.mark.mocked
+def test_execute_republishes_when_marker_is_from_an_older_stac_version(
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
+):
+    """A legacy marker with a matching asset set still describes a 1.0.0 item,
+    so a fully cached call must republish it rather than serve it."""
+    processor_instance.output_dir = str(tmp_path)
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+    }
+
+    geom_shape = shape(sample_farm_geometry_small)
+    bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}_scl"
+    stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
+    marker_path = processor_instance._stac_marker_path(stac_item_id)
+    processor_instance._write_stac_marker(
+        marker_path,
+        {
+            "id": stac_item_id,
+            "stac_version": "1.0.0",
+            "assets": _render_assets_item(
+                processor_instance, _make_assets(("ndvi",)), tmp_path
+            ),
+        },
+    )
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi",)), True),
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=True
+        ) as mock_post,
+    ):
+        processor_instance.execute(data)
+
+    mock_post.assert_called_once()
+    assert mock_post.call_args[0][0]["stac_version"] == "1.1.0"
