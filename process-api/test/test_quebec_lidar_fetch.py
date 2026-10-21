@@ -499,6 +499,84 @@ def test_aspect_statistics_empty_polygon_returns_none(processor_instance, tmp_pa
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "product, statistics, expected_mean, expected_unit",
+    [
+        ("slope", {"mean_degrees": 4.2, "mean_percent": 7.3}, 7.3, "%"),
+        ("aspect", {"mean_degrees": 187.5}, 187.5, "deg"),
+    ],
+)
+def test_add_product_asset_publishes_a_stac_band(
+    processor_instance, tmp_path, product, statistics, expected_mean, expected_unit
+):
+    """In STAC the band mean is in the band's own unit; the degree/percent
+    pair stays in the top-level summary."""
+    cog_path = str(tmp_path / f"{product}.tif")
+    _write_test_raster(cog_path, [[1.0, 2.0], [3.0, 4.0]])
+    assets: dict = {}
+    summaries: dict = {}
+    stats_method = "_slope_statistics" if product == "slope" else "_aspect_statistics"
+
+    with (
+        patch.object(LidarFetchProcessor, stats_method, return_value=statistics),
+        patch.object(
+            LidarFetchProcessor, "_create_stac_item", return_value={"id": "x"}
+        ),
+    ):
+        processor_instance._add_product_asset(
+            assets=assets,
+            stac_items=[],
+            summaries=summaries,
+            product=product,
+            cog_path=cog_path,
+            geometry_geojson={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0.0, 0.0, 1.0, 1.0),
+            farm_identifier="farm",
+        )
+
+    asset = assets[product]
+    assert "statistics" not in asset
+    assert "raster:bands" not in asset
+    [band] = asset["bands"]
+    assert band["unit"] == expected_unit
+    assert band["statistics"] == {"mean": expected_mean}
+    assert band["nodata"] == -9999
+    assert summaries[product] == statistics
+
+
+@pytest.mark.unit
+def test_add_product_asset_omits_statistics_when_the_mean_is_unknown(
+    processor_instance, tmp_path
+):
+    cog_path = str(tmp_path / "slope.tif")
+    _write_test_raster(cog_path, [[1.0, 2.0], [3.0, 4.0]])
+    assets: dict = {}
+
+    with (
+        patch.object(
+            LidarFetchProcessor,
+            "_slope_statistics",
+            return_value={"mean_degrees": None, "mean_percent": None},
+        ),
+        patch.object(
+            LidarFetchProcessor, "_create_stac_item", return_value={"id": "x"}
+        ),
+    ):
+        processor_instance._add_product_asset(
+            assets=assets,
+            stac_items=[],
+            summaries={},
+            product="slope",
+            cog_path=cog_path,
+            geometry_geojson={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0.0, 0.0, 1.0, 1.0),
+            farm_identifier="farm",
+        )
+
+    assert "statistics" not in assets["slope"]["bands"][0]
+
+
+@pytest.mark.unit
 def test_compute_aspect_cog_invokes_gdaldem(processor_instance, tmp_path):
     """_compute_aspect_cog shells out to gdaldem aspect with the DTM COG
     as input, mirroring how _clip_and_convert_to_cog shells out to
@@ -1574,8 +1652,7 @@ def test_create_stac_item_publishes_absolute_hrefs(monkeypatch):
         "type": "image/tiff; application=geotiff; profile=cloud-optimized",
         "roles": ["data"],
         "title": "Digital Terrain Model (DTM)",
-        "statistics": {"mean": 147.3},
-        "raster:bands": [],
+        "bands": [{"statistics": {"mean": 147.3}}],
     }
 
     with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=False):
@@ -1621,6 +1698,7 @@ def test_add_product_asset_href_is_public(tmp_path, monkeypatch):
         processor._add_product_asset(
             assets=assets,
             stac_items=stac_items,
+            summaries={},
             product="dtm",
             cog_path=str(cog_path),
             geometry_geojson={
@@ -1727,6 +1805,7 @@ def test_stale_marker_without_render_assets_is_republished(tmp_path, monkeypatch
         processor._add_product_asset(
             assets=assets,
             stac_items=stac_items,
+            summaries={},
             product="dtm",
             cog_path=str(cog_path),
             geometry_geojson={
@@ -1767,6 +1846,7 @@ def test_current_marker_is_a_cache_hit(tmp_path, monkeypatch):
         processor._add_product_asset(
             assets={},
             stac_items=stac_items,
+            summaries={},
             product="dtm",
             cog_path=str(cog_path),
             geometry_geojson={
