@@ -810,6 +810,34 @@ def test_build_stac_items_from_cog_partial_failure_logs_warning(mock_logger):
         mock_log.warning.assert_called()
 
 
+def test_build_stac_items_from_cog_serializes_stac_1_1_bands() -> None:
+    """A 6-band COG item serializes in the STAC 1.1 band form (#221)."""
+    bands = [
+        {"name": f"b{i}", "data_type": "float32", "nodata": -9999.0}
+        for i in range(1, 7)
+    ]
+    raster_dict = _cog_raster_dict(
+        id="siigsol_like",
+        properties={"proj:code": "EPSG:32198"},
+        assets={"cog": {"bands": bands}},
+        stac_extensions=[RASTER_V2, PROJECTION_V2],
+    )
+
+    [item] = build_stac_items_from_cog([raster_dict])
+    serialized = item.to_dict()
+
+    assert serialized["stac_version"] == "1.1.0"
+    assert "bands" not in serialized["properties"]
+    assert "raster:bands" not in serialized["properties"]
+    asset_bands = serialized["assets"]["data"]["bands"]
+    assert isinstance(asset_bands, list) and len(asset_bands) == 6
+    assert all(isinstance(band, dict) for band in asset_bands)
+    assert set(serialized["stac_extensions"]) == {RASTER_V2, PROJECTION_V2}
+    assert serialized["assets"]["data"]["type"] == (
+        "image/tiff; application=geotiff; profile=cloud-optimized"
+    )
+
+
 # ------------------------------------------
 # Test cases for build_stac_collection_from_items()
 # ------------------------------------------
@@ -906,6 +934,15 @@ def test_build_stac_collection_from_items_temporal_extent_calculation(
     # Should span from earliest to latest datetime
     assert start_time <= datetime(2024, 1, 1, tzinfo=timezone.utc)
     assert end_time >= datetime(2024, 1, 3, tzinfo=timezone.utc)
+
+
+def test_build_stac_collection_from_items_uses_a_stac_1_1_license(
+    sample_stac_items,
+) -> None:
+    """STAC 1.1 licenses are SPDX identifiers or "other"; "na" is neither."""
+    collection = build_stac_collection_from_items(sample_stac_items, "c")
+
+    assert collection.license == "other"
 
 
 # ------------------------------------------

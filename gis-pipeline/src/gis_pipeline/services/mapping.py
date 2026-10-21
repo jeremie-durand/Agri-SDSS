@@ -308,7 +308,7 @@ STAC_COLLECTION_TEMPLATE = {
         },
     },
     "title": None,
-    "license": "na",
+    "license": "other",
 }
 
 

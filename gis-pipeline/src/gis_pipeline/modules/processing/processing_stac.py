@@ -358,7 +358,7 @@ def _create_stac_item_from_raster(
             asset_key,
             Asset(
                 href=asset_href,
-                media_type="image/tiff; application=geotiff",
+                media_type="image/tiff; application=geotiff; profile=cloud-optimized",
                 roles=["data"],
                 extra_fields=(
                     {"bands": _clean_metadata(cog_bands)} if cog_bands else None
@@ -534,7 +534,7 @@ def _compute_temporal_extent(items: list[Item]) -> TemporalExtent:
 
 def build_stac_collection_from_items(
     items: list[Item], collection_id: str
-) -> Collection:  # default license="proprietary"
+) -> Collection:
     """Create a STAC Collection from a list of pystac.Item objects.
 
     Args:
