@@ -1203,6 +1203,34 @@ class GeoprocessingRaster:
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
     @staticmethod
+    def _build_stac_bands(src: rasterio.DatasetReader) -> list[dict]:
+        """Build the STAC 1.1 ``bands`` array describing a COG asset.
+
+        STAC only accepts a number or ``"nan"``/``"inf"``/``"-inf"`` as
+        ``nodata``: an unset nodata is left out, and a non-finite one is written
+        as its string, since ``_clean_metadata`` turns a float NaN into null.
+
+        Args:
+            src: Open rasterio dataset for the COG.
+
+        Returns:
+            list[dict]: One band object per band, in band order.
+        """
+        resolution = abs(src.transform[0])
+        bands: list[dict] = []
+        for i in range(1, src.count + 1):
+            band: dict[str, str | float] = {
+                "name": src.descriptions[i - 1] or f"b{i}",
+                "data_type": str(src.dtypes[i - 1]),
+                "raster:spatial_resolution": resolution,
+            }
+            nodata = src.nodatavals[i - 1] if src.nodatavals else src.nodata
+            if nodata is not None:
+                band["nodata"] = nodata if np.isfinite(nodata) else str(nodata)
+            bands.append(band)
+        return bands
+
+    @staticmethod
     def _build_stac_properties(
         src: rasterio.DatasetReader,
         crs: rasterio.crs.CRS,

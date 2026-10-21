@@ -2915,6 +2915,74 @@ def test_prepare_cog_metadata_for_stac_special_characters_in_filename(
 
 
 # ------------------------------------------
+# Test cases for GeoprocessingRaster._build_stac_bands()
+# ------------------------------------------
+def _write_tif(path: Path, count: int, dtype: str, nodata: float | None) -> Path:
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=count,
+        dtype=dtype,
+        crs="EPSG:4326",
+        transform=from_origin(0, 4, 0.5, 0.5),
+        nodata=nodata,
+    ) as dst:
+        dst.write(np.ones((count, 4, 4), dtype=dtype))
+    return path
+
+
+def test_build_stac_bands_one_object_per_band(tmp_path: Path):
+    """STAC 1.1 `bands` is an array of band objects, never a count (#221)."""
+    tif = _write_tif(tmp_path / "six.tif", count=6, dtype="float32", nodata=-9999)
+
+    with rasterio.open(tif) as src:
+        bands = GeoprocessingRaster._build_stac_bands(src)
+
+    assert isinstance(bands, list)
+    assert len(bands) == 6
+    assert [b["name"] for b in bands] == ["b1", "b2", "b3", "b4", "b5", "b6"]
+    for band in bands:
+        assert band["data_type"] == "float32"
+        assert band["nodata"] == -9999
+        assert band["raster:spatial_resolution"] == 0.5
+        assert "spatial_resolution" not in band
+
+
+def test_build_stac_bands_uses_band_description_as_name(tmp_path: Path):
+    tif = _write_tif(tmp_path / "named.tif", count=2, dtype="uint8", nodata=None)
+    with rasterio.open(tif, "r+") as dst:
+        dst.set_band_description(1, "clay")
+
+    with rasterio.open(tif) as src:
+        bands = GeoprocessingRaster._build_stac_bands(src)
+
+    assert [b["name"] for b in bands] == ["clay", "b2"]
+
+
+def test_build_stac_bands_omits_unset_nodata(tmp_path: Path):
+    """STAC forbids `nodata: null`, so an unset nodata is left out."""
+    tif = _write_tif(tmp_path / "plain.tif", count=1, dtype="uint8", nodata=None)
+
+    with rasterio.open(tif) as src:
+        bands = GeoprocessingRaster._build_stac_bands(src)
+
+    assert "nodata" not in bands[0]
+
+
+def test_build_stac_bands_writes_nan_nodata_as_string(tmp_path: Path):
+    """A NaN nodata must be the string "nan"; a float NaN is cleaned to null."""
+    tif = _write_tif(tmp_path / "nan.tif", count=1, dtype="float32", nodata=np.nan)
+
+    with rasterio.open(tif) as src:
+        bands = GeoprocessingRaster._build_stac_bands(src)
+
+    assert bands[0]["nodata"] == "nan"
+
+
+# ------------------------------------------
 # Test cases for GeoprocessingRaster.process_raster_to_cog()
 # ------------------------------------------
 def test_process_raster_to_cog_success(tmp_raster_valid_fixture: Path, tmp_path: Path):
@@ -3871,9 +3939,7 @@ def test_process_raster_to_cog_siigsol_override_skips_reprojection(tmp_path: Pat
     ) as dst:
         dst.write(data)
 
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[raster_path]
-    )
+    processing_raster = GeoprocessingRaster(config=Config(), raster_paths=[raster_path])
 
     output_path = tmp_path / "output"
     output_path.mkdir()
@@ -4188,9 +4254,7 @@ def test_prepare_cog_metadata_publishes_render_assets(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
     )
     cog_file = tmp_path / "render_cog.tif"
-    _write_cog_fixture(
-        cog_file, np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
-    )
+    _write_cog_fixture(cog_file, np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32"))
 
     metadata = _to_mapping(
         processing_raster.prepare_cog_metadata_for_stac(
@@ -4223,9 +4287,7 @@ def test_prepare_cog_metadata_skips_rescale_on_a_flat_raster(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
     )
     cog_file = tmp_path / "flat_cog.tif"
-    _write_cog_fixture(
-        cog_file, np.array([[7.0, 7.0], [7.0, 7.0]], dtype="float32")
-    )
+    _write_cog_fixture(cog_file, np.array([[7.0, 7.0], [7.0, 7.0]], dtype="float32"))
 
     metadata = _to_mapping(
         processing_raster.prepare_cog_metadata_for_stac(
@@ -4252,7 +4314,8 @@ def _write_multiband_cog(path: Path, band_count: int, dtype: str) -> None:
     ) as dst:
         for band in range(1, band_count + 1):
             dst.write(
-                np.full((2, 2), band, dtype=dtype) * np.array([[1, 2], [3, 4]], dtype=dtype),
+                np.full((2, 2), band, dtype=dtype)
+                * np.array([[1, 2], [3, 4]], dtype=dtype),
                 band,
             )
 
