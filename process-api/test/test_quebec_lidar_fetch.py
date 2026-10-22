@@ -232,7 +232,9 @@ def test_process_outputs_document_statistics_and_summary():
     properties = PROCESS_METADATA["outputs"]["result"]["schema"]["properties"]
     assert "slope" in properties
     assert "aspect" in properties
-    assert "statistics" in PROCESS_METADATA["outputs"]["result"]["description"]
+    description = PROCESS_METADATA["outputs"]["result"]["description"]
+    assert "assets.<product>.bands" in description
+    assert "assets.<product>.statistics" not in description
 
 
 @pytest.mark.unit
