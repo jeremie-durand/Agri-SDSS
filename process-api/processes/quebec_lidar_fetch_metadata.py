@@ -99,15 +99,15 @@ PROCESS_METADATA = {
             "title": "Process Result",
             "description": (
                 "STAC item IDs, asset URLs, and bbox for generated LiDAR "
-                "products. Each entry in assets.<product>.statistics carries "
-                "the band mean the process computes for that product: "
-                '{"mean": ...} for dtm/chm/hillshade (bounding-box mean), '
-                '{"mean_degrees": ..., "mean_percent": ...} for slope, and '
-                '{"mean_degrees": ...} for aspect (circular mean) — slope and '
-                "aspect statistics are computed over the exact farm polygon. "
-                "When slope or aspect is requested, their statistics are also "
-                "duplicated at the top level (result.slope / result.aspect) "
-                "for direct access without parsing the assets structure."
+                "products. Each asset follows STAC 1.1: assets.<product>.bands "
+                "holds one band object with its nodata, data_type, unit and "
+                "statistics.mean — the bounding-box mean for dtm/chm/hillshade, "
+                "the mean slope in percent, and the circular mean aspect in "
+                "degrees, both over the exact farm polygon. When slope or "
+                "aspect is requested, the full statistics are also returned "
+                "at the top level (result.slope = {mean_degrees, mean_percent}, "
+                "result.aspect = {mean_degrees}) for direct access without "
+                "parsing the assets structure."
             ),
             "schema": {
                 "type": "object",
