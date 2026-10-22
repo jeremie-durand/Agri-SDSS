@@ -5,7 +5,10 @@ Tests the eo_sentinel_fetch.py module functionality.
 
 import hashlib
 import json
+import multiprocessing
 import os
+import signal
+import time
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -498,13 +501,10 @@ def test_convert_to_cog_success(processor_instance, tmp_path):
     # Create a dummy input file
     input_file.touch()
 
-    mock_result = MagicMock()
-    mock_result.returncode = 0
-    mock_result.stderr = ""
-
-    with patch("subprocess.run", return_value=mock_result):
+    with patch("subprocess.run", side_effect=_fake_gdalwarp):
         processor_instance._convert_to_cog(str(input_file), str(output_file))
-        # Should not raise any exception
+
+    assert output_file.read_bytes() == b"complete"
 
 
 def test_convert_to_cog_failure(processor_instance, tmp_path):
@@ -527,6 +527,152 @@ def test_convert_to_cog_failure(processor_instance, tmp_path):
     assert "GDAL error: invalid file" not in str(
         excinfo.value
     ), "gdalwarp stderr must stay in the logs, not reach the caller"
+
+
+def _fake_gdalwarp(cmd, **kwargs):
+    """subprocess.run stand-in that writes the output gdalwarp was given."""
+    with open(cmd[-1], "wb") as f:
+        f.write(b"complete")
+    return MagicMock(returncode=0, stderr="")
+
+
+def test_convert_to_cog_exposes_the_cog_only_once_complete(
+    processor_instance, tmp_path
+):
+    """gdalwarp writes elsewhere, so an interrupted run never leaves a file at
+    the COG path for the next call to take as a cache hit. The temporary name
+    must not end in .tif, or raster-api's /collections would list it."""
+    output_file = tmp_path / "sentinel2_geom_x_ndvi.tif"
+    seen = {}
+
+    def gdalwarp(cmd, **kwargs):
+        seen["output_path"] = cmd[-1]
+        seen["cog_existed_during_build"] = output_file.exists()
+        return _fake_gdalwarp(cmd, **kwargs)
+
+    with patch("subprocess.run", side_effect=gdalwarp):
+        processor_instance._convert_to_cog(str(tmp_path / "in.tif"), str(output_file))
+
+    assert seen["output_path"] != str(output_file)
+    assert not seen["output_path"].endswith(".tif")
+    assert seen["cog_existed_during_build"] is False
+    assert os.listdir(tmp_path) == ["sentinel2_geom_x_ndvi.tif"]
+
+
+def test_convert_to_cog_removes_partial_file_on_gdal_failure(
+    processor_instance, tmp_path
+):
+    """A gdalwarp that fails after writing leaves neither COG nor temp file."""
+    output_file = tmp_path / "sentinel2_geom_x_ndvi.tif"
+
+    def failing_gdalwarp(cmd, **kwargs):
+        with open(cmd[-1], "wb") as f:
+            f.write(b"trunc")
+        return MagicMock(returncode=1, stderr="GDAL error")
+
+    with patch("subprocess.run", side_effect=failing_gdalwarp):
+        with pytest.raises(ProcessorExecuteError):
+            processor_instance._convert_to_cog(
+                str(tmp_path / "in.tif"), str(output_file)
+            )
+
+    assert os.listdir(tmp_path) == []
+
+
+def test_convert_to_cog_removes_partial_file_when_gdal_cannot_run(
+    processor_instance, tmp_path
+):
+    """An exception from subprocess.run itself still cleans up."""
+    output_file = tmp_path / "sentinel2_geom_x_ndvi.tif"
+
+    def crashing_gdalwarp(cmd, **kwargs):
+        with open(cmd[-1], "wb") as f:
+            f.write(b"trunc")
+        raise OSError("gdalwarp crashed")
+
+    with patch("subprocess.run", side_effect=crashing_gdalwarp):
+        with pytest.raises(OSError):
+            processor_instance._convert_to_cog(
+                str(tmp_path / "in.tif"), str(output_file)
+            )
+
+    assert os.listdir(tmp_path) == []
+
+
+def test_convert_to_cog_with_real_gdalwarp_yields_a_cog(processor_instance, tmp_path):
+    """GDAL picks the format from -of COG, not from the .partial extension."""
+    source = tmp_path / "source.tif"
+    _write_sentinel_test_raster(str(source))
+    output_file = tmp_path / "sentinel2_geom_x_ndvi.tif"
+
+    processor_instance._convert_to_cog(str(source), str(output_file))
+
+    with rasterio.open(output_file) as src:
+        assert src.driver == "GTiff"
+        assert src.read(1).ravel().tolist() == pytest.approx([0.1, 0.2, 0.3, 0.4])
+    assert sorted(os.listdir(tmp_path)) == ["sentinel2_geom_x_ndvi.tif", "source.tif"]
+
+
+def test_convert_to_cog_overwrites_a_leftover_partial_file(
+    processor_instance, tmp_path
+):
+    """A garbage .partial left by a killed worker must not block real gdalwarp."""
+    source = tmp_path / "source.tif"
+    _write_sentinel_test_raster(str(source))
+    output_file = tmp_path / "sentinel2_geom_x_ndvi.tif"
+    (tmp_path / "sentinel2_geom_x_ndvi.tif.partial").write_bytes(b"not a tiff")
+
+    processor_instance._convert_to_cog(str(source), str(output_file))
+
+    with rasterio.open(output_file) as src:
+        assert src.read(1).ravel().tolist() == pytest.approx([0.1, 0.2, 0.3, 0.4])
+    assert sorted(os.listdir(tmp_path)) == ["sentinel2_geom_x_ndvi.tif", "source.tif"]
+
+
+def test_worker_killed_mid_write_leaves_no_cog_and_next_call_rebuilds(
+    processor_instance, tmp_path
+):
+    """gunicorn SIGKILLs a worker past its timeout, so no finally block runs.
+    The truncated output must stay under the temporary name, and the next
+    call must rebuild a valid COG instead of serving the truncated one."""
+    source = tmp_path / "source.tif"
+    _write_sentinel_test_raster(str(source))
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    output_file = output_dir / "sentinel2_geom_x_ndvi.tif"
+
+    context = multiprocessing.get_context("fork")
+    writing = context.Event()
+
+    def gdalwarp_until_killed(cmd, **kwargs):
+        with open(cmd[-1], "wb") as f:
+            f.write(b"II*\x00truncated")
+            f.flush()
+            writing.set()
+            time.sleep(60)
+
+    with patch("subprocess.run", side_effect=gdalwarp_until_killed):
+        worker = context.Process(
+            target=processor_instance._convert_to_cog,
+            args=(str(source), str(output_file)),
+        )
+        worker.start()
+    try:
+        assert writing.wait(timeout=10), "worker never started writing"
+        os.kill(worker.pid, signal.SIGKILL)
+        worker.join(timeout=10)
+    finally:
+        if worker.is_alive():
+            worker.kill()
+
+    assert worker.exitcode == -signal.SIGKILL
+    assert os.listdir(output_dir) == ["sentinel2_geom_x_ndvi.tif.partial"]
+
+    processor_instance._convert_to_cog(str(source), str(output_file))
+
+    with rasterio.open(output_file) as src:
+        assert src.read(1).ravel().tolist() == pytest.approx([0.1, 0.2, 0.3, 0.4])
+    assert os.listdir(output_dir) == ["sentinel2_geom_x_ndvi.tif"]
 
 
 # ------------------------------------------

@@ -93,6 +93,10 @@ keeps the original names. Each published STAC item records the choice in its
 properties (`agri_sdss:cloud_mask`, `agri_sdss:scl_masked_classes`); the SOM
 form only reuses items where `agri_sdss:cloud_mask` is `true`.
 
+A cached COG is reused whenever its file exists, so each one is written under a
+`.tif.partial` name and renamed only once `gdalwarp` succeeds: an interrupted
+or failed conversion never leaves a truncated COG to be served on the next call.
+
 ---
 
 ## Examples
