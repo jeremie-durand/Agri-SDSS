@@ -13,8 +13,10 @@ ENV HOME=/tmp
 # The Wolfi-based TiTiler image ships its venv without pip, and its busybox
 # timeout makes wait-for-it.sh probe the database with nc
 USER root
-RUN apk add --no-cache netcat-openbsd \
-    && python -m ensurepip
+RUN apk upgrade --no-cache \
+    && apk add --no-cache netcat-openbsd \
+    && python -m ensurepip \
+    && python -m pip install --no-cache-dir --upgrade pip
 
 # Copy canonical wait-for-it script and entrypoint
 COPY --chmod=755 scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh

@@ -23,7 +23,7 @@ RUN mkdir -p /app/scripts
 COPY --chmod=755 scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
 
 # Install build dependencies (GIS-focused)
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     build-essential \
     cmake \
     ninja-build \
