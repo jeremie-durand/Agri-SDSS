@@ -3,7 +3,7 @@ import subprocess
 import time
 import unicodedata
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import duckdb
 import fiona
@@ -1252,7 +1252,7 @@ class GeoprocessingRaster:
             dict: STAC properties sub-dict.
         """
         epsg = crs.to_epsg() if crs else 4326
-        properties = {
+        properties: dict[str, Any] = {
             "datetime": dt_val,
             "proj:code": f"EPSG:{epsg}" if epsg else None,
             "proj:shape": [src.height, src.width],

@@ -158,8 +158,9 @@ def fetch_ndvi(
             value = json.load(response)["value"]
     except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
         return None, "", str(exc)
-    stats = value["stac_item"]["assets"]["ndvi"].get("statistics", {}).get("1", {})
-    return stats.get("mean"), value.get("stac_item_id", ""), ""
+    bands = value["stac_item"]["assets"]["ndvi"].get("bands") or [{}]
+    mean = bands[0].get("statistics", {}).get("mean")
+    return mean, value.get("stac_item_id", ""), ""
 
 
 def run_comparison(base_url: str, parcels: Path, year: int, out: Path) -> None:

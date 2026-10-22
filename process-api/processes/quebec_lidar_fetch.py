@@ -251,7 +251,7 @@ class LidarFetchProcessor(BaseProcessor):
             # ----------------------------------------------------------
             stac_items: List[Dict[str, Any]] = []
             assets: Dict[str, Dict[str, Any]] = {}
-            summaries: Dict[str, Dict[str, Optional[float]]] = {}
+            summaries: dict[str, dict[str, float | None]] = {}
             cog_paths: Dict[str, str] = {}
 
             for product, urls in tile_urls.items():
@@ -638,7 +638,7 @@ class LidarFetchProcessor(BaseProcessor):
         self,
         assets: Dict[str, Dict[str, Any]],
         stac_items: List[Dict[str, Any]],
-        summaries: Dict[str, Dict[str, Optional[float]]],
+        summaries: dict[str, dict[str, float | None]],
         product: str,
         cog_path: str,
         geometry_geojson: Dict[str, Any],
@@ -658,6 +658,12 @@ class LidarFetchProcessor(BaseProcessor):
         """
         with rasterio.open(cog_path) as src:
             data_type = str(src.dtypes[0])
+            nodata = src.nodata
+            band_values = (
+                src.read(1, masked=True)
+                if product not in ("slope", self.ASPECT_PRODUCT)
+                else None
+            )
         if product == "slope":
             summaries[product] = self._slope_statistics(cog_path, geometry_geojson)
             mean = summaries[product]["mean_percent"]
@@ -665,15 +671,17 @@ class LidarFetchProcessor(BaseProcessor):
             summaries[product] = self._aspect_statistics(cog_path, geometry_geojson)
             mean = summaries[product]["mean_degrees"]
         else:
-            with rasterio.open(cog_path) as src:
-                band_values = src.read(1, masked=True)
-            mean = float(band_values.mean()) if band_values.count() > 0 else None
+            finite_values = band_values.compressed()
+            finite_values = finite_values[np.isfinite(finite_values)]
+            mean = float(finite_values.mean()) if finite_values.size > 0 else None
 
-        band: Dict[str, Any] = {
-            "nodata": self.DEFAULT_NODATA,
+        band: dict[str, Any] = {
+            "name": product,
             "data_type": data_type,
             "description": self._get_product_description(product),
         }
+        if nodata is not None:
+            band["nodata"] = nodata if np.isfinite(nodata) else str(nodata)
         unit = self._get_product_unit(product)
         if unit:
             band["unit"] = unit
@@ -980,9 +988,9 @@ class LidarFetchProcessor(BaseProcessor):
         return titles.get(product, product.upper())
 
     @staticmethod
-    def _get_product_unit(product: str) -> Optional[str]:
+    def _get_product_unit(product: str) -> str | None:
         """Return the UCUM unit of a product's band, or None when unitless."""
-        units: Dict[str, str] = {"dtm": "m", "chm": "m", "slope": "%", "aspect": "deg"}
+        units: dict[str, str] = {"dtm": "m", "chm": "m", "slope": "%", "aspect": "deg"}
         return units.get(product)
 
     @staticmethod

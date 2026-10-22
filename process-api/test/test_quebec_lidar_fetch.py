@@ -514,7 +514,7 @@ def test_add_product_asset_publishes_a_stac_band(
     """In STAC the band mean is in the band's own unit; the degree/percent
     pair stays in the top-level summary."""
     cog_path = str(tmp_path / f"{product}.tif")
-    _write_test_raster(cog_path, [[1.0, 2.0], [3.0, 4.0]])
+    _write_test_raster(cog_path, [[1.0, 2.0], [3.0, 4.0]], nodata=-9999)
     assets: dict = {}
     summaries: dict = {}
     stats_method = "_slope_statistics" if product == "slope" else "_aspect_statistics"
@@ -540,6 +540,7 @@ def test_add_product_asset_publishes_a_stac_band(
     assert "statistics" not in asset
     assert "raster:bands" not in asset
     [band] = asset["bands"]
+    assert band["name"] == product
     assert band["unit"] == expected_unit
     assert band["statistics"] == {"mean": expected_mean}
     assert band["nodata"] == -9999
@@ -576,6 +577,129 @@ def test_add_product_asset_omits_statistics_when_the_mean_is_unknown(
         )
 
     assert "statistics" not in assets["slope"]["bands"][0]
+
+
+def _product_band(processor, tmp_path, product, values, nodata=None):
+    cog_path = str(tmp_path / f"{product}.tif")
+    _write_test_raster(cog_path, values, nodata=nodata)
+    assets: dict = {}
+    with patch.object(
+        LidarFetchProcessor, "_create_stac_item", return_value={"id": "x"}
+    ):
+        processor._add_product_asset(
+            assets=assets,
+            stac_items=[],
+            summaries={},
+            product=product,
+            cog_path=cog_path,
+            geometry_geojson={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0.0, 0.0, 1.0, 1.0),
+            farm_identifier="farm",
+        )
+    return assets[product]["bands"][0]
+
+
+@pytest.mark.unit
+def test_dtm_band_carries_name_unit_file_nodata_and_masked_mean(
+    processor_instance, tmp_path
+):
+    band = _product_band(
+        processor_instance,
+        tmp_path,
+        "dtm",
+        [[10.0, 20.0], [30.0, -9999.0]],
+        nodata=-9999,
+    )
+
+    assert band["name"] == "dtm"
+    assert band["unit"] == "m"
+    assert band["nodata"] == -9999
+    assert band["statistics"] == {"mean": pytest.approx(20.0)}
+
+
+@pytest.mark.unit
+def test_hillshade_band_has_no_unit(processor_instance, tmp_path):
+    band = _product_band(
+        processor_instance, tmp_path, "hillshade", [[1.0, 2.0], [3.0, 4.0]]
+    )
+
+    assert band["name"] == "hillshade"
+    assert "unit" not in band
+
+
+@pytest.mark.unit
+def test_band_mean_excludes_nan_outside_the_nodata_mask(processor_instance, tmp_path):
+    band = _product_band(
+        processor_instance,
+        tmp_path,
+        "dtm",
+        [[10.0, float("nan")], [30.0, -9999.0]],
+        nodata=-9999,
+    )
+
+    assert band["statistics"] == {"mean": pytest.approx(20.0)}
+
+
+@pytest.mark.unit
+def test_all_nan_band_has_no_statistics(processor_instance, tmp_path):
+    band = _product_band(processor_instance, tmp_path, "dtm", [[float("nan")] * 2] * 2)
+
+    assert "statistics" not in band
+
+
+@pytest.mark.unit
+def test_band_without_file_nodata_omits_nodata(processor_instance, tmp_path):
+    band = _product_band(processor_instance, tmp_path, "dtm", [[1.0, 2.0], [3.0, 4.0]])
+
+    assert "nodata" not in band
+
+
+@pytest.mark.unit
+def test_band_writes_non_finite_nodata_as_a_string(processor_instance, tmp_path):
+    band = _product_band(
+        processor_instance,
+        tmp_path,
+        "dtm",
+        [[1.0, float("nan")], [3.0, 4.0]],
+        nodata=float("nan"),
+    )
+
+    assert band["nodata"] == "nan"
+
+
+@pytest.mark.unit
+def test_slope_summary_is_filled_on_a_cache_hit(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
+    cog_path = tmp_path / "lidar_slope_geom_abc123.tif"
+    _write_test_raster(str(cog_path), [[1.0, 2.0], [3.0, 4.0]])
+    cached = {
+        "id": "lidar_slope_geom_abc123",
+        "stac_version": "1.1.0",
+        "assets": {"slope": {}, "preview": {}, "tilejson": {}},
+    }
+    with open(str(cog_path) + ".stac.json", "w") as f:
+        json.dump(cached, f)
+    statistics = {"mean_degrees": 4.2, "mean_percent": 7.3}
+    summaries: dict = {}
+    processor = LidarFetchProcessor.__new__(LidarFetchProcessor)
+
+    with (
+        patch.object(LidarFetchProcessor, "_slope_statistics", return_value=statistics),
+        patch.object(LidarFetchProcessor, "_post_to_stac_api") as mock_post,
+    ):
+        processor._add_product_asset(
+            assets={},
+            stac_items=[],
+            summaries=summaries,
+            product="slope",
+            cog_path=str(cog_path),
+            geometry_geojson={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0.0, 0.0, 1.0, 1.0),
+            farm_identifier="geom_abc123",
+        )
+
+    mock_post.assert_not_called()
+    assert summaries["slope"] == statistics
 
 
 @pytest.mark.unit
@@ -921,11 +1045,7 @@ def test_execute_default_products_excludes_aspect(
         "slope": ["https://example.com/Pentes_31H05NE.tif"],
     }
 
-    mock_band = MagicMock()
-    mock_band.count.return_value = 100
-    mock_band.mean.return_value = 1.5
-    mock_band.min.return_value = 1.0
-    mock_band.max.return_value = 2.0
+    mock_band = np.ma.masked_array([1.5])
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
@@ -934,6 +1054,7 @@ def test_execute_default_products_excludes_aspect(
     mock_rasterio_ds.height = 2
     mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
+    mock_rasterio_ds.nodata = -9999
 
     with (
         patch(
@@ -982,11 +1103,7 @@ def test_execute_success_with_geometry(
 
     tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
 
-    mock_band = MagicMock()
-    mock_band.count.return_value = 100
-    mock_band.mean.return_value = 1.5
-    mock_band.min.return_value = 1.0
-    mock_band.max.return_value = 2.0
+    mock_band = np.ma.masked_array([1.5])
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
@@ -996,6 +1113,7 @@ def test_execute_success_with_geometry(
     mock_rasterio_ds.height = 2
     mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
+    mock_rasterio_ds.nodata = -9999
 
     with (
         patch(
@@ -1029,10 +1147,7 @@ def test_execute_success_with_farm_id(processor_instance, mock_db_connection, tm
 
     tile_urls = {"slope": ["https://example.com/Pentes_31H05NE.tif"]}
 
-    mock_band = MagicMock()
-    mock_band.count.return_value = 100
-    mock_band.min.return_value = 1.0
-    mock_band.max.return_value = 2.0
+    mock_band = np.ma.masked_array([1.5])
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
@@ -1042,6 +1157,7 @@ def test_execute_success_with_farm_id(processor_instance, mock_db_connection, tm
     mock_rasterio_ds.height = 2
     mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
+    mock_rasterio_ds.nodata = -9999
 
     with (
         patch(
@@ -1087,10 +1203,7 @@ def test_execute_aspect_only_fetches_dtm_as_dependency(
 
     tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
 
-    mock_band = MagicMock()
-    mock_band.count.return_value = 100
-    mock_band.min.return_value = 1.0
-    mock_band.max.return_value = 2.0
+    mock_band = np.ma.masked_array([1.5])
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
@@ -1099,6 +1212,7 @@ def test_execute_aspect_only_fetches_dtm_as_dependency(
     mock_rasterio_ds.height = 2
     mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
+    mock_rasterio_ds.nodata = -9999
 
     with (
         patch(
@@ -1156,12 +1270,9 @@ def test_execute_dtm_and_aspect_both_explicitly_requested(
     mock_rasterio_ds.dtypes = ("float32",)
     mock_rasterio_ds.height = 2
     mock_rasterio_ds.width = 2
-    mock_band = MagicMock()
-    mock_band.count.return_value = 100
-    mock_band.mean.return_value = 312.4
-    mock_band.min.return_value = 1.0
-    mock_band.max.return_value = 2.0
+    mock_band = np.ma.masked_array([312.4])
     mock_rasterio_ds.read.return_value = mock_band
+    mock_rasterio_ds.nodata = -9999
 
     with (
         patch(
@@ -1281,11 +1392,7 @@ def test_execute_second_call_skips_stac_publish_on_warm_cache(
 
     tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
 
-    mock_band = MagicMock()
-    mock_band.count.return_value = 100
-    mock_band.mean.return_value = 1.5
-    mock_band.min.return_value = 1.0
-    mock_band.max.return_value = 2.0
+    mock_band = np.ma.masked_array([1.5])
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
@@ -1294,6 +1401,7 @@ def test_execute_second_call_skips_stac_publish_on_warm_cache(
     mock_rasterio_ds.height = 2
     mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
+    mock_rasterio_ds.nodata = -9999
 
     with (
         patch(
@@ -1336,11 +1444,7 @@ def test_execute_retries_stac_publish_after_previous_failure(
 
     tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
 
-    mock_band = MagicMock()
-    mock_band.count.return_value = 100
-    mock_band.mean.return_value = 1.5
-    mock_band.min.return_value = 1.0
-    mock_band.max.return_value = 2.0
+    mock_band = np.ma.masked_array([1.5])
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
@@ -1349,6 +1453,7 @@ def test_execute_retries_stac_publish_after_previous_failure(
     mock_rasterio_ds.height = 2
     mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
+    mock_rasterio_ds.nodata = -9999
 
     with (
         patch(
@@ -1618,11 +1723,7 @@ def test_execute_republishes_when_marker_is_from_an_older_stac_version(
 
     tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
 
-    mock_band = MagicMock()
-    mock_band.count.return_value = 100
-    mock_band.mean.return_value = 1.5
-    mock_band.min.return_value = 1.0
-    mock_band.max.return_value = 2.0
+    mock_band = np.ma.masked_array([1.5])
 
     mock_rasterio_ds = MagicMock()
     mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
@@ -1631,6 +1732,7 @@ def test_execute_republishes_when_marker_is_from_an_older_stac_version(
     mock_rasterio_ds.height = 2
     mock_rasterio_ds.width = 2
     mock_rasterio_ds.read.return_value = mock_band
+    mock_rasterio_ds.nodata = -9999
 
     with (
         patch(
