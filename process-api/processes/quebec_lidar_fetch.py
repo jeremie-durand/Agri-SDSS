@@ -84,7 +84,7 @@ class LidarFetchProcessor(BaseProcessor):
 
     # STAC settings
     STAC_COLLECTION_ID: str = "lidar_quebec"
-    STAC_VERSION: str = "1.0.0"
+    STAC_VERSION: str = "1.1.0"
 
     # Keys of the raster-api renderings published beside each product asset.
     PREVIEW_ASSET_KEY: str = "preview"
@@ -767,8 +767,7 @@ class LidarFetchProcessor(BaseProcessor):
             "type": "Feature",
             "stac_version": self.STAC_VERSION,
             "stac_extensions": [
-                "https://stac-extensions.github.io/projection/v1.0.0/schema.json",
-                "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+                "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
             ],
             "id": item_id,
             "geometry": geometry,
@@ -782,9 +781,9 @@ class LidarFetchProcessor(BaseProcessor):
                 .replace("+00:00", "Z"),
                 "platform": "lidar-mrnf",
                 "instruments": ["lidar"],
-                "lidar:product": product,
-                "lidar:source": "MRNF Quebec open data",
-                "proj:epsg": 4326,
+                "agri_sdss:product": product,
+                "agri_sdss:source": "MRNF Quebec open data",
+                "proj:code": "EPSG:4326",
             },
             "assets": {
                 product: asset,
@@ -820,17 +819,24 @@ class LidarFetchProcessor(BaseProcessor):
         if os.path.exists(marker_path):
             os.remove(marker_path)
 
-    @staticmethod
-    def _load_cached_stac_item(marker_path: str) -> Optional[Dict[str, Any]]:
-        """Return the previously-published STAC item, or None if unpublished."""
+    @classmethod
+    def _load_cached_stac_item(cls, marker_path: str) -> Optional[Dict[str, Any]]:
+        """Return the previously-published STAC item, or None if unpublished.
+
+        A marker written under another STAC version describes an item in an
+        outdated shape, so it counts as unpublished and the item is republished.
+        """
         if not os.path.exists(marker_path):
             return None
         try:
             with open(marker_path, "r") as f:
-                return json.load(f)
+                item = json.load(f)
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Could not read STAC marker %s: %s", marker_path, exc)
             return None
+        if item.get("stac_version") != cls.STAC_VERSION:
+            return None
+        return item
 
     @staticmethod
     def _write_stac_marker(marker_path: str, stac_item: Dict[str, Any]) -> None:

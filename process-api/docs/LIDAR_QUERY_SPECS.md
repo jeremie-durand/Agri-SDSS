@@ -176,8 +176,8 @@ same farm updates the existing STAC items (HTTP PUT on 409 Conflict).
 | ---------- | ------- |
 | `platform` | `lidar-mrnf` |
 | `instruments` | `["lidar"]` |
-| `lidar:product` | product key (e.g. `dtm`) |
-| `lidar:source` | `MRNF Quebec open data` |
+| `agri_sdss:product` | product key (e.g. `dtm`) |
+| `agri_sdss:source` | `MRNF Quebec open data` |
 | `proj:epsg` | `4326` |
 
 ---

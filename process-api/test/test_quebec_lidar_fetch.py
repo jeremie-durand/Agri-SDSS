@@ -1567,12 +1567,105 @@ def test_get_or_build_cog_keeps_marker_on_cache_hit(processor_instance, tmp_path
 def test_write_and_load_stac_marker_round_trip(processor_instance, tmp_path):
     """A written marker can be read back as the same STAC item dict."""
     marker_path = str(tmp_path / "lidar_dtm_test.tif.stac.json")
-    stac_item = {"id": "lidar_dtm_test", "type": "Feature"}
+    stac_item = {"id": "lidar_dtm_test", "type": "Feature", "stac_version": "1.1.0"}
 
     processor_instance._write_stac_marker(marker_path, stac_item)
     loaded = processor_instance._load_cached_stac_item(marker_path)
 
     assert loaded == stac_item
+
+
+@pytest.mark.unit
+def test_load_cached_stac_item_ignores_a_marker_from_an_older_stac_version(
+    processor_instance, tmp_path
+):
+    """A 1.0.0 marker describes an item in the legacy shape; it must be
+    republished, not served."""
+    marker_path = str(tmp_path / "lidar_dtm_legacy.tif.stac.json")
+    processor_instance._write_stac_marker(
+        marker_path, {"id": "legacy", "type": "Feature", "stac_version": "1.0.0"}
+    )
+
+    assert processor_instance._load_cached_stac_item(marker_path) is None
+
+
+@pytest.mark.unit
+def test_ensure_collection_exists_posts_a_stac_1_1_collection(processor_instance):
+    """The collection is created at STAC 1.1.0 with a non-deprecated license."""
+    mock_get_response = MagicMock(status_code=404)
+    mock_post_response = MagicMock(status_code=201)
+
+    with (
+        patch("requests.get", return_value=mock_get_response),
+        patch("requests.post", return_value=mock_post_response) as mock_post,
+    ):
+        processor_instance._ensure_collection_exists()
+
+    body = mock_post.call_args.kwargs["json"]
+    assert body["stac_version"] == "1.1.0"
+    assert body["license"] == "OGL-Canada-2.0"
+
+
+@pytest.mark.mocked
+def test_execute_republishes_when_marker_is_from_an_older_stac_version(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    """A legacy marker with a matching asset set still describes a 1.0.0 item,
+    so a warm-cache call must republish it rather than serve it."""
+    processor_instance.output_dir = str(tmp_path)
+
+    tile_urls = {"dtm": ["https://example.com/MNT_31H05NE.tif"]}
+
+    mock_band = MagicMock()
+    mock_band.count.return_value = 100
+    mock_band.mean.return_value = 1.5
+    mock_band.min.return_value = 1.0
+    mock_band.max.return_value = 2.0
+
+    mock_rasterio_ds = MagicMock()
+    mock_rasterio_ds.__enter__ = MagicMock(return_value=mock_rasterio_ds)
+    mock_rasterio_ds.__exit__ = MagicMock(return_value=False)
+    mock_rasterio_ds.dtypes = ("float32",)
+    mock_rasterio_ds.height = 2
+    mock_rasterio_ds.width = 2
+    mock_rasterio_ds.read.return_value = mock_band
+
+    with (
+        patch(
+            "processes.quebec_lidar_fetch.LidarTileIndex.get_tile_urls",
+            return_value=tile_urls,
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.subprocess.run", side_effect=_fake_gdalwarp
+        ),
+        patch(
+            "processes.quebec_lidar_fetch.rasterio.open", return_value=mock_rasterio_ds
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=True
+        ) as mock_post,
+        patch.object(processor_instance, "_ensure_collection_exists"),
+    ):
+        data = {"farm_geometry": sample_farm_geometry, "products": ["dtm"]}
+        processor_instance.execute(data)
+        assert mock_post.call_count == 1
+
+        published = mock_post.call_args_list[0].args[0]
+        legacy_marker = next(
+            str(path)
+            for path in tmp_path.glob("*.stac.json")
+            if json.loads(path.read_text())["id"] == published["id"]
+        )
+        processor_instance._write_stac_marker(
+            legacy_marker, {**published, "stac_version": "1.0.0"}
+        )
+
+        processor_instance.execute(data)
+
+    assert mock_post.call_count == 2
+    assert mock_post.call_args[0][0]["stac_version"] == "1.1.0"
+    with open(legacy_marker) as f:
+        assert json.load(f)["stac_version"] == "1.1.0"
 
 
 @pytest.mark.unit
@@ -1652,7 +1745,7 @@ def test_create_stac_item_publishes_absolute_hrefs(monkeypatch):
         "type": "image/tiff; application=geotiff; profile=cloud-optimized",
         "roles": ["data"],
         "title": "Digital Terrain Model (DTM)",
-        "bands": [{"statistics": {"mean": 147.3}}],
+        "bands": [{"nodata": -9999, "unit": "m", "statistics": {"mean": 147.3}}],
     }
 
     with patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=False):
@@ -1679,6 +1772,15 @@ def test_create_stac_item_publishes_absolute_hrefs(monkeypatch):
     assert item["assets"]["preview"]["type"] == "image/png"
     assert item["assets"]["tilejson"]["type"] == "application/json"
     assert "rescale" not in item["assets"]["preview"]["href"]
+    assert item["stac_version"] == "1.1.0"
+    assert item["stac_extensions"] == [
+        "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
+    ]
+    assert item["properties"]["proj:code"] == "EPSG:4326"
+    assert item["properties"]["agri_sdss:product"] == "dtm"
+    assert item["properties"]["agri_sdss:source"] == "MRNF Quebec open data"
+    assert not any(key.startswith("lidar:") for key in item["properties"])
+    assert "proj:epsg" not in item["properties"]
 
 
 @pytest.mark.unit
@@ -1834,6 +1936,7 @@ def test_current_marker_is_a_cache_hit(tmp_path, monkeypatch):
     marker_path = str(cog_path) + ".stac.json"
     cached = {
         "id": "lidar_dtm_geom_abc123",
+        "stac_version": "1.1.0",
         "assets": {"dtm": {}, "preview": {}, "tilejson": {}},
     }
     with open(marker_path, "w") as f:
