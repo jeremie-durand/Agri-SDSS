@@ -56,9 +56,10 @@ scripts/entrypoint.sh    Waits for the database, then execs uvicorn
   are. Extend the same way: add a router in `src/` and `include_router` it.
   Do not fork TiTiler's factories.
 - TiTiler behaviour, TiTiler settings and the TiTiler version come from the
-  base image tag. `requirements-raster-api.txt` only pins `numpy` and
-  `rasterio`. A base-image bump can change routes. `test_raster_app_routes.py`
-  guards the paths the frontend calls (`/cog/info`, `/cog/statistics`,
+  base image tag. `requirements-raster-api.txt` only pins `numpy`,
+  `rasterio` and `certifi` (the base image's CA bundle can lag). A
+  base-image bump can change routes. `test_raster_app_routes.py` guards the
+  paths the frontend calls (`/cog/info`, `/cog/statistics`,
   `/cog/tiles`, `/collections`).
 - uvicorn runs with `--root-path ${APP_ROOT_PATH}` (`/raster-api`), so
   TiTiler's self-links, TileJSON tile URLs and Swagger carry the public

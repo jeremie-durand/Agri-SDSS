@@ -4,4 +4,5 @@ ENV GOSUMDB=off
 RUN xcaddy build --with github.com/mholt/caddy-ratelimit
 
 FROM caddy:alpine
+RUN apk upgrade --no-cache
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
