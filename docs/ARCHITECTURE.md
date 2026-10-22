@@ -44,7 +44,7 @@ flowchart LR
 | Service | Internal port | Role |
 | --- | --- | --- |
 | `gis-pipeline` | — | Ingestion: geodata → PostGIS + COGs + GeoParquet + STAC |
-| `stac-api` | 8081 | STAC 1.1.0 catalog (stac-fastapi + pgSTAC) |
+| `stac-api` | 8081 | STAC catalog (stac-fastapi + pgSTAC); items and collections follow STAC 1.1.0 |
 | `vector-api` | 8083 | OGC Features — PostGIS (TiPg) and DuckDB/Parquet backends |
 | `raster-api` | 8082 | Dynamic tiles, previews and statistics for COGs (TiTiler) |
 | `process-api` | 5000 | OGC Processes — climate, satellite, LiDAR (PyGeoAPI + OpenEO) |

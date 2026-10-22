@@ -1,6 +1,6 @@
 # stac-api
 
-STAC 1.1.0 catalog API backed by pgSTAC. Search raster and vector datasets by spatial extent, time range, and metadata properties.
+STAC catalog API (stac-fastapi + pgSTAC); items and collections follow STAC 1.1.0. Search raster and vector datasets by spatial extent, time range, and metadata properties.
 
 **Port**: 8081 | **Requires**: PostGIS with pgSTAC schema
 
