@@ -59,13 +59,14 @@ values from the MRNF source (or, for aspect, from `gdaldem`).
 
 ### Statistics
 
-`dtm`, `chm`, and `hillshade` statistics are a **bounding-box mean** (the COG's full
-extent, i.e. the farm's rectangular bounding box). `slope` and `aspect` statistics are
-computed over the **exact farm polygon** (pixels outside the polygon, and nodata
-pixels, are excluded). `slope`'s `mean_percent` is the plain mean of the raster;
-`mean_degrees` is the average of the per-pixel conversion
+The STAC band `statistics.mean` of `dtm`, `chm`, and `hillshade` is a **bounding-box
+mean** (the COG's full extent, i.e. the farm's rectangular bounding box). For `slope`
+and `aspect` it is computed over the **exact farm polygon** (pixels outside the
+polygon, and nodata pixels, are excluded): the plain mean percent for `slope`, and a
+circular mean in degrees (vector average, since aspect wraps at 360/0 degrees) for
+`aspect`. The top-level `slope` and `aspect` summaries carry `mean_percent` and
+`mean_degrees`. `slope`'s `mean_degrees` is the average of the per-pixel conversion
 (`degrees(atan(percent / 100))`), not a conversion of the mean percent value.
-`aspect`'s mean is a circular mean (vector average), since aspect wraps at 360/0 degrees.
 
 ### Agricultural relevance
 
@@ -114,21 +115,21 @@ once complete, so an interrupted run never leaves a cached COG behind.
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "title": "Digital Terrain Model (DTM)",
       "roles": ["data"],
-      "statistics": { "mean": 312.4 }
+      "bands": [{ "nodata": -9999, "data_type": "float32", "unit": "m", "statistics": { "mean": 312.4 } }]
     },
     "slope": {
       "href": "https://<host>/cog/lidar_slope_farm_4_def456.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "title": "Slope (percent)",
       "roles": ["data"],
-      "statistics": { "mean_degrees": 4.2, "mean_percent": 7.3 }
+      "bands": [{ "nodata": -9999, "data_type": "float32", "unit": "%", "statistics": { "mean": 7.3 } }]
     },
     "aspect": {
       "href": "https://<host>/cog/lidar_aspect_farm_4_ghi789.tif",
       "type": "image/tiff; application=geotiff; profile=cloud-optimized",
       "title": "Aspect (compass bearing, degrees)",
       "roles": ["data"],
-      "statistics": { "mean_degrees": 187.5 }
+      "bands": [{ "nodata": -9999, "data_type": "float32", "unit": "deg", "statistics": { "mean": 187.5 } }]
     }
   },
   "bbox": [-72.05, 45.30, -71.95, 45.40],
@@ -162,8 +163,8 @@ links is raster-api's internal container path and is not downloadable (404).
 ## STAC Collection
 
 - **Collection ID:** `lidar_quebec`
-- **STAC version:** 1.0.0
-- **Extensions:** `projection/v1.0.0`, `raster/v1.1.0`
+- **STAC version:** 1.1.0
+- **Extensions:** `projection/v2.0.0`
 - **Spatial extent:** Quebec province (−79.75, 41.75, −56.0, 63.0)
 - **Temporal extent:** 2015-01-01 / open
 
@@ -178,7 +179,7 @@ same farm updates the existing STAC items (HTTP PUT on 409 Conflict).
 | `instruments` | `["lidar"]` |
 | `agri_sdss:product` | product key (e.g. `dtm`) |
 | `agri_sdss:source` | `MRNF Quebec open data` |
-| `proj:epsg` | `4326` |
+| `proj:code` | `EPSG:4326` |
 
 ---
 

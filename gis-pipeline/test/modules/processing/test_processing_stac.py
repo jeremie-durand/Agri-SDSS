@@ -952,7 +952,7 @@ def test_validate_stac_valid_item():
     """Test validate_stac with valid STAC item."""
     valid_item = {
         "type": "Feature",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "id": "test_item",
         "geometry": {"type": "Point", "coordinates": [0, 0]},
         "bbox": [-1, -1, 1, 1],
@@ -969,11 +969,11 @@ def test_validate_stac_valid_collection():
     """Test validate_stac with valid STAC collection."""
     valid_collection = {
         "type": "Collection",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "id": "test_collection",
         "title": "Test Collection",
         "description": "A test collection",
-        "license": "proprietary",
+        "license": "other",
         "extent": {
             "spatial": {"bbox": [[-1, -1, 1, 1]]},
             "temporal": {
@@ -1018,7 +1018,7 @@ def test_validate_stac_invalid_type():
         "id": "test_item",
         "geometry": {"type": "Point", "coordinates": [0, 0]},
         "properties": {},
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "links": [],
     }
 
@@ -1040,7 +1040,7 @@ def test_validate_stac_parametrized_types(stac_type, object_type):
     if object_type == "item":
         stac_obj = {
             "type": "Feature",
-            "stac_version": "1.0.0",
+            "stac_version": "1.1.0",
             "id": "test_item",
             "geometry": {"type": "Point", "coordinates": [0, 0]},
             "bbox": [-1, -1, 1, 1],
@@ -1051,11 +1051,11 @@ def test_validate_stac_parametrized_types(stac_type, object_type):
     else:
         stac_obj = {
             "type": "Collection",
-            "stac_version": "1.0.0",
+            "stac_version": "1.1.0",
             "id": "test_collection",
             "title": "Test Collection",
             "description": "A test collection",
-            "license": "proprietary",
+            "license": "other",
             "extent": {
                 "spatial": {"bbox": [[-1, -1, 1, 1]]},
                 "temporal": {
