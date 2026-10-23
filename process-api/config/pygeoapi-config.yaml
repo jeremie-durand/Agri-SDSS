@@ -111,6 +111,16 @@ resources:
     processor:
       name: processes.water_distance.WaterDistanceProcessor
 
+  som-field-match:
+    type: process
+    title: SOM Field Match
+    description: >
+      Returns the SOM field boundaries within a tolerance of a parcel, GEE-positive
+      fields first, then by distance. Supports farm_id, point and polygon location
+      types.
+    processor:
+      name: processes.som_field_match.SomFieldMatchProcessor
+
 server:
   bind:
     host: 0.0.0.0

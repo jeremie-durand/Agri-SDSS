@@ -9,6 +9,7 @@ from .models import (
     WaterDistanceInput,
     parse_inputs,
 )
+from .som_fields import match as match_som_fields
 from .water import nearest_water_distance
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "SomFieldMatchInput",
     "SpatialLocationInput",
     "WaterDistanceInput",
+    "match_som_fields",
     "nearest_water_distance",
     "parse_inputs",
     "prepare_geometry",
