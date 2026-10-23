@@ -6,7 +6,7 @@ RUN --mount=type=bind,source=agri_i18n/requirements-i18n.txt,target=/tmp/require
 COPY agri_i18n/locales /build/locales
 RUN pybabel compile -d /build/locales -D messages --statistics
 
-FROM python:3.11-slim AS runtime
+FROM python:3.13-slim AS runtime
 
 ARG USER_GID=1000
 ARG USER_UID=1000
@@ -35,7 +35,7 @@ COPY --from=i18n /build/locales /app/agri_i18n/locales
 # NOTE: apt packages below are not version-pinned because Debian apt does not provide
 # stable cross-architecture pin strings and Dependabot cannot track them.
 RUN --mount=type=bind,source=process-api/requirements-process-api.txt,target=/tmp/requirements-process-api.txt \
-    apt-get update && \
+    apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         build-essential \
         libgdal-dev \
@@ -44,6 +44,7 @@ RUN --mount=type=bind,source=process-api/requirements-process-api.txt,target=/tm
         libgeos-dev \
         curl \
         gettext-base && \
+    pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /tmp/requirements-process-api.txt && \
     mkdir -p /app/openapi && \
     chmod +x /usr/local/bin/start.sh && \

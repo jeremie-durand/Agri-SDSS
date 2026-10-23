@@ -7,7 +7,7 @@ unless overridden here.
 ## Service Overview
 
 Stock `stac-fastapi.pgstac` (STAC API 1.0.0) served from the pgSTAC schema in
-the shared PostgreSQL. It runs on Python 3.11, port 8081 (`expose:` only), with
+the shared PostgreSQL. It runs on Python 3.13, port 8081 (`expose:` only), with
 public prefix `/stac-api`. The only custom code is `src/app.py`, a thin wrapper
 that silences a FastAPI deprecation before importing
 `stac_fastapi.pgstac.app`.

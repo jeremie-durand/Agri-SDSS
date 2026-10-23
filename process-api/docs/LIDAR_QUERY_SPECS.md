@@ -91,6 +91,12 @@ Exactly one of `farm_id` or `farm_geometry` must be provided.
 
 **Area limit:** 200 km². Requests exceeding this threshold return a `ProcessorExecuteError`.
 
+**Time limit:** 570 s for all GDAL work of one request, below gunicorn's 600 s worker
+timeout. When it runs out, the running `gdalwarp`/`gdaldem` is killed, nothing is cached or
+published for that product, and the process returns a `ProcessorExecuteError` asking for a
+smaller area or fewer products. COGs are written under a `.tif.partial` name and renamed only
+once complete, so an interrupted run never leaves a cached COG behind.
+
 ---
 
 ## Process Outputs

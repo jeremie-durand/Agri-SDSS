@@ -1,11 +1,11 @@
 # ── Stage 1: Clone OpenGeo-AI-Assistant at pinned version ────────────────────
 FROM alpine/git:2.43.0 AS source
-ARG CHATBOT_VERSION=v0.2.1-alpha
+ARG CHATBOT_VERSION=v0.2.2-alpha
 RUN git clone --depth 1 --branch ${CHATBOT_VERSION} \
     https://github.com/jeremie-durand/OpenGeo-AI-Assistant.git /src
 
 # ── Stage 2: Build with Vite ──────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY --from=source /src/opengeo-ai-assistant/web-ui/package*.json .

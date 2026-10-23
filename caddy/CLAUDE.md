@@ -103,13 +103,16 @@ the `Caddyfile` needs a restart, not a rebuild.
   new browser-side API origin in any UI must be added here, or the browser
   blocks it silently. Caddy's headers apply on top of the chatbot nginx's own
   headers.
+- STAC Browser's validation badge needs `'unsafe-eval'` and stays broken on
+  purpose. Its COGs render through raster-api tiles, so no `worker-src` is
+  needed for its in-browser GeoTIFF decoder.
 
 ## Testing
 
 `make test-caddy` works against the **running** stack:
 
 1. It copies `Caddyfile.test` into the container and hot-reloads Caddy with it.
-2. It runs `caddy/test/` from a `python:3.11-slim` container on
+2. It runs `caddy/test/` from a `python:3.13-slim` container on
    `eoapi-network` against `https://caddy`.
 3. It reloads the production `Caddyfile`.
 

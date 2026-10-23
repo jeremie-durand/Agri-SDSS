@@ -78,7 +78,7 @@ test-caddy:
 		-e RATE_LIMIT_CHATBOT_SEARCH_EVENTS=3 \
 		-e RATE_LIMIT_CHATBOT_BROWSE_EVENTS=4 \
 		-e RATE_LIMIT_COG_DOWNLOAD_EVENTS=4 \
-		python:3.11-slim \
+		python:3.13-slim \
 		sh -c "pip install pytest requests urllib3 -q && pytest /test/ -v -m integration -p no:cacheprovider" \
 		|| status=$$?; \
 	echo "Restoring production Caddyfile..."; \
@@ -87,7 +87,7 @@ test-caddy:
 	exit $$status
 
 .PHONY: build lint-dockerfiles lint-md lint-nginx scan-secrets test-caddy generate-args \
-	smoke-entrypoints \
+	smoke-entrypoints smoke-stac-browser \
 	test-i18n i18n-extract i18n-update i18n-compile i18n-check
 
 # Ignored rules, and why (hadolint exits non-zero on any warning, so each must be
@@ -139,3 +139,34 @@ smoke-entrypoints:
 	@echo "→ process-api    gunicorn processes.wsgi:APP"
 	$(SMOKE_RUN) process-api sh -c "python /app/generate_openapi.py > /dev/null && python -c 'import processes.wsgi; processes.wsgi.APP'"
 	@echo "All entrypoints resolve."
+
+STAC_BROWSER_EXEC = docker compose exec -T stac-browser
+
+smoke-stac-browser:
+	docker compose up -d --build --no-deps stac-browser
+	@status=0; \
+	ready=0; \
+	for i in $$(seq 30); do \
+		if $(STAC_BROWSER_EXEC) curl -fs -o /dev/null http://localhost:8080/stac/ 2>/dev/null; then \
+			ready=1; break; \
+		fi; \
+		sleep 1; \
+	done; \
+	if [ $$ready -ne 1 ]; then \
+		echo "✗ /stac/ not served after 30 s"; \
+		docker compose logs --tail 30 stac-browser; \
+		status=1; \
+	else \
+		index=$$($(STAC_BROWSER_EXEC) curl -fs http://localhost:8080/stac/); \
+		echo "$$index" | grep -q '<base href="/stac/"' \
+			&& echo "✓ <base> matches the /stac/ prefix" \
+			|| { echo "✗ <base href> is not /stac/"; status=1; }; \
+		$(STAC_BROWSER_EXEC) curl -fs http://localhost:8080/stac/runtime-config.js | grep -q 'catalogUrl' \
+			&& echo "✓ runtime-config.js holds the Agri-SDSS config" \
+			|| { echo "✗ runtime-config.js is not the Agri-SDSS config"; status=1; }; \
+		asset=$$(echo "$$index" | grep -o 'assets/index-[^"]*\.js' | head -1); \
+		[ -n "$$asset" ] && $(STAC_BROWSER_EXEC) curl -fs -o /dev/null "http://localhost:8080/stac/$$asset" \
+			&& echo "✓ app bundle $$asset served" \
+			|| { echo "✗ app bundle not found or not served"; status=1; }; \
+	fi; \
+	exit $$status

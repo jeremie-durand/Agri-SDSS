@@ -1,5 +1,7 @@
 FROM nginx:alpine
 
+RUN apk upgrade --no-cache
+
 # Copy HTML templates, static assets and entrypoint
 COPY --chmod=644 html/index.html /usr/share/nginx/html/index.html.template
 COPY --chmod=644 html/map.html /usr/share/nginx/html/map.html

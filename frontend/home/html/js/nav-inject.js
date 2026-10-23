@@ -95,7 +95,7 @@
     }
 
     renderNav(lang);
-    document.body.insertBefore(host, document.body.firstChild);
+    document.documentElement.insertBefore(host, document.body);
     document.body.style.paddingTop = '42px';
   }
 

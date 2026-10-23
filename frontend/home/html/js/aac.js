@@ -9,7 +9,7 @@ import { apiFetch } from './utils.js';
 const QC_BOUNDS = L.latLngBounds([44.9, -79.9], [63.0, -57.0]);
 
 const AAC_DATASETS = [
-    { year: '2025', path: 'inventaire_annuel_des_cultures/2025/ImageServer', notLive: true },
+    { year: '2025', path: 'inventaire_annuel_des_cultures/2025/ImageServer' },
     { year: '2024', path: 'inventaire_annuel_des_cultures/2024/ImageServer' },
     { year: '2023', path: 'inventaire_annuel_des_cultures/2023/ImageServer' },
     { year: '2022', path: 'inventaire_annuel_des_cultures/2022/ImageServer' },
@@ -162,7 +162,6 @@ function _deactivateAac() {
 function _updateAacUI() {
     const listEl    = document.getElementById('aacList');
     const statusEl  = document.getElementById('aacStatus');
-    const noticeEl  = document.getElementById('aacNotLiveNotice');
     if (!listEl) return;
     listEl.querySelectorAll('.bdppad-item').forEach((el) => {
         el.classList.toggle('active', el.dataset.year === _activeYear);
@@ -171,12 +170,6 @@ function _updateAacUI() {
     if (statusEl) statusEl.textContent = _aacActive
         ? (_tL()['aac-active']   || 'Couche active')
         : (_tL()['aac-inactive'] || 'Couche inactive');
-    if (noticeEl) {
-        const activeDataset = _activeYear && AAC_DATASETS.find((d) => d.year === _activeYear);
-        const show = !!(activeDataset && activeDataset.notLive);
-        noticeEl.hidden = !show;
-        if (show) noticeEl.textContent = _tL()['aac-not-live'] || 'Note : La couche 2025 n\'est pas encore disponible.';
-    }
 }
 
 export function initAacSection() {

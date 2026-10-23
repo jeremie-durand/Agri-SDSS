@@ -21,9 +21,9 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
       - name: Check ARGS.md is up-to-date
         run: |
@@ -58,6 +58,9 @@ jobs:
 
       - name: Smoke-test service entrypoints
         run: make smoke-entrypoints
+
+      - name: Smoke-test stac-browser
+        run: make smoke-stac-browser
 
       - name: Run all tests
         run: make test-all
