@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Agri-SDSS\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-23 19:30+0000\n"
+"POT-Creation-Date: 2026-10-23 20:19+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: fr\n"
@@ -57,7 +57,9 @@ msgstr "« {field} » doit être fourni lorsque location_type vaut « {field} »
 #: process-api/processes/climate_indicators.py:94
 #: process-api/processes/climate_timeseries.py:88
 #: process-api/processes/msc_observations.py:81
-#: process-api/processes/som_predict_soil.py:118
+#: process-api/processes/som_field_match.py:66
+#: process-api/processes/som_predict_soil.py:136
+#: process-api/processes/water_distance.py:66
 #: process-api/processes/weather_timeseries.py:86
 msgid "An unexpected error occurred while running this process."
 msgstr "Une erreur inattendue s'est produite lors de l'exécution de ce traitement."
@@ -65,6 +67,7 @@ msgstr "Une erreur inattendue s'est produite lors de l'exécution de ce traiteme
 #: process-api/processes/climate_indicators.py:111
 #: process-api/processes/climate_timeseries.py:115
 #: process-api/processes/msc_observations.py:112
+#: process-api/processes/spatial_backend/models.py:70
 #: process-api/processes/weather_timeseries.py:117
 #, python-brace-format
 msgid "Invalid inputs: {errors}"
@@ -300,7 +303,7 @@ msgstr ""
 "Le traitement LiDAR a dépassé la limite de temps de {seconds} secondes. "
 "Essayez une zone plus petite ou moins de produits."
 
-#: process-api/processes/som_predict_soil.py:94
+#: process-api/processes/som_predict_soil.py:112
 msgid ""
 "No predictions were produced. Check that the requested field IDs have "
 "sufficient training data in the GEE feature Parquet files."
@@ -309,23 +312,33 @@ msgstr ""
 "disposent de suffisamment de données d'entraînement dans les fichiers "
 "Parquet d'attributs GEE."
 
-#: process-api/processes/som_predict_soil.py:134
+#: process-api/processes/som_predict_soil.py:157
+msgid "Send either 'field_ids' or a location, not both."
+msgstr "Envoyez soit « field_ids », soit un emplacement, pas les deux."
+
+#: process-api/processes/som_predict_soil.py:163
 msgid "'field_ids' is required and must contain at least one integer field ID."
 msgstr ""
 "« field_ids » est obligatoire et doit contenir au moins un identifiant de"
 " parcelle entier."
 
-#: process-api/processes/som_predict_soil.py:142
+#: process-api/processes/som_predict_soil.py:172
 #, python-brace-format
 msgid "'field_ids' must be a list of integers: {error}"
 msgstr "« field_ids » doit être une liste d'entiers : {error}"
 
-#: process-api/processes/som_predict_soil.py:154
+#: process-api/processes/som_predict_soil.py:186
 #, python-brace-format
 msgid "Unknown scenarios: {invalid}. Valid values: {valid}"
 msgstr "Scénarios inconnus : {invalid}. Valeurs acceptées : {valid}"
 
-#: process-api/processes/som_predict_soil.py:186
+#: process-api/processes/som_predict_soil.py:203
+msgid "No SOM field with GEE training data was found at this location."
+msgstr ""
+"Aucun champ MOS avec des données d'entraînement GEE n'a été trouvé à cet "
+"emplacement."
+
+#: process-api/processes/som_predict_soil.py:233
 msgid ""
 "No GEE feature Parquet files found. Run the gis-pipeline to ingest the "
 "BareSoil_TOPCLI_*.csv files first."
@@ -333,11 +346,11 @@ msgstr ""
 "Aucun fichier Parquet d'attributs GEE trouvé. Exécutez d'abord gis-"
 "pipeline pour ingérer les fichiers BareSoil_TOPCLI_*.csv."
 
-#: process-api/processes/som_predict_soil.py:212
+#: process-api/processes/som_predict_soil.py:259
 msgid "Could not read the GEE feature data."
 msgstr "Impossible de lire les données de caractéristiques GEE."
 
-#: process-api/processes/som_predict_soil.py:218
+#: process-api/processes/som_predict_soil.py:265
 msgid ""
 "GEE feature Parquet files are empty. Run the gis-pipeline to ingest the "
 "BareSoil_TOPCLI_*.csv files."
@@ -345,7 +358,7 @@ msgstr ""
 "Les fichiers Parquet d'attributs GEE sont vides. Exécutez gis-pipeline "
 "pour ingérer les fichiers BareSoil_TOPCLI_*.csv."
 
-#: process-api/processes/som_predict_soil.py:228
+#: process-api/processes/som_predict_soil.py:275
 #, python-brace-format
 msgid ""
 "No feature data found for field IDs {field_ids} in the GEE feature "
@@ -354,11 +367,11 @@ msgstr ""
 "Aucune donnée trouvée pour les parcelles {field_ids} dans les fichiers "
 "Parquet d'attributs GEE."
 
-#: process-api/processes/som_predict_soil.py:281
+#: process-api/processes/som_predict_soil.py:328
 msgid "Could not read the SOM field boundaries."
 msgstr "Impossible de lire les limites des champs MOS."
 
-#: process-api/processes/som_predict_soil.py:286
+#: process-api/processes/som_predict_soil.py:333
 #, python-brace-format
 msgid "None of the field IDs {field_ids} has GEE training data."
 msgstr "Aucune des parcelles {field_ids} n'a de données d'entraînement GEE."
@@ -501,7 +514,7 @@ msgstr "« scenario » est requis avec un jeu de données CMIP6"
 msgid "'model' is required when using a CMIP6 dataset"
 msgstr "« model » est requis avec un jeu de données CMIP6"
 
-#: process-api/processes/spatial_backend/models.py:32
+#: process-api/processes/spatial_backend/models.py:34
 msgid "location_type 'bbox' is not supported by this process"
 msgstr "location_type « bbox » n'est pas pris en charge par ce processus"
 

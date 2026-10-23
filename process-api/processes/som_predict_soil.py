@@ -1,6 +1,7 @@
 """SOM Soil Prediction OGC API Process.
 
-Resolves the requested som_field_boundaries gids to their GEE FIELD_IDs and
+Takes som_field_boundaries gids, or a location resolved to the GEE fields that
+som-field-match finds there. Resolves those gids to their GEE FIELD_IDs and
 polygons in PostGIS, queries DuckDB for the GEE-derived SOM features of those
 FIELD_IDs, runs the RandomForest pipeline, and returns a GeoJSON
 FeatureCollection.
@@ -25,8 +26,23 @@ from .config import DatabaseConfig, StorageConfig
 from .som_backend.som_ml_backend import BARESAIL_GLOB, SOMMLBackend
 from .som_backend.som_model_store import SOMModelStore
 from .som_predict_soil_metadata import PROCESS_METADATA
+from .spatial_backend import (
+    DEFAULT_TOLERANCE_M,
+    SpatialLocationInput,
+    match_som_fields,
+    parse_inputs,
+    prepare_geometry,
+)
 
 logger = logging.getLogger(__name__)
+
+_LOCATION_KEYS: tuple[str, ...] = (
+    "location_type",
+    "farm_id",
+    "point",
+    "polygon",
+    "bbox",
+)
 
 
 def _sanitize_nan(obj: Any) -> Any:
@@ -55,7 +71,8 @@ class SOMPredictSoilProcessor(BaseProcessor):
         """Execute the SOM prediction process.
 
         Args:
-            data: OGC process input dict with ``field_ids`` and optional ``scenarios``.
+            data: OGC process input dict with ``field_ids`` or a location, and
+                optional ``scenarios``.
             outputs: Ignored (sync-execute only).
 
         Returns:
@@ -65,7 +82,8 @@ class SOMPredictSoilProcessor(BaseProcessor):
             ProcessorExecuteError: On invalid inputs or backend failure.
         """
         try:
-            gids, scenarios = self._validate_inputs(data)
+            field_ids, location, scenarios = self._validate_inputs(data)
+            gids = field_ids if location is None else self._gids_at_location(location)
             fields = self._resolve_fields(gids)
             gee_field_ids = sorted(field_id for field_id, _geom in fields.values())
             all_data = self._load_features_from_duckdb(gee_field_ids, sorted(fields))
@@ -125,22 +143,36 @@ class SOMPredictSoilProcessor(BaseProcessor):
     @staticmethod
     def _validate_inputs(
         data: Dict[str, Any],
-    ) -> Tuple[List[int], List[str]]:
-        """Validate and extract field_ids and scenarios from raw input dict."""
+    ) -> tuple[list[int] | None, SpatialLocationInput | None, list[str]]:
+        """Validate and extract field_ids or a location, and scenarios.
+
+        Exactly one of the returned field_ids and location is set.
+        """
+        location_data = {key: data[key] for key in _LOCATION_KEYS if key in data}
         field_ids = data.get("field_ids")
-        if not field_ids:
+        location: SpatialLocationInput | None = None
+        if location_data:
+            if "field_ids" in data:
+                raise ProcessorExecuteError(
+                    _("Send either 'field_ids' or a location, not both.")
+                )
+            location = parse_inputs(SpatialLocationInput, location_data)
+        elif not field_ids:
             raise ProcessorExecuteError(
                 _(
                     "'field_ids' is required and must contain at least one "
                     "integer field ID."
                 )
             )
-        try:
-            field_ids = [int(fid) for fid in field_ids]
-        except (TypeError, ValueError) as exc:
-            raise ProcessorExecuteError(
-                _("'field_ids' must be a list of integers: {error}").format(error=exc)
-            ) from exc
+        else:
+            try:
+                field_ids = [int(fid) for fid in field_ids]
+            except (TypeError, ValueError) as exc:
+                raise ProcessorExecuteError(
+                    _("'field_ids' must be a list of integers: {error}").format(
+                        error=exc
+                    )
+                ) from exc
 
         valid_scenarios = {
             "S1_spec_soil",
@@ -155,7 +187,22 @@ class SOMPredictSoilProcessor(BaseProcessor):
                     invalid=invalid, valid=sorted(valid_scenarios)
                 )
             )
-        return field_ids, scenarios
+        return field_ids, location, scenarios
+
+    @staticmethod
+    def _gids_at_location(location: SpatialLocationInput) -> list[int]:
+        """Return the gids with GEE data that som-field-match finds at *location*.
+
+        Raises:
+            ProcessorExecuteError: If no matched field has GEE data.
+        """
+        matches = match_som_fields(prepare_geometry(location), DEFAULT_TOLERANCE_M)
+        gids = [m["gid"] for m in matches if m["has_gee_data"]]
+        if not gids:
+            raise ProcessorExecuteError(
+                _("No SOM field with GEE training data was found at this location.")
+            )
+        return gids
 
     # ------------------------------------------------------------------
     # DuckDB feature loading

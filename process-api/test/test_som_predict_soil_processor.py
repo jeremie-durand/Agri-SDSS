@@ -1,6 +1,6 @@
 """Mocked integration tests for SOMPredictSoilProcessor."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -472,3 +472,106 @@ def test_no_matching_rows_error_names_the_requested_gids(tmp_path):
             proc._load_features_from_duckdb([416], [195])
 
     assert "416" not in str(excinfo.value)
+
+
+_SQUARE = {
+    "type": "Polygon",
+    "coordinates": [
+        [[-72.0, 45.0], [-71.99, 45.0], [-71.99, 45.01], [-72.0, 45.01], [-72.0, 45.0]]
+    ],
+}
+
+
+@pytest.mark.mocked
+class TestSOMPredictSoilLocationInput:
+    """A location is resolved to the GEE fields som-field-match finds there."""
+
+    def test_location_predicts_the_gee_fields_found_there(self):
+        proc = _make_processor()
+        bundle = MagicMock(global_metrics={"Scenario": "S1_spec_soil"})
+        matches = [
+            {"gid": 12, "has_gee_data": True, "dist_m": 8.0},
+            {"gid": 7, "has_gee_data": False, "dist_m": 0.0},
+            {"gid": 13, "has_gee_data": True, "dist_m": 15.0},
+        ]
+        with patch(
+            "processes.som_predict_soil.match_som_fields", return_value=matches
+        ) as mock_match, patch.object(
+            proc, "_resolve_fields", return_value={12: (416, None)}
+        ) as mock_resolve, patch.object(
+            proc, "_load_features_from_duckdb", return_value=_minimal_feature_df()
+        ), patch.object(
+            proc._model_store, "get_or_train", return_value=bundle
+        ), patch.object(
+            proc._model_store,
+            "predict",
+            return_value=_minimal_preds_df().to_dict(orient="records"),
+        ):
+            mime, _result = proc.execute(
+                {
+                    "location_type": "polygon",
+                    "polygon": _SQUARE,
+                    "scenarios": ["S1_spec_soil"],
+                }
+            )
+
+        assert mime == "application/geo+json"
+        geometry, tolerance_m = mock_match.call_args.args
+        assert geometry["type"] == "Polygon"
+        assert tolerance_m == 20
+        mock_resolve.assert_called_once_with([12, 13])
+
+    def test_location_without_gee_field_raises(self):
+        proc = _make_processor()
+        matches = [{"gid": 7, "has_gee_data": False, "dist_m": 0.0}]
+        with patch(
+            "processes.som_predict_soil.match_som_fields", return_value=matches
+        ), patch.object(proc, "_resolve_fields") as mock_resolve:
+            with pytest.raises(
+                ProcessorExecuteError, match="No SOM field with GEE training data"
+            ):
+                proc.execute({"location_type": "point", "point": [-72.0, 45.0]})
+
+        mock_resolve.assert_not_called()
+
+    def test_location_without_gee_field_is_french_by_default(self):
+        proc = _make_processor()
+        with agri_i18n.use_locale("fr"), patch(
+            "processes.som_predict_soil.match_som_fields", return_value=[]
+        ):
+            with pytest.raises(ProcessorExecuteError) as excinfo:
+                proc.execute({"location_type": "point", "point": [-72.0, 45.0]})
+
+        assert "No SOM field" not in str(excinfo.value)
+
+    def test_field_ids_and_location_together_raise(self):
+        proc = _make_processor()
+        with patch("processes.som_predict_soil.match_som_fields") as mock_match:
+            with pytest.raises(ProcessorExecuteError, match="not both"):
+                proc.execute(
+                    {
+                        "field_ids": [195],
+                        "location_type": "point",
+                        "point": [-72.0, 45.0],
+                    }
+                )
+
+        mock_match.assert_not_called()
+
+    def test_bbox_location_rejected(self):
+        proc = _make_processor()
+        with pytest.raises(ProcessorExecuteError, match="Invalid inputs"):
+            proc.execute({"location_type": "bbox", "bbox": [-72, 45, -71, 46]})
+
+    def test_field_ids_do_not_query_the_location(self):
+        proc = _make_processor()
+        with patch(
+            "processes.som_predict_soil.match_som_fields"
+        ) as mock_match, patch.object(
+            proc, "_resolve_fields", side_effect=ProcessorExecuteError("stop")
+        ) as mock_resolve:
+            with pytest.raises(ProcessorExecuteError, match="stop"):
+                proc.execute({"field_ids": [195]})
+
+        mock_match.assert_not_called()
+        mock_resolve.assert_called_once_with([195])
