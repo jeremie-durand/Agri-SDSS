@@ -22,3 +22,5 @@ ignores:
   - "gis-pipeline/docs/ARGS.md"
   # Session scratch, not tracked
   - "docs/superpowers"
+  # Local Claude Code skills and settings, gitignored
+  - ".claude"
