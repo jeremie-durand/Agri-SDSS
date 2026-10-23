@@ -47,8 +47,9 @@ Branches and commit prefixes are in
   working tree and let the developer do it; create a branch only when asked in
   that turn.
 
-CI (`.github/workflows/action.yml`) checks `ARGS.md` sync, i18n catalogs, nginx
-configs, image builds, the stac-browser smoke test and `make test-all`.
+CI (`.github/workflows/action.yml`) runs `pre-commit run --all-files` and checks
+`ARGS.md` sync, i18n catalogs, nginx configs, image builds, the stac-browser smoke
+test and `make test-all`.
 
 ## Common Commands
 
