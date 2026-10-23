@@ -9,8 +9,9 @@ Importing ``pygeoapi.flask_app`` reads ``PYGEOAPI_CONFIG`` and
 ``PYGEOAPI_OPENAPI`` at module load; ``start.sh`` exports both beforehand.
 """
 
-from agri_i18n.middleware import LocaleWSGIMiddleware
 from pygeoapi.flask_app import APP as PYGEOAPI_APP
+
+from agri_i18n.middleware import LocaleWSGIMiddleware
 
 APP = LocaleWSGIMiddleware(PYGEOAPI_APP)
 

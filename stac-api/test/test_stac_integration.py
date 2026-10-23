@@ -12,7 +12,6 @@ This avoids polluting the shared database between test runs.
 import re
 
 import pytest
-
 from stac_api.test.db_utils import (
     admin_credentials_available,
     admin_delete_collection,

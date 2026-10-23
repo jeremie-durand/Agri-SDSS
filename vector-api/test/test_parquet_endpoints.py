@@ -13,7 +13,6 @@ import responses
 from shapely.geometry import Polygon
 from vector_api.duckdb_manager import DuckDBManager
 
-
 # ------------------------------------------
 # Fixtures
 # ------------------------------------------

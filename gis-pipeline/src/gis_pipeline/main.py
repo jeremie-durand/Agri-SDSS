@@ -44,9 +44,10 @@ def process_vector_pipeline(vector_files, args, report_data):
         args: Parsed command-line arguments.
         report_data (dict): Dictionary to store processing report data.
     """
+    import shutil
+
     import fiona
     import geopandas as gpd
-    import shutil
     from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
     from gis_pipeline.modules.db.materialize_trigger import (
         trigger_materialize_and_notify,

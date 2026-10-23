@@ -6,8 +6,9 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Self, Tuple
 
 import numpy as np
-from agri_i18n import _
 from pydantic import BaseModel, field_validator, model_validator
+
+from agri_i18n import _
 
 
 class LocationType(str, Enum):

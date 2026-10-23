@@ -137,11 +137,16 @@ def _run_middleware(middleware, body: bytes, content_type: bytes = b"application
     sent = []
 
     async def stub_app(scope, receive, send):
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", content_type), (b"content-length", b"999")],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", content_type),
+                    (b"content-length", b"999"),
+                ],
+            }
+        )
         await send({"type": "http.response.body", "body": body})
 
     async def capture(message):

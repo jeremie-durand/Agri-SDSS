@@ -9,7 +9,6 @@ import json
 import logging
 import os
 
-from agri_i18n import _, set_locale
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import APIKeyHeader
 from openai import AsyncOpenAI
@@ -19,6 +18,8 @@ from tools_registry import (
     get_process_schema,
     list_pygeoapi_processes,
 )
+
+from agri_i18n import _, set_locale
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -31,9 +32,7 @@ async def _verify_api_key(x_api_key: str | None = Depends(_api_key_header)) -> N
         return
     expected = os.environ.get("API_KEY", "")
     if not expected or x_api_key != expected:
-        raise HTTPException(
-            status_code=401, detail=_("Invalid or missing API key.")
-        )
+        raise HTTPException(status_code=401, detail=_("Invalid or missing API key."))
 
 
 _TOOL_DEFS = [
@@ -174,7 +173,7 @@ async def sdss_query(req: _QueryRequest) -> _QueryResponse:
         messages.extend(req.conversation_history[-6:])
     messages.append({"role": "user", "content": req.query})
 
-    for _ in range(6):
+    for _round in range(6):
         resp = await client.chat.completions.create(
             model=model,
             messages=messages,  # type: ignore[arg-type]

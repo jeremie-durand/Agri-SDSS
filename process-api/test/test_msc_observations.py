@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
-import agri_i18n
 import pytest
 import requests
 from processes.msc_observations import MSCObservationsProcessor
@@ -26,6 +25,8 @@ from processes.weather_backend.msc_backend import (
     _make_cache_key,
 )
 from pygeoapi.process.base import ProcessorExecuteError
+
+import agri_i18n
 
 
 @pytest.fixture(autouse=True)

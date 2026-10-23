@@ -34,9 +34,5 @@ def admin_delete_collection(collection_id: str) -> None:
         password=os.getenv("PGSTAC_ADMIN_PASS"),
         connect_timeout=10,
     ) as conn:
-        conn.execute(
-            "DELETE FROM pgstac.items WHERE collection = %s", (collection_id,)
-        )
-        conn.execute(
-            "DELETE FROM pgstac.collections WHERE id = %s", (collection_id,)
-        )
+        conn.execute("DELETE FROM pgstac.items WHERE collection = %s", (collection_id,))
+        conn.execute("DELETE FROM pgstac.collections WHERE id = %s", (collection_id,))

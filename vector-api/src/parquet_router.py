@@ -8,9 +8,10 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agri_i18n import _
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+
+from agri_i18n import _
 
 from .config import PARQUET_COLLECTIONS, PARQUET_PREFIX, external_base_url
 from .duckdb_manager import (
@@ -323,8 +324,7 @@ async def get_items(
                 raise HTTPException(
                     status_code=400,
                     detail=_(
-                        "Invalid bbox format. Expected minx,miny,maxx,maxy: "
-                        "{error}"
+                        "Invalid bbox format. Expected minx,miny,maxx,maxy: " "{error}"
                     ).format(error=e),
                 )
 
@@ -423,9 +423,9 @@ async def get_item(
         if not feature:
             raise HTTPException(
                 status_code=404,
-                detail=_(
-                    "Item not found: {item} in collection {collection}"
-                ).format(item=item_id, collection=collection_id),
+                detail=_("Item not found: {item} in collection {collection}").format(
+                    item=item_id, collection=collection_id
+                ),
             )
 
         base_url = external_base_url(request)
