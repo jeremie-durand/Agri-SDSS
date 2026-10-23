@@ -23,6 +23,7 @@ docker compose up -d process-api
 | `climate-indicators` | Agronomic indicators: GDD, frost days, heat stress, precipitation |
 | `msc-observations` | MSC GeoMet climate-daily and SWOB real-time station data |
 | `som-predict-soil` | Soil Organic Matter prediction for field parcels (RandomForest on GEE features) |
+| `water-distance` | Geodesic distance from a parcel to the nearest GRHQ water feature |
 
 ## Execute a process
 
@@ -60,4 +61,5 @@ See [Internationalization](../docs/I18N.md).
 → [Climate & weather specs](docs/CLIMATE_WEATHER_SPECS.md)  
 → [LiDAR query specs](docs/LIDAR_QUERY_SPECS.md)  
 → [MSC observations](docs/MSC_OBSERVATIONS_QUERY_SPECS.md)  
-→ [SOM soil prediction](docs/SOM_PREDICT_SOIL_SPECS.md)
+→ [SOM soil prediction](docs/SOM_PREDICT_SOIL_SPECS.md)  
+→ [Water distance](docs/WATER_DISTANCE_SPECS.md)
