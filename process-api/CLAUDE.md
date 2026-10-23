@@ -21,6 +21,7 @@ Dockerfile's `i18n` build stage compiles the catalogs.
 | `som-predict-soil` | `som_predict_soil.py` | local Parquet + PostGIS | [docs/SOM_PREDICT_SOIL_SPECS.md](docs/SOM_PREDICT_SOIL_SPECS.md) |
 | `water-distance` | `water_distance.py` | PostGIS (GRHQ) | [docs/WATER_DISTANCE_SPECS.md](docs/WATER_DISTANCE_SPECS.md) |
 | `som-field-match` | `som_field_match.py` | PostGIS | [docs/SOM_FIELD_MATCH_SPECS.md](docs/SOM_FIELD_MATCH_SPECS.md) |
+| `pedo-coverage` | `pedo_coverage.py` | PostGIS (IRDA 2026, 2022) | [docs/PEDO_COVERAGE_SPECS.md](docs/PEDO_COVERAGE_SPECS.md) |
 
 - Usage and examples: [README.md](README.md). openEO token:
   [docs/OPENEO_SETUP.md](docs/OPENEO_SETUP.md). Where these disagree with the
