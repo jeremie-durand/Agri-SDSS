@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeVar
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationError, field_validator
+from pygeoapi.process.base import ProcessorExecuteError
 
 from agri_i18n import _
 
@@ -13,6 +14,8 @@ from ..backend_utils import LocationType, LocationValidatorMixin
 DEFAULT_MAX_DISTANCE_M: float = 100_000.0
 DEFAULT_MIN_DESCRIBED_PCT: float = 50.0
 DEFAULT_TOLERANCE_M: float = 20.0
+
+InputModel = TypeVar("InputModel", bound="SpatialLocationInput")
 
 
 class SpatialLocationInput(LocationValidatorMixin):
@@ -48,3 +51,21 @@ class SomFieldMatchInput(SpatialLocationInput):
     """Validated input for the som-field-match process."""
 
     tolerance_m: float = Field(default=DEFAULT_TOLERANCE_M, ge=0, le=500)
+
+
+def parse_inputs(model: type[InputModel], data: dict[str, Any]) -> InputModel:
+    """Validate raw process inputs, turning pydantic errors into a process error.
+
+    Raises:
+        ProcessorExecuteError: Listing every invalid field.
+    """
+    try:
+        return model(**data)
+    except ValidationError as exc:
+        errors = "; ".join(
+            f"{' -> '.join(str(loc) for loc in e['loc'])}: {e['msg']}"
+            for e in exc.errors()
+        )
+        raise ProcessorExecuteError(
+            _("Invalid inputs: {errors}").format(errors=errors)
+        ) from exc

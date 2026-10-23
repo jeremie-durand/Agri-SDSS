@@ -101,6 +101,16 @@ resources:
     processor:
       name: processes.som_predict_soil.SOMPredictSoilProcessor
 
+  water-distance:
+    type: process
+    title: Distance to Nearest Water Feature
+    description: >
+      Returns the geodesic distance in metres from a parcel to the nearest GRHQ
+      hydrographic feature, measured from a point inside the parcel.
+      Supports farm_id, point and polygon location types.
+    processor:
+      name: processes.water_distance.WaterDistanceProcessor
+
 server:
   bind:
     host: 0.0.0.0

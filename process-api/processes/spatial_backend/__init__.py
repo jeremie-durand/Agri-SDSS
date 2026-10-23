@@ -7,7 +7,9 @@ from .models import (
     SomFieldMatchInput,
     SpatialLocationInput,
     WaterDistanceInput,
+    parse_inputs,
 )
+from .water import nearest_water_distance
 
 __all__ = [
     "DEFAULT_TOLERANCE_M",
@@ -15,5 +17,7 @@ __all__ = [
     "SomFieldMatchInput",
     "SpatialLocationInput",
     "WaterDistanceInput",
+    "nearest_water_distance",
+    "parse_inputs",
     "prepare_geometry",
 ]
