@@ -84,7 +84,7 @@ class LidarFetchProcessor(BaseProcessor):
 
     # STAC settings
     STAC_COLLECTION_ID: str = "lidar_quebec"
-    STAC_VERSION: str = "1.0.0"
+    STAC_VERSION: str = "1.1.0"
 
     # Keys of the raster-api renderings published beside each product asset.
     PREVIEW_ASSET_KEY: str = "preview"
@@ -251,6 +251,7 @@ class LidarFetchProcessor(BaseProcessor):
             # ----------------------------------------------------------
             stac_items: List[Dict[str, Any]] = []
             assets: Dict[str, Dict[str, Any]] = {}
+            summaries: dict[str, dict[str, float | None]] = {}
             cog_paths: Dict[str, str] = {}
 
             for product, urls in tile_urls.items():
@@ -283,6 +284,7 @@ class LidarFetchProcessor(BaseProcessor):
                 self._add_product_asset(
                     assets=assets,
                     stac_items=stac_items,
+                    summaries=summaries,
                     product=product,
                     cog_path=cog_path,
                     geometry_geojson=geometry_geojson,
@@ -309,6 +311,7 @@ class LidarFetchProcessor(BaseProcessor):
                 self._add_product_asset(
                     assets=assets,
                     stac_items=stac_items,
+                    summaries=summaries,
                     product=self.ASPECT_PRODUCT,
                     cog_path=aspect_cog_path,
                     geometry_geojson=geometry_geojson,
@@ -321,18 +324,12 @@ class LidarFetchProcessor(BaseProcessor):
             # flat slope/aspect summary for callers that don't need to
             # parse STAC asset internals (e.g. external integrations).
             # ----------------------------------------------------------
-            summary: Dict[str, Any] = {}
-            if "slope" in assets:
-                summary["slope"] = assets["slope"]["statistics"]
-            if self.ASPECT_PRODUCT in assets:
-                summary[self.ASPECT_PRODUCT] = assets[self.ASPECT_PRODUCT]["statistics"]
-
             return mimetype, {
                 "stac_items": [item["id"] for item in stac_items],
                 "assets": assets,
                 "bbox": list(bbox),
                 "products": list(assets.keys()),
-                **summary,
+                **summaries,
             }
 
         except ProcessorExecuteError:
@@ -641,6 +638,7 @@ class LidarFetchProcessor(BaseProcessor):
         self,
         assets: Dict[str, Dict[str, Any]],
         stac_items: List[Dict[str, Any]],
+        summaries: dict[str, dict[str, float | None]],
         product: str,
         cog_path: str,
         geometry_geojson: Dict[str, Any],
@@ -648,44 +646,54 @@ class LidarFetchProcessor(BaseProcessor):
         farm_identifier: str,
     ) -> None:
         """
-        Build the STAC asset entry (with statistics) for one product,
-        appending it to the caller's accumulators. Statistics are always
-        recomputed from the COG (a local read), but the STAC item itself is
-        only (re)published when there's no cached marker from a prior
-        successful publish for this cog_path — see _load_cached_stac_item.
-        dtm/chm/hillshade keep the existing bounding-box mean; slope/aspect
-        use the exact-polygon statistics added in Tasks 4-5.
+        Build the STAC asset entry (with one STAC 1.1 band) for one product,
+        appending it to the caller's accumulators. The band statistics are
+        always recomputed from the COG (a local read), but the STAC item
+        itself is only (re)published when there's no cached marker from a
+        prior successful publish for this cog_path — see
+        _load_cached_stac_item. The band mean is in the band's unit; the full
+        slope/aspect statistics go to ``summaries`` for the top-level
+        response. dtm/chm/hillshade use the bounding-box mean; slope/aspect
+        use the exact-polygon statistics.
         """
-        if product == "slope":
-            with rasterio.open(cog_path) as src:
-                data_type = str(src.dtypes[0])
-            statistics: Dict[str, Optional[float]] = self._slope_statistics(
-                cog_path, geometry_geojson
+        with rasterio.open(cog_path) as src:
+            data_type = str(src.dtypes[0])
+            nodata = src.nodata
+            band_values = (
+                src.read(1, masked=True)
+                if product not in ("slope", self.ASPECT_PRODUCT)
+                else None
             )
+        if product == "slope":
+            summaries[product] = self._slope_statistics(cog_path, geometry_geojson)
+            mean = summaries[product]["mean_percent"]
         elif product == self.ASPECT_PRODUCT:
-            with rasterio.open(cog_path) as src:
-                data_type = str(src.dtypes[0])
-            statistics = self._aspect_statistics(cog_path, geometry_geojson)
+            summaries[product] = self._aspect_statistics(cog_path, geometry_geojson)
+            mean = summaries[product]["mean_degrees"]
         else:
-            with rasterio.open(cog_path) as src:
-                data_type = str(src.dtypes[0])
-                band = src.read(1, masked=True)
-                mean_val = float(band.mean()) if band.count() > 0 else None
-            statistics = {"mean": mean_val}
+            finite_values = band_values.compressed()
+            finite_values = finite_values[np.isfinite(finite_values)]
+            mean = float(finite_values.mean()) if finite_values.size > 0 else None
+
+        band: dict[str, Any] = {
+            "name": product,
+            "data_type": data_type,
+            "description": self._get_product_description(product),
+        }
+        if nodata is not None:
+            band["nodata"] = nodata if np.isfinite(nodata) else str(nodata)
+        unit = self._get_product_unit(product)
+        if unit:
+            band["unit"] = unit
+        if mean is not None:
+            band["statistics"] = {"mean": mean}
 
         assets[product] = {
             "href": cog_href(cog_path),
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
             "roles": ["data"],
             "title": self._get_product_title(product),
-            "statistics": statistics,
-            "raster:bands": [
-                {
-                    "nodata": self.DEFAULT_NODATA,
-                    "data_type": data_type,
-                    "description": self._get_product_description(product),
-                }
-            ],
+            "bands": [band],
         }
 
         marker_path = self._stac_marker_path(cog_path)
@@ -767,8 +775,7 @@ class LidarFetchProcessor(BaseProcessor):
             "type": "Feature",
             "stac_version": self.STAC_VERSION,
             "stac_extensions": [
-                "https://stac-extensions.github.io/projection/v1.0.0/schema.json",
-                "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+                "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
             ],
             "id": item_id,
             "geometry": geometry,
@@ -782,9 +789,9 @@ class LidarFetchProcessor(BaseProcessor):
                 .replace("+00:00", "Z"),
                 "platform": "lidar-mrnf",
                 "instruments": ["lidar"],
-                "lidar:product": product,
-                "lidar:source": "MRNF Quebec open data",
-                "proj:epsg": 4326,
+                "agri_sdss:product": product,
+                "agri_sdss:source": "MRNF Quebec open data",
+                "proj:code": "EPSG:4326",
             },
             "assets": {
                 product: asset,
@@ -820,17 +827,24 @@ class LidarFetchProcessor(BaseProcessor):
         if os.path.exists(marker_path):
             os.remove(marker_path)
 
-    @staticmethod
-    def _load_cached_stac_item(marker_path: str) -> Optional[Dict[str, Any]]:
-        """Return the previously-published STAC item, or None if unpublished."""
+    @classmethod
+    def _load_cached_stac_item(cls, marker_path: str) -> Optional[Dict[str, Any]]:
+        """Return the previously-published STAC item, or None if unpublished.
+
+        A marker written under another STAC version describes an item in an
+        outdated shape, so it counts as unpublished and the item is republished.
+        """
         if not os.path.exists(marker_path):
             return None
         try:
             with open(marker_path, "r") as f:
-                return json.load(f)
+                item = json.load(f)
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Could not read STAC marker %s: %s", marker_path, exc)
             return None
+        if item.get("stac_version") != cls.STAC_VERSION:
+            return None
+        return item
 
     @staticmethod
     def _write_stac_marker(marker_path: str, stac_item: Dict[str, Any]) -> None:
@@ -972,6 +986,12 @@ class LidarFetchProcessor(BaseProcessor):
             "aspect": "Aspect (compass bearing, degrees)",
         }
         return titles.get(product, product.upper())
+
+    @staticmethod
+    def _get_product_unit(product: str) -> str | None:
+        """Return the UCUM unit of a product's band, or None when unitless."""
+        units: dict[str, str] = {"dtm": "m", "chm": "m", "slope": "%", "aspect": "deg"}
+        return units.get(product)
 
     @staticmethod
     def _get_product_description(product: str) -> str:

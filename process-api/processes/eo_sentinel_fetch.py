@@ -37,28 +37,31 @@ from .eo_sentinel_fetch_metadata import PROCESS_METADATA
 logger = logging.getLogger(__name__)
 
 
-def _extract_cog_stats(cog_path: str) -> Dict[int, Any]:
-    """Return per-band min/max/mean/std stats from a COG file.
+def _extract_cog_stats(cog_path: str) -> list[dict[str, float]]:
+    """Return the STAC 1.1 statistics of each band of a COG, in band order.
 
     NaN is not covered by the nodata mask, so non-finite pixels are dropped
     first: a single one would otherwise make every statistic NaN, which is not
     valid JSON and would poison both the published item and the rescale
-    derived from it.
+    derived from it. A band with no valid pixel gets an empty object, since
+    STAC statistics fields must be numbers.
     """
+    stats: list[dict[str, float]] = []
     with rasterio.open(cog_path) as src:
-        stats: Dict[int, Any] = {}
         for i in src.indexes:
             values = src.read(i, masked=True).compressed()
             values = values[np.isfinite(values)]
-            if values.size > 0:
-                stats[i] = {
-                    "min": float(values.min()),
-                    "max": float(values.max()),
+            if values.size == 0:
+                stats.append({})
+                continue
+            stats.append(
+                {
+                    "minimum": float(values.min()),
+                    "maximum": float(values.max()),
                     "mean": float(values.mean()),
-                    "std": float(values.std()),
+                    "stddev": float(values.std()),
                 }
-            else:
-                stats[i] = {"min": None, "max": None, "mean": None, "std": None}
+            )
     return stats
 
 
@@ -124,7 +127,7 @@ class SentinelFetchProcessor(BaseProcessor):
 
     # STAC configuration
     STAC_COLLECTION_ID: str = "sentinel2_eo_products"
-    STAC_VERSION: str = "1.0.0"
+    STAC_VERSION: str = "1.1.0"
     STAC_SPATIAL_EXTENT_BBOX: List[float] = [
         -79.75,
         41.75,
@@ -427,17 +430,7 @@ class SentinelFetchProcessor(BaseProcessor):
                         logger.info(
                             f"Cache hit: {cog_filename}, skipping OpenEO download"
                         )
-                        stats = _extract_cog_stats(cog_path)
-                        assets[product] = {
-                            "href": cog_href(cog_path),
-                            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-                            "roles": (
-                                ["data"] if product != "true_color" else ["visual"]
-                            ),
-                            "title": self._get_product_title(product),
-                            "raster:bands": self._get_raster_bands_metadata(product),
-                            "statistics": stats,
-                        }
+                        assets[product] = self._product_asset(product, cog_path)
                         continue
 
                     # Download to temporary file
@@ -447,17 +440,7 @@ class SentinelFetchProcessor(BaseProcessor):
 
                     self._convert_to_cog(temp_file, cog_path)
 
-                    # Extract metadata using masked arrays (rasterio has no .stats() method)
-                    stats = _extract_cog_stats(cog_path)
-
-                    assets[product] = {
-                        "href": cog_href(cog_path),
-                        "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-                        "roles": ["data"] if product != "true_color" else ["visual"],
-                        "title": self._get_product_title(product),
-                        "raster:bands": self._get_raster_bands_metadata(product),
-                        "statistics": stats,
-                    }
+                    assets[product] = self._product_asset(product, cog_path)
 
                 except (ValueError, KeyError) as e:
                     logger.warning(f"Data error processing {product}: {str(e)}")
@@ -626,15 +609,7 @@ class SentinelFetchProcessor(BaseProcessor):
             cog_path = os.path.join(self.output_dir, cog_filename)
             if os.path.exists(cog_path):
                 try:
-                    stats = _extract_cog_stats(cog_path)
-                    cached_assets[product] = {
-                        "href": cog_href(cog_path),
-                        "type": "image/tiff; application=geotiff; profile=cloud-optimized",
-                        "roles": ["data"] if product != "true_color" else ["visual"],
-                        "title": self._get_product_title(product),
-                        "raster:bands": self._get_raster_bands_metadata(product),
-                        "statistics": stats,
-                    }
+                    cached_assets[product] = self._product_asset(product, cog_path)
                     logger.info(f"Early cache hit: {cog_filename}, skipping OpenEO")
                 except Exception as e:
                     logger.warning(
@@ -800,61 +775,73 @@ class SentinelFetchProcessor(BaseProcessor):
         }
         return titles.get(product, product.upper())
 
-    def _get_raster_bands_metadata(self, product: str) -> List[Dict]:
-        """Get raster:bands metadata for STAC"""
-        if product == "ndvi":
+    def _get_bands_metadata(self, product: str) -> list[dict[str, Any]]:
+        """Return the STAC 1.1 band objects describing a product, without statistics.
+
+        The vegetation indices are dimensionless, so they carry no ``unit``.
+        """
+        index_descriptions: dict[str, str] = {
+            "ndvi": "NDVI values ranging from -1 to 1",
+            "evi": "EVI values",
+            "savi": "SAVI values",
+        }
+        if product in index_descriptions:
             return [
                 {
+                    "name": product,
+                    "description": index_descriptions[product],
                     "nodata": self.DEFAULT_NODATA,
                     "data_type": self.RASTER_DATA_TYPE,
-                    "scale": 1.0,
-                    "offset": 0.0,
-                    "unit": "normalized difference",
-                    "description": "NDVI values ranging from -1 to 1",
                 }
             ]
-        elif product == "evi":
+        if product == "true_color":
             return [
                 {
+                    "name": colour,
+                    "eo:common_name": colour,
                     "nodata": self.DEFAULT_NODATA,
-                    "data_type": self.RASTER_DATA_TYPE,
-                    "scale": 1.0,
-                    "offset": 0.0,
-                    "unit": "enhanced vegetation index",
-                    "description": "EVI values",
                 }
-            ]
-        elif product == "savi":
-            return [
-                {
-                    "nodata": self.DEFAULT_NODATA,
-                    "data_type": self.RASTER_DATA_TYPE,
-                    "scale": 1.0,
-                    "offset": 0.0,
-                    "unit": "soil adjusted vegetation index",
-                    "description": "SAVI values",
-                }
-            ]
-        elif product == "true_color":
-            return [
-                {"nodata": self.DEFAULT_NODATA, "name": "red", "common_name": "red"},
-                {
-                    "nodata": self.DEFAULT_NODATA,
-                    "name": "green",
-                    "common_name": "green",
-                },
-                {"nodata": self.DEFAULT_NODATA, "name": "blue", "common_name": "blue"},
+                for colour in ("red", "green", "blue")
             ]
         return [{"nodata": self.DEFAULT_NODATA}]
+
+    def _build_bands(
+        self, product: str, stats: list[dict[str, float]]
+    ) -> list[dict[str, Any]]:
+        """Merge a product's band metadata with the statistics read from its COG.
+
+        The COG decides the band count: ``raw_bands`` has one metadata entry
+        for several bands, so a band without its own entry gets the default.
+        """
+        metadata = self._get_bands_metadata(product)
+        bands: list[dict[str, Any]] = []
+        for index, band_stats in enumerate(stats):
+            band = (
+                dict(metadata[index])
+                if index < len(metadata)
+                else {"nodata": self.DEFAULT_NODATA}
+            )
+            if band_stats:
+                band["statistics"] = band_stats
+            bands.append(band)
+        return bands
+
+    def _product_asset(self, product: str, cog_path: str) -> dict[str, Any]:
+        """Build the STAC asset of one product COG, with its per-band statistics."""
+        return {
+            "href": cog_href(cog_path),
+            "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+            "roles": ["data"] if product != "true_color" else ["visual"],
+            "title": self._get_product_title(product),
+            "bands": self._build_bands(product, _extract_cog_stats(cog_path)),
+        }
 
     @staticmethod
     def _render_params(asset: Dict[str, Any]) -> Tuple[Optional[int], Optional[str]]:
         """Return the ``(bidx, rescale)`` TiTiler needs to render an asset.
 
-        Both come from the statistics already extracted for the asset rather
-        than a second read of the file. Band indices survive the JSON round
-        trip through the cache marker as strings, so the band is looked up
-        under either form.
+        Both come from the band statistics already extracted for the asset
+        rather than a second read of the file.
 
         TiTiler encodes a 1-band COG as greyscale and a 3-band one as RGB, but
         can encode nothing else — a 6-band COG answers 500 — so any other band
@@ -867,12 +854,12 @@ class SentinelFetchProcessor(BaseProcessor):
         The rescale is None whenever the range is unusable — absent,
         non-finite, or constant, which would make rio-tiler divide by zero.
         """
-        statistics = asset.get("statistics") or {}
-        if not statistics or len(statistics) == 3:
+        bands = asset.get("bands") or []
+        if not bands or len(bands) == 3:
             return None, None
-        bidx = None if len(statistics) == 1 else 1
-        band = statistics.get(1) or statistics.get("1") or {}
-        low, high = band.get("min"), band.get("max")
+        bidx = None if len(bands) == 1 else 1
+        band_stats = bands[0].get("statistics") or {}
+        low, high = band_stats.get("minimum"), band_stats.get("maximum")
         if low is None or high is None:
             return bidx, None
         low, high = float(low), float(high)
@@ -937,7 +924,7 @@ class SentinelFetchProcessor(BaseProcessor):
             temporal_extent: [start_date, end_date] in ISO 8601 format (YYYY-MM-DD)
                 Example: ["2024-06-01", "2024-08-31"]
             assets: Dictionary mapping product names to STAC asset metadata
-                Each asset must include: href, type, roles, title, raster:bands, statistics
+                Each asset must include: href, type, roles, title, bands
                 Each also gains a raster-api preview and TileJSON sibling
                 (see _render_assets) so the item is viewable without a download
             cloud_cover_max: Maximum cloud cover percentage used for filtering (0-100)
@@ -950,7 +937,7 @@ class SentinelFetchProcessor(BaseProcessor):
                 tell masked from unmasked ones
 
         Returns:
-            STAC Item compliant with STAC v1.0.0 specification, including:
+            STAC Item compliant with STAC v1.1.0 specification, including:
                 - type: "Feature"
                 - stac_version: STAC specification version
                 - stac_extensions: List of extension schemas used
@@ -966,14 +953,26 @@ class SentinelFetchProcessor(BaseProcessor):
         end: datetime = datetime.fromisoformat(temporal_extent[1])
         midpoint: datetime = start + (end - start) / 2
 
+        stac_extensions: list[str] = [
+            "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
+        ]
+        if any(
+            key.startswith("eo:")
+            for asset in assets.values()
+            for band in asset.get("bands", [])
+            for key in band
+        ):
+            stac_extensions.append(
+                "https://stac-extensions.github.io/eo/v2.0.0/schema.json"
+            )
+        stac_extensions.append(
+            "https://stac-extensions.github.io/processing/v1.2.0/schema.json"
+        )
+
         stac_item: Dict[str, Any] = {
             "type": "Feature",
             "stac_version": self.STAC_VERSION,
-            "stac_extensions": [
-                "https://stac-extensions.github.io/projection/v1.0.0/schema.json",
-                "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
-                "https://stac-extensions.github.io/eo/v1.0.0/schema.json",
-            ],
+            "stac_extensions": stac_extensions,
             "id": item_id,
             "geometry": geometry,
             "bbox": list(bbox),
@@ -989,8 +988,8 @@ class SentinelFetchProcessor(BaseProcessor):
                 "constellation": "sentinel-2",
                 "mission": "copernicus",
                 "processing:level": "L2A",
-                "eo:cloud_cover": cloud_cover_max,
-                "proj:epsg": 4326,
+                "proj:code": "EPSG:4326",
+                "agri_sdss:cloud_cover_max": cloud_cover_max,
                 "agri_sdss:cloud_mask": cloud_mask,
                 "agri_sdss:scl_masked_classes": (
                     list(self.SCL_MASKED_CLASSES) if cloud_mask else []
@@ -1013,17 +1012,24 @@ class SentinelFetchProcessor(BaseProcessor):
         """Path to the sidecar marker recording a successful STAC publish."""
         return os.path.join(self.output_dir, f"{stac_item_id}.stac.json")
 
-    @staticmethod
-    def _load_cached_stac_item(marker_path: str) -> Optional[Dict[str, Any]]:
-        """Return the previously-published STAC item, or None if unpublished."""
+    @classmethod
+    def _load_cached_stac_item(cls, marker_path: str) -> Optional[Dict[str, Any]]:
+        """Return the previously-published STAC item, or None if unpublished.
+
+        A marker written under another STAC version describes an item in an
+        outdated shape, so it counts as unpublished and the item is republished.
+        """
         if not os.path.exists(marker_path):
             return None
         try:
             with open(marker_path, "r") as f:
-                return json.load(f)
+                item = json.load(f)
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Could not read STAC marker %s: %s", marker_path, exc)
             return None
+        if item.get("stac_version") != cls.STAC_VERSION:
+            return None
+        return item
 
     @staticmethod
     def _write_stac_marker(marker_path: str, stac_item: Dict[str, Any]) -> None:
@@ -1063,7 +1069,7 @@ class SentinelFetchProcessor(BaseProcessor):
                 "stac_version": self.STAC_VERSION,
                 "title": "Sentinel-2 Earth Observation Products",
                 "description": "Processed Sentinel-2 products (NDVI, EVI, SAVI, True Color) generated from openEO backend",
-                "license": "proprietary",
+                "license": "other",
                 "extent": {
                     "spatial": {"bbox": [self.STAC_SPATIAL_EXTENT_BBOX]},
                     "temporal": {"interval": [[self.STAC_TEMPORAL_START, None]]},

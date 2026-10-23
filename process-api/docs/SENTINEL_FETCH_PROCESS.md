@@ -89,9 +89,11 @@ and the `SCL` band is dropped from the products. Masked products are cached and
 published under names ending in `_scl` (for example
 `sentinel2_farm_4_scl_ndvi_2024-06-01_2024-08-31.tif`), so a COG computed
 without the mask is never served for a masked request; `cloud_mask: false`
-keeps the original names. Each published STAC item records the choice in its
-properties (`agri_sdss:cloud_mask`, `agri_sdss:scl_masked_classes`); the SOM
-form only reuses items where `agri_sdss:cloud_mask` is `true`.
+keeps the original names. Each published STAC item records both filters in its
+properties (`agri_sdss:cloud_cover_max`, `agri_sdss:cloud_mask`,
+`agri_sdss:scl_masked_classes`); the SOM form only reuses items where
+`agri_sdss:cloud_mask` is `true`. The item is a composite of many scenes, so it
+carries no `eo:cloud_cover`: the threshold is not a measured cloud cover.
 
 A cached COG is reused whenever its file exists, so each one is written under a
 `.tif.partial` name and renamed only once `gdalwarp` succeeds: an interrupted

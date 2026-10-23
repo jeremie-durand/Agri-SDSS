@@ -35,7 +35,7 @@ def sample_stac_collection(unique_suffix: str) -> dict[str, Any]:
     return {
         "type": "Collection",
         "id": f"test-integration-collection-{unique_suffix}",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "description": "Integration test collection — created and deleted by test suite",
         "links": [],
         "title": "Test Integration Collection",
@@ -43,7 +43,7 @@ def sample_stac_collection(unique_suffix: str) -> dict[str, Any]:
             "spatial": {"bbox": [[-180, -90, 180, 90]]},
             "temporal": {"interval": [["2020-01-01T00:00:00Z", None]]},
         },
-        "license": "proprietary",
+        "license": "other",
     }
 
 
@@ -52,7 +52,7 @@ def sample_stac_item(unique_suffix: str) -> dict[str, Any]:
     """Minimal valid STAC Item for integration tests (polygon near Montreal)."""
     return {
         "type": "Feature",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [],
         "id": f"test-integration-item-{unique_suffix}",
         "geometry": {
