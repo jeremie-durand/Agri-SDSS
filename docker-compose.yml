@@ -329,6 +329,10 @@ services:
       - FARM_GEOMETRY_COLUMN=${FARM_GEOMETRY_COLUMN}
       - FARM_ID_COLUMN=${FARM_ID_COLUMN}
       - DUCKDB_DATA_DIR=/data/duckdb
+      - WATER_TABLE_NAME=${WATER_TABLE_NAME:-public.grhq_water_union}
+      - PEDO_TABLE_NAME=${PEDO_TABLE_NAME:-public.couverture_pedologique_2026_01_couverture_p_cbc3c8}
+      - PEDO_2022_TABLE_NAME=${PEDO_2022_TABLE_NAME:-public.couverture_pedo_2022}
+      - SOM_TABLE_NAME=${SOM_TABLE_NAME:-public.som_field_boundaries}
       - RASTER_API_PORT=${RASTER_API_PORT}
       - STAC_API_URL=${STAC_API_URL}
     volumes:
