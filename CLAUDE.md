@@ -50,6 +50,18 @@ Branches and commit prefixes are in
 CI (`.github/workflows/action.yml`) checks `ARGS.md` sync, i18n catalogs, nginx
 configs, image builds, the stac-browser smoke test and `make test-all`.
 
+## Review Before Handoff
+
+After changing any file that is not Markdown documentation, Claude **MUST** run
+the `agri-reviewer` subagent ([.claude/agents/agri-reviewer.md](.claude/agents/agri-reviewer.md))
+on the uncommitted changes before reporting the work as done. Run the tests
+first. The reviewer judges them but never runs them.
+
+- Fix every `blocking` finding, then run `agri-reviewer` once more.
+- Do not loop beyond that second pass. List any finding still open in the
+  handoff message, and the developer decides before committing.
+- A diff that touches only Markdown documentation is exempt.
+
 ## Common Commands
 
 ### Ops
