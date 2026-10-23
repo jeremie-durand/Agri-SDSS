@@ -24,6 +24,7 @@ docker compose up -d process-api
 | `msc-observations` | MSC GeoMet climate-daily and SWOB real-time station data |
 | `som-predict-soil` | Soil Organic Matter prediction for field parcels (RandomForest on GEE features) |
 | `water-distance` | Geodesic distance from a parcel to the nearest GRHQ water feature |
+| `som-field-match` | SOM field boundaries near a parcel, GEE-positive fields first |
 
 ## Execute a process
 
@@ -62,4 +63,5 @@ See [Internationalization](../docs/I18N.md).
 → [LiDAR query specs](docs/LIDAR_QUERY_SPECS.md)  
 → [MSC observations](docs/MSC_OBSERVATIONS_QUERY_SPECS.md)  
 → [SOM soil prediction](docs/SOM_PREDICT_SOIL_SPECS.md)  
-→ [Water distance](docs/WATER_DISTANCE_SPECS.md)
+→ [Water distance](docs/WATER_DISTANCE_SPECS.md)  
+→ [SOM field match](docs/SOM_FIELD_MATCH_SPECS.md)

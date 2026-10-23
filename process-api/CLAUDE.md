@@ -20,6 +20,7 @@ Dockerfile's `i18n` build stage compiles the catalogs.
 | `msc-observations` | `msc_observations.py` | MSC GeoMet | [docs/MSC_OBSERVATIONS_QUERY_SPECS.md](docs/MSC_OBSERVATIONS_QUERY_SPECS.md) |
 | `som-predict-soil` | `som_predict_soil.py` | local Parquet + PostGIS | [docs/SOM_PREDICT_SOIL_SPECS.md](docs/SOM_PREDICT_SOIL_SPECS.md) |
 | `water-distance` | `water_distance.py` | PostGIS (GRHQ) | [docs/WATER_DISTANCE_SPECS.md](docs/WATER_DISTANCE_SPECS.md) |
+| `som-field-match` | `som_field_match.py` | PostGIS | [docs/SOM_FIELD_MATCH_SPECS.md](docs/SOM_FIELD_MATCH_SPECS.md) |
 
 - Usage and examples: [README.md](README.md). openEO token:
   [docs/OPENEO_SETUP.md](docs/OPENEO_SETUP.md). Where these disagree with the
