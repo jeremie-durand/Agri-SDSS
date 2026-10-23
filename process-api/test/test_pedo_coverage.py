@@ -10,8 +10,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import psycopg
 import pytest
+from processes.pedo_coverage import PedoCoverageProcessor
+from processes.pedo_coverage_metadata import PROCESS_METADATA
 from processes.spatial_backend.pedo import pedo_coverage
+from pygeoapi.process.base import ProcessorExecuteError
+
+import agri_i18n
 
 _SQUARE = {
     "type": "Polygon",
@@ -20,6 +26,18 @@ _SQUARE = {
     ],
 }
 _POINT = {"type": "Point", "coordinates": [-72.0, 45.0]}
+
+
+@pytest.fixture(autouse=True)
+def _english_messages():
+    """Assert against the English msgids rather than the French default."""
+    with agri_i18n.use_locale("en"):
+        yield
+
+
+@pytest.fixture
+def processor() -> PedoCoverageProcessor:
+    return PedoCoverageProcessor({"name": "pedo-coverage"})
 
 
 @pytest.fixture
@@ -168,3 +186,108 @@ def test_point_is_buffered_polygon_is_not(mock_cursor):
     assert params["buffer_m"] == 5.0
     assert "ST_Buffer(" not in polygon_sql
     assert "WHERE ST_Intersects(t.geometry, parcel.g)" in polygon_sql
+
+
+# ---------------------------------------------------------------------------
+# Processor
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_metadata_id_and_languages():
+    assert PROCESS_METADATA["id"] == "pedo-coverage"
+    assert set(PROCESS_METADATA["title"]) == {"en", "fr"}
+    assert set(PROCESS_METADATA["description"]) == {"en", "fr"}
+
+
+@pytest.mark.mocked
+def test_execute_returns_coverage(processor, mock_cursor):
+    mock_cursor.fetchall.side_effect = [
+        [("ARGILE Bon", None, 62.0), ("TILL Bon", None, 38.0)]
+    ]
+
+    mime, output = processor.execute({"location_type": "polygon", "polygon": _SQUARE})
+
+    assert mime == "application/json"
+    assert output["id"] == "result"
+    assert set(output["value"]) == {
+        "source",
+        "symbole",
+        "description",
+        "count",
+        "described_pct",
+        "classes",
+    }
+    assert output["value"]["source"] == "irda_2026"
+    assert [c["symbole"] for c in output["value"]["classes"]] == [
+        "ARGILE Bon",
+        "TILL Bon",
+    ]
+
+
+@pytest.mark.mocked
+def test_execute_point_input_is_buffered(processor, mock_cursor):
+    mock_cursor.fetchall.side_effect = [[("ARGILE Bon", None, 100.0)]]
+
+    _mime, output = processor.execute(
+        {"location_type": "point", "point": [-72.0, 45.0]}
+    )
+
+    sql, params = mock_cursor.execute.call_args.args
+    assert "ST_Buffer(" in sql
+    assert params["geom"] == '{"type": "Point", "coordinates": [-72.0, 45.0]}'
+    assert output["value"]["classes"][0]["share_pct"] == 100.0
+
+
+@pytest.mark.mocked
+def test_execute_custom_threshold(processor, mock_cursor):
+    mock_cursor.fetchall.side_effect = [[("ARGILE Bon", None, 30.0)]]
+
+    _mime, output = processor.execute(
+        {"location_type": "polygon", "polygon": _SQUARE, "min_described_pct": 25}
+    )
+
+    assert output["value"]["source"] == "irda_2026"
+    assert mock_cursor.execute.call_count == 1
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("min_described_pct", [-1, 120])
+def test_execute_threshold_out_of_range(processor, min_described_pct):
+    with pytest.raises(ProcessorExecuteError, match="min_described_pct"):
+        processor.execute(
+            {
+                "location_type": "polygon",
+                "polygon": _SQUARE,
+                "min_described_pct": min_described_pct,
+            }
+        )
+
+
+@pytest.mark.unit
+def test_execute_bbox_rejected(processor):
+    with pytest.raises(ProcessorExecuteError, match="Invalid inputs: location_type"):
+        processor.execute({"location_type": "bbox", "bbox": [-72, 45, -71, 46]})
+
+
+@pytest.mark.unit
+def test_execute_validation_error_is_french_by_default(processor):
+    with agri_i18n.use_locale("fr"):
+        with pytest.raises(ProcessorExecuteError) as excinfo:
+            processor.execute({"location_type": "polygon"})
+
+    assert "Invalid inputs" not in str(excinfo.value)
+
+
+@pytest.mark.mocked
+def test_execute_database_error_is_generic(processor, mock_cursor):
+    mock_cursor.execute.side_effect = psycopg.OperationalError(
+        "password authentication failed"
+    )
+
+    with pytest.raises(ProcessorExecuteError) as excinfo:
+        processor.execute({"location_type": "polygon", "polygon": _SQUARE})
+
+    assert str(excinfo.value) == (
+        "An unexpected error occurred while running this process."
+    )

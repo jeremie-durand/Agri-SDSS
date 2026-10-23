@@ -121,6 +121,16 @@ resources:
     processor:
       name: processes.som_field_match.SomFieldMatchProcessor
 
+  pedo-coverage:
+    type: process
+    title: Pedological Coverage
+    description: >
+      Returns the pedological classes covering a parcel and their area shares,
+      from the IRDA 2026 soil map, falling back to the IRDA 2022 map where 2026
+      covers too little. Supports farm_id, point and polygon location types.
+    processor:
+      name: processes.pedo_coverage.PedoCoverageProcessor
+
 server:
   bind:
     host: 0.0.0.0
