@@ -35,8 +35,9 @@ def test_tool_calls_forward_the_bound_locale(monkeypatch, language, expected):
     catalog and error messages would always be the platform default whatever
     language the user is chatting in.
     """
-    import agri_i18n
     import tools_registry
+
+    import agri_i18n
 
     captured = {}
 

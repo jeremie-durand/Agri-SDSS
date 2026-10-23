@@ -1,6 +1,5 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import agri_i18n
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -10,6 +9,8 @@ from sdss_api import (
     _QueryRequest,
     router,
 )
+
+import agri_i18n
 
 
 @pytest.mark.unit
@@ -258,3 +259,50 @@ def test_sdss_query_binds_locale_from_body(monkeypatch, language, expected):
         client.post("/sdss/query", json=payload)
 
     assert observed["locale"] == expected
+
+
+def _tool_call_completion() -> MagicMock:
+    tool_call = MagicMock()
+    tool_call.id = "call-0"
+    tool_call.function.name = "list_pygeoapi_processes"
+    tool_call.function.arguments = "{}"
+    completion = MagicMock()
+    completion.choices[0].message.tool_calls = [tool_call]
+    completion.choices[0].message.content = None
+    return completion
+
+
+@pytest.mark.mocked
+@pytest.mark.parametrize(
+    "language,expected_fragment",
+    [("fr", "analyse spatiale"), ("en", "spatial analysis")],
+)
+def test_sdss_query_returns_fallback_when_tool_rounds_run_out(
+    monkeypatch, language, expected_fragment
+):
+    """An LLM that never stops calling tools gets the translated fallback.
+
+    Guards against the loop variable shadowing gettext's `_`, which turned
+    this path into a 500.
+    """
+    monkeypatch.setenv("ENABLE_AUTH", "false")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    llm = MagicMock()
+    llm.chat.completions.create = AsyncMock(return_value=_tool_call_completion())
+    app = FastAPI()
+    app.include_router(router, prefix="/sdss")
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with (
+        patch("sdss_api._build_process_catalog", new=AsyncMock(return_value="")),
+        patch("sdss_api.AsyncOpenAI", return_value=llm),
+        patch.dict(
+            "sdss_api._TOOL_FNS",
+            {"list_pygeoapi_processes": AsyncMock(return_value=[])},
+        ),
+    ):
+        resp = client.post("/sdss/query", json={"query": "hello", "language": language})
+
+    assert resp.status_code == 200
+    assert expected_fragment in resp.json()["response"]
+    assert llm.chat.completions.create.await_count == 6

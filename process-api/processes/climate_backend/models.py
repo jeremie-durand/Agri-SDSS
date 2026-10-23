@@ -9,8 +9,9 @@ from datetime import date
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
-from agri_i18n import _
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from agri_i18n import _
 
 from ..backend_utils import LocationType, LocationValidatorMixin
 
@@ -120,9 +121,9 @@ class ClimateTimeseriesInput(LocationValidatorMixin):
         end = date.fromisoformat(self.end_date)
         if start > end:
             raise ValueError(
-                _(
-                    "'start_date' ({start}) must be <= 'end_date' ({end})"
-                ).format(start=self.start_date, end=self.end_date)
+                _("'start_date' ({start}) must be <= 'end_date' ({end})").format(
+                    start=self.start_date, end=self.end_date
+                )
             )
         return self
 
@@ -221,9 +222,9 @@ class ClimateIndicatorsInput(LocationValidatorMixin):
         end = date.fromisoformat(self.end_date)
         if start > end:
             raise ValueError(
-                _(
-                    "'start_date' ({start}) must be <= 'end_date' ({end})"
-                ).format(start=self.start_date, end=self.end_date)
+                _("'start_date' ({start}) must be <= 'end_date' ({end})").format(
+                    start=self.start_date, end=self.end_date
+                )
             )
         return self
 
@@ -232,13 +233,9 @@ class ClimateIndicatorsInput(LocationValidatorMixin):
         """Require scenario + model when dataset is a CMIP6 dataset."""
         if self.dataset == Dataset.CMIP6_ESPO_G6_R2:
             if self.scenario is None:
-                raise ValueError(
-                    _("'scenario' is required when using a CMIP6 dataset")
-                )
+                raise ValueError(_("'scenario' is required when using a CMIP6 dataset"))
             if self.model is None:
-                raise ValueError(
-                    _("'model' is required when using a CMIP6 dataset")
-                )
+                raise ValueError(_("'model' is required when using a CMIP6 dataset"))
         return self
 
 

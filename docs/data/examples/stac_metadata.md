@@ -9,10 +9,9 @@ A STAC Item describes a single asset or feature collection:
 ```json
 {
   "type": "Feature",
-  "stac_version": "1.0.0",
+  "stac_version": "1.1.0",
   "stac_extensions": [
-    "https://stac-extensions.github.io/projection/v1.0.0/schema.json",
-    "https://stac-extensions.github.io/item-assets/v1.0.0/schema.json"
+    "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
   ],
   "id": "grhq-watercourses-2024",
   "geometry": {
@@ -31,8 +30,7 @@ A STAC Item describes a single asset or feature collection:
     "title": "GRHQ Watercourses - Quebec",
     "description": "Hydrographic network vector dataset containing watercourses (streams, rivers) for the province of Quebec",
     "platform": "government",
-    "data_type": "vector",
-    "proj:epsg": 4326,
+    "proj:code": "EPSG:4326",
     "dataset:source": "GRHQ",
     "dataset:version": "2.0",
     "dataset:license": "OGL-Q",
@@ -94,11 +92,10 @@ Example for SIIGSOL gridded soil properties:
 ```json
 {
   "type": "Feature",
-  "stac_version": "1.0.0",
+  "stac_version": "1.1.0",
   "stac_extensions": [
-    "https://stac-extensions.github.io/projection/v1.0.0/schema.json",
-    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
-    "https://stac-extensions.github.io/eo/v1.0.0/schema.json"
+    "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/raster/v2.0.0/schema.json"
   ],
   "id": "siigsol-soil-properties-2024",
   "geometry": {
@@ -120,8 +117,7 @@ Example for SIIGSOL gridded soil properties:
     "description": "Multi-band raster of Quebec soil properties at 100m resolution: clay, silt, sand, organic matter, pH, CEC",
     "platform": "government",
     "instruments": ["remote-sensing", "soil-survey"],
-    "data_type": "raster",
-    "proj:epsg": 4326,
+    "proj:code": "EPSG:4326",
     "proj:shape": [1200, 1500],
     "proj:transform": [0.0009, 0, -79.75, 0, -0.0009, 51.75],
     "dataset:source": "SIIGSOL-100m",
@@ -137,12 +133,12 @@ Example for SIIGSOL gridded soil properties:
       "roles": ["data"],
       "title": "Clay Content (Band 1)",
       "description": "Percentage of clay particles (<2µm)",
-      "raster:bands": [
+      "bands": [
         {
           "nodata": -9999,
           "data_type": "float32",
-          "unit": "percent",
-          "spatial_resolution": 100,
+          "unit": "%",
+          "raster:spatial_resolution": 100,
           "statistics": {
             "mean": 22.5,
             "minimum": 0,
@@ -158,12 +154,12 @@ Example for SIIGSOL gridded soil properties:
       "roles": ["data"],
       "title": "Organic Matter / Carbon (Band 4)",
       "description": "Percentage of soil organic carbon (C_org)",
-      "raster:bands": [
+      "bands": [
         {
           "nodata": -9999,
           "data_type": "float32",
-          "unit": "percent",
-          "spatial_resolution": 100,
+          "unit": "%",
+          "raster:spatial_resolution": 100,
           "statistics": {
             "mean": 3.2,
             "minimum": 0.1,
@@ -179,12 +175,12 @@ Example for SIIGSOL gridded soil properties:
       "roles": ["data"],
       "title": "Soil pH (Band 5)",
       "description": "Soil pH value (0-14, 7=neutral)",
-      "raster:bands": [
+      "bands": [
         {
           "nodata": -9999,
           "data_type": "float32",
-          "unit": "pH",
-          "spatial_resolution": 100,
+          "unit": "[pH]",
+          "raster:spatial_resolution": 100,
           "statistics": {
             "mean": 6.8,
             "minimum": 4.2,
@@ -200,12 +196,12 @@ Example for SIIGSOL gridded soil properties:
       "roles": ["data"],
       "title": "Cation Exchange Capacity (Band 6)",
       "description": "CEC - soil nutrient holding capacity (cmol/kg)",
-      "raster:bands": [
+      "bands": [
         {
           "nodata": -9999,
           "data_type": "float32",
           "unit": "cmol/kg",
-          "spatial_resolution": 100,
+          "raster:spatial_resolution": 100,
           "statistics": {
             "mean": 12.5,
             "minimum": 2.0,
@@ -262,9 +258,9 @@ Example for hydrometric station measurements:
 ```json
 {
   "type": "Feature",
-  "stac_version": "1.0.0",
+  "stac_version": "1.1.0",
   "stac_extensions": [
-    "https://stac-extensions.github.io/projection/v1.0.0/schema.json",
+    "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
     "https://stac-extensions.github.io/timeseries/v1.1.0/schema.json"
   ],
   "id": "hydrometrique-discharge-2024-01",
@@ -281,13 +277,12 @@ Example for hydrometric station measurements:
     "description": "Hourly water discharge measurements from hydrometric station 05010100 (Saint-Lawrence River)",
     "platform": "government",
     "instruments": ["water-level-gauge"],
-    "data_type": "tabular",
     "dataset:source": "HYDROMETRIQUE",
     "dataset:station_id": "05010100",
     "dataset:station_name": "Saint-Lawrence River at Cardinal",
     "dataset:update_frequency": "hourly",
     "timeseries:interval": "PT1H",
-    "proj:epsg": 4326
+    "proj:code": "EPSG:4326"
   },
   "assets": {
     "csv": {
@@ -349,10 +344,10 @@ A Collection groups related Items:
 
 ```json
 {
-  "stac_version": "1.0.0",
+  "stac_version": "1.1.0",
   "stac_extensions": [
-    "https://stac-extensions.github.io/projection/v1.0.0/schema.json",
-    "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+    "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
+    "https://stac-extensions.github.io/raster/v2.0.0/schema.json"
   ],
   "type": "Collection",
   "id": "siigsol",
@@ -397,7 +392,7 @@ A Collection groups related Items:
       ]
     }
   },
-  "license": "OGL-Q",
+  "license": "other",
   "keywords": [
     "soil",
     "properties",
@@ -424,27 +419,27 @@ A Collection groups related Items:
     }
   ],
   "summaries": {
-    "raster:bands": [
+    "bands": [
       {
         "name": "clay",
         "title": "Clay Content",
-        "unit": "percent",
-        "type": "float32"
+        "unit": "%",
+        "data_type": "float32"
       },
       {
         "name": "organic_matter",
         "title": "Organic Matter / Carbon",
-        "unit": "percent",
-        "type": "float32"
+        "unit": "%",
+        "data_type": "float32"
       },
       {
         "name": "ph",
         "title": "Soil pH",
-        "unit": "pH",
-        "type": "float32"
+        "unit": "[pH]",
+        "data_type": "float32"
       }
     ],
-    "proj:epsg": [4326]
+    "proj:code": ["EPSG:4326"]
   },
   "assets": {
     "thumbnail": {

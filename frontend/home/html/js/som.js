@@ -1105,6 +1105,12 @@ async function _searchStacItem(collection, bb, startDate, endDate, sentinelParce
     }) || null;
 }
 
+function _firstBandMean(asset) {
+    var band = asset && asset.bands && asset.bands[0];
+    var mean = band && band.statistics && band.statistics.mean;
+    return mean == null ? null : mean;
+}
+
 export async function somAutoGenScenes() {
     var btn = document.getElementById('somScenesGen');
     var status = document.getElementById('somScenesStatus');
@@ -1125,11 +1131,7 @@ export async function somAutoGenScenes() {
         var cachedItem = await _searchStacItem('sentinel2_eo_products', _geomBbox(geom), startDate, endDate, true);
         var mean;
         if (cachedItem) {
-            mean = cachedItem.assets &&
-                   cachedItem.assets.ndvi &&
-                   cachedItem.assets.ndvi.statistics &&
-                   cachedItem.assets.ndvi.statistics['1'] &&
-                   cachedItem.assets.ndvi.statistics['1'].mean;
+            mean = _firstBandMean(cachedItem.assets && cachedItem.assets.ndvi);
         } else {
             usedSlowPath = true;
             _somScenesProgress.start();
@@ -1148,13 +1150,8 @@ export async function somAutoGenScenes() {
             });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             var data = await r.json();
-            mean = data.value &&
-                   data.value.stac_item &&
-                   data.value.stac_item.assets &&
-                   data.value.stac_item.assets.ndvi &&
-                   data.value.stac_item.assets.ndvi.statistics &&
-                   data.value.stac_item.assets.ndvi.statistics['1'] &&
-                   data.value.stac_item.assets.ndvi.statistics['1'].mean;
+            var stacItem = data.value && data.value.stac_item;
+            mean = _firstBandMean(stacItem && stacItem.assets && stacItem.assets.ndvi);
         }
         if (mean == null) throw new Error(tLang['som-err-no-ndvi'] || 'No NDVI mean in response');
         if (usedSlowPath) _somScenesProgress.done(true);
@@ -1179,11 +1176,7 @@ export async function somAutoGenElevation() {
         var cachedItem = await _searchStacItem('lidar_quebec', [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], null, null);
         var mean;
         if (cachedItem) {
-            mean = cachedItem.assets &&
-                   cachedItem.assets.dtm &&
-                   cachedItem.assets.dtm.statistics &&
-                   cachedItem.assets.dtm.statistics.mean != null
-                   ? cachedItem.assets.dtm.statistics.mean : null;
+            mean = _firstBandMean(cachedItem.assets && cachedItem.assets.dtm);
         } else {
             var bboxGeom = {
                 type: 'Polygon',
@@ -1200,7 +1193,7 @@ export async function somAutoGenElevation() {
             var data = await r.json();
             var dtmAsset = data.assets && data.assets.dtm;
             if (!dtmAsset) throw new Error(lang === 'fr' ? 'Aucun actif DTM dans la réponse' : 'No DTM asset in response');
-            mean = dtmAsset.statistics && dtmAsset.statistics.mean != null ? dtmAsset.statistics.mean : null;
+            mean = _firstBandMean(dtmAsset);
         }
         if (mean == null) throw new Error(lang === 'fr' ? 'Aucune donnée d\'élévation' : 'No elevation data');
         document.getElementById('somElevation').value = (+mean).toFixed(1);

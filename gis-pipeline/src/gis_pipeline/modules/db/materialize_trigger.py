@@ -44,9 +44,7 @@ def trigger_materialize_and_notify(table: str) -> None:
         row_count = materialize_collection(parquet_path, new_path)
         new_path.rename(final_path)
     except Exception as exc:
-        logger.warning(
-            "materialize_trigger_build_failed", table=table, error=str(exc)
-        )
+        logger.warning("materialize_trigger_build_failed", table=table, error=str(exc))
         return
 
     logger.info("materialize_trigger_built", table=table, row_count=row_count)

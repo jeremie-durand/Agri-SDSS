@@ -12,7 +12,6 @@ import json
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
-import agri_i18n
 import pytest
 from processes.backend_utils import LocationType
 from processes.location_utils import (
@@ -21,6 +20,8 @@ from processes.location_utils import (
     resolve_location,
 )
 from pygeoapi.process.base import ProcessorExecuteError
+
+import agri_i18n
 
 
 @pytest.fixture(autouse=True)
@@ -234,9 +235,9 @@ class TestGetGeometryFromDb:
             ) as excinfo:
                 get_geometry_from_db("1")
 
-        assert "conn refused" not in str(excinfo.value), (
-            "internal database error must not reach the user"
-        )
+        assert "conn refused" not in str(
+            excinfo.value
+        ), "internal database error must not reach the user"
 
     def test_invalid_table_name_env_raises(self, monkeypatch) -> None:
         monkeypatch.setenv("FARM_TABLE_NAME", "public.table; DROP TABLE users--")
@@ -245,9 +246,9 @@ class TestGetGeometryFromDb:
         ) as excinfo:
             get_geometry_from_db("1")
 
-        assert "DROP TABLE" not in str(excinfo.value), (
-            "server configuration details must not reach the user"
-        )
+        assert "DROP TABLE" not in str(
+            excinfo.value
+        ), "server configuration details must not reach the user"
 
 
 # ---------------------------------------------------------------------------

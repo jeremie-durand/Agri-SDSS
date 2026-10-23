@@ -6,8 +6,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from agri_i18n import _
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from agri_i18n import _
 
 from ..backend_utils import LocationType, LocationValidatorMixin
 
@@ -74,9 +75,9 @@ class WeatherTimeseriesInput(LocationValidatorMixin):
         end = date.fromisoformat(self.end_date)
         if start > end:
             raise ValueError(
-                _(
-                    "'start_date' ({start}) must be <= 'end_date' ({end})"
-                ).format(start=self.start_date, end=self.end_date)
+                _("'start_date' ({start}) must be <= 'end_date' ({end})").format(
+                    start=self.start_date, end=self.end_date
+                )
             )
         return self
 

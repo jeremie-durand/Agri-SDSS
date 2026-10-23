@@ -993,7 +993,9 @@ def test_finalize_chunked_geoparquet_removes_staging_directory(tmp_path, monkeyp
     assert not staging_dir.exists()
 
 
-def test_finalize_chunked_geoparquet_raises_when_no_chunks_staged(tmp_path, monkeypatch):
+def test_finalize_chunked_geoparquet_raises_when_no_chunks_staged(
+    tmp_path, monkeypatch
+):
     monkeypatch.setattr(
         "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
     )

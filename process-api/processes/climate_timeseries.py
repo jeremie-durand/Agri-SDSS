@@ -14,6 +14,8 @@ from typing import Any, Dict, Optional, Tuple
 from pydantic import ValidationError
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 
+from agri_i18n import _
+
 from .climate_backend import (
     ClimateTimeseriesFeature,
     ClimateTimeseriesInput,
@@ -21,7 +23,6 @@ from .climate_backend import (
 )
 from .climate_timeseries_metadata import PROCESS_METADATA
 from .location_utils import resolve_location
-from agri_i18n import _
 
 logger = logging.getLogger(__name__)
 

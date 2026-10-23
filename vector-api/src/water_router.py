@@ -10,9 +10,10 @@ import os
 from typing import Any, Dict
 
 import asyncpg
-from agri_i18n import _
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
+
+from agri_i18n import _
 
 from .db_pool import get_pool
 
@@ -40,9 +41,7 @@ async def water_distance(body: Dict[str, Any]) -> JSONResponse:
     """
     geometry = body.get("geometry")
     if not geometry:
-        raise HTTPException(
-            status_code=422, detail=_("'geometry' field is required")
-        )
+        raise HTTPException(status_code=422, detail=_("'geometry' field is required"))
 
     try:
         geom_json = json.dumps(geometry)
