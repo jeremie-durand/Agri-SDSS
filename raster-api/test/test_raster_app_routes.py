@@ -3,9 +3,9 @@
 Directory-scanning logic is covered by test_collections_endpoint.py; this
 file asserts only the published route surface.
 """
+
 import pytest
 from fastapi.testclient import TestClient
-
 from raster_api.main import app
 
 COG_PATHS = {"/cog/info", "/cog/statistics", "/cog/tiles"}

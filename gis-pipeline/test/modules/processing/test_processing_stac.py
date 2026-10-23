@@ -1766,9 +1766,7 @@ def test_raster_item_does_not_duplicate_the_main_cog_asset() -> None:
         "bbox": [0, 0, 1, 1],
         "href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif",
         "properties": {},
-        "assets": {
-            "cog": {"href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif"}
-        },
+        "assets": {"cog": {"href": "https://agri-sdss.duckdns.org/cog/demo_cog.tif"}},
     }
 
     item = _create_stac_item_from_raster(raster_dict=raster_dict, unique_id="demo_cog")

@@ -50,14 +50,12 @@ def materialize_collection(
         conn.execute("INSTALL spatial")
         conn.execute("LOAD spatial")
         conn.execute(f"DROP TABLE IF EXISTS {MATERIALIZED_TABLE_NAME}")
-        conn.execute(
-            f"""
+        conn.execute(f"""
             CREATE TABLE {MATERIALIZED_TABLE_NAME} AS
             SELECT * EXCLUDE ({escaped_geom}),
                    CAST({escaped_geom} AS GEOMETRY) AS {escaped_geom}
             FROM read_parquet('{escaped_parquet}')
-            """
-        )
+            """)
         conn.execute(
             f"CREATE INDEX idx_{MATERIALIZED_TABLE_NAME}_geom "
             f"ON {MATERIALIZED_TABLE_NAME} USING RTREE({escaped_geom})"

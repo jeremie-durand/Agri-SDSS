@@ -79,9 +79,7 @@ def check_no_dynamic_msgids() -> List[str]:
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     continue
                 kind = (
-                    "f-string"
-                    if isinstance(arg, ast.JoinedStr)
-                    else type(arg).__name__
+                    "f-string" if isinstance(arg, ast.JoinedStr) else type(arg).__name__
                 )
                 errors.append(
                     f"{path.relative_to(ROOT)}:{arg.lineno}: {name}() argument "
@@ -110,10 +108,13 @@ def _source_msgids() -> Tuple[set, List[str]]:
         pot = Path(tmp) / "messages.pot"
         result = subprocess.run(
             [
-                "pybabel", "extract",
-                "-F", str(BABEL_CFG),
+                "pybabel",
+                "extract",
+                "-F",
+                str(BABEL_CFG),
                 "--omit-header",
-                "-o", str(pot),
+                "-o",
+                str(pot),
                 ".",
             ],
             cwd=ROOT,

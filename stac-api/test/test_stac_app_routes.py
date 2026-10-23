@@ -4,10 +4,10 @@ These import the actual application rather than mocking HTTP, so a renamed
 route, a dropped extension, or a broken import fails the run. No database is
 needed: only the generated OpenAPI document is inspected.
 """
+
 import os
 
 import pytest
-
 from stac_api.app import app
 
 CORE_PATHS = {

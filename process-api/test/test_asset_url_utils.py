@@ -1,7 +1,6 @@
 """Unit tests for public STAC asset URL construction."""
 
 import pytest
-
 from processes.asset_url_utils import cog_href, preview_href, tilejson_href
 
 

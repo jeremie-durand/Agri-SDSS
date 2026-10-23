@@ -13,9 +13,10 @@ import re
 from typing import Any, Dict, Optional, Tuple
 
 import psycopg
-from agri_i18n import _
 from pygeoapi.process.base import ProcessorExecuteError
 from shapely.geometry import shape
+
+from agri_i18n import _
 
 from .backend_utils import LocationType
 from .config import DatabaseConfig, FarmConfig
@@ -114,9 +115,7 @@ def get_geometry_from_db(farm_id: str) -> Dict[str, Any]:
         farm_id_int = int(farm_id)
     except (ValueError, TypeError) as exc:
         raise ProcessorExecuteError(
-            _("'farm_id' must be a valid integer, got: {value!r}").format(
-                value=farm_id
-            )
+            _("'farm_id' must be a valid integer, got: {value!r}").format(value=farm_id)
         ) from exc
     if farm_id_int <= 0:
         raise ProcessorExecuteError(
@@ -165,6 +164,4 @@ def get_geometry_from_db(farm_id: str) -> Dict[str, Any]:
         raise
     except psycopg.Error as exc:
         logger.error("Farm geometry lookup failed: %s", exc, exc_info=True)
-        raise ProcessorExecuteError(
-            _("Could not retrieve the farm geometry.")
-        ) from exc
+        raise ProcessorExecuteError(_("Could not retrieve the farm geometry.")) from exc

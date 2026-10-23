@@ -12,7 +12,6 @@ import json
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
-import agri_i18n
 import numpy as np
 import pandas as pd
 import pytest
@@ -31,6 +30,8 @@ from processes.climate_backend.models import (
 from processes.climate_timeseries import ClimateTimeseriesProcessor
 from processes.climate_timeseries_metadata import PROCESS_METADATA
 from pygeoapi.process.base import ProcessorExecuteError
+
+import agri_i18n
 
 
 @pytest.fixture(autouse=True)

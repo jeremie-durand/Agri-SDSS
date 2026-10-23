@@ -3871,9 +3871,7 @@ def test_process_raster_to_cog_siigsol_override_skips_reprojection(tmp_path: Pat
     ) as dst:
         dst.write(data)
 
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[raster_path]
-    )
+    processing_raster = GeoprocessingRaster(config=Config(), raster_paths=[raster_path])
 
     output_path = tmp_path / "output"
     output_path.mkdir()
@@ -4188,9 +4186,7 @@ def test_prepare_cog_metadata_publishes_render_assets(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
     )
     cog_file = tmp_path / "render_cog.tif"
-    _write_cog_fixture(
-        cog_file, np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
-    )
+    _write_cog_fixture(cog_file, np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32"))
 
     metadata = _to_mapping(
         processing_raster.prepare_cog_metadata_for_stac(
@@ -4223,9 +4219,7 @@ def test_prepare_cog_metadata_skips_rescale_on_a_flat_raster(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
     )
     cog_file = tmp_path / "flat_cog.tif"
-    _write_cog_fixture(
-        cog_file, np.array([[7.0, 7.0], [7.0, 7.0]], dtype="float32")
-    )
+    _write_cog_fixture(cog_file, np.array([[7.0, 7.0], [7.0, 7.0]], dtype="float32"))
 
     metadata = _to_mapping(
         processing_raster.prepare_cog_metadata_for_stac(
@@ -4252,7 +4246,8 @@ def _write_multiband_cog(path: Path, band_count: int, dtype: str) -> None:
     ) as dst:
         for band in range(1, band_count + 1):
             dst.write(
-                np.full((2, 2), band, dtype=dtype) * np.array([[1, 2], [3, 4]], dtype=dtype),
+                np.full((2, 2), band, dtype=dtype)
+                * np.array([[1, 2], [3, 4]], dtype=dtype),
                 band,
             )
 
