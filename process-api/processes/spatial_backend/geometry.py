@@ -24,7 +24,8 @@ def prepare_geometry(location: SpatialLocationInput) -> dict[str, Any]:
     invalid rather than rejected, keeping only their polygonal parts.
 
     Raises:
-        ProcessorExecuteError: On an unparsable or empty geometry, or a failed
+        ProcessorExecuteError: On an unparsable or empty geometry, a farm or
+            polygon geometry that is not a Polygon or MultiPolygon, or a failed
             farm lookup.
     """
     if location.location_type == LocationType.POINT:
@@ -40,14 +41,21 @@ def prepare_geometry(location: SpatialLocationInput) -> dict[str, Any]:
 
 
 def _repaired(geojson: dict[str, Any]) -> BaseGeometry:
-    """Parse a GeoJSON geometry and repair it if it is an invalid polygon."""
+    """Parse a polygonal GeoJSON geometry and repair it if it is invalid."""
     try:
         geom = shape(geojson)
     except Exception as exc:
         raise ProcessorExecuteError(
             _("Invalid GeoJSON geometry: {error}").format(error=exc)
         ) from exc
-    if isinstance(geom, (Polygon, MultiPolygon)) and not geom.is_valid:
+    if not isinstance(geom, (Polygon, MultiPolygon)):
+        raise ProcessorExecuteError(
+            _(
+                "Invalid geometry provided. Geometry must be a valid Polygon or "
+                "MultiPolygon."
+            )
+        )
+    if not geom.is_valid:
         geom = _polygonal_parts(make_valid(geom))
     if geom.is_empty:
         raise ProcessorExecuteError(_("GeoJSON geometry is invalid or empty"))

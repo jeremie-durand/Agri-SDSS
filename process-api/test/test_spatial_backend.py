@@ -175,6 +175,47 @@ def test_unparsable_geometry_rejected():
         prepare_geometry(location)
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "geometry",
+    [
+        {"type": "LineString", "coordinates": [[-72.0, 45.0], [-71.99, 45.01]]},
+        {"type": "Point", "coordinates": [-72.0, 45.0]},
+    ],
+)
+def test_non_polygonal_geometry_rejected(geometry):
+    location = PedoCoverageInput(location_type="polygon", polygon=geometry)
+
+    with pytest.raises(ProcessorExecuteError, match="Polygon or MultiPolygon"):
+        prepare_geometry(location)
+
+
+@pytest.mark.unit
+def test_non_polygonal_geometry_rejection_is_french_by_default():
+    location = PedoCoverageInput(
+        location_type="polygon",
+        polygon={"type": "LineString", "coordinates": [[-72.0, 45.0], [-71.99, 45.01]]},
+    )
+
+    with agri_i18n.use_locale("fr"):
+        with pytest.raises(ProcessorExecuteError) as excinfo:
+            prepare_geometry(location)
+
+    assert "Géométrie invalide" in str(excinfo.value)
+
+
+@pytest.mark.mocked
+def test_non_polygonal_farm_geometry_rejected():
+    location = PedoCoverageInput(location_type="farm_id", farm_id="42")
+
+    with patch(
+        "processes.spatial_backend.geometry.get_geometry_from_db",
+        return_value={"type": "Point", "coordinates": [-72.0, 45.0]},
+    ):
+        with pytest.raises(ProcessorExecuteError, match="Polygon or MultiPolygon"):
+            prepare_geometry(location)
+
+
 @pytest.mark.mocked
 def test_farm_geometry_looked_up_and_repaired():
     location = PedoCoverageInput(location_type="farm_id", farm_id="42")
