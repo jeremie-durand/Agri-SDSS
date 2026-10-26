@@ -43,6 +43,7 @@ def processor() -> SomFieldMatchProcessor:
 def mock_connect(monkeypatch):
     """Patch psycopg.connect in the SOM fields backend; yields the cursor mock."""
     monkeypatch.setenv("POSTGRES_PASS", "test")
+    monkeypatch.setenv("SOM_TABLE_NAME", "public.som_field_boundaries")
     cursor = MagicMock()
     with patch("processes.spatial_backend.som_fields.psycopg.connect") as connect:
         conn = connect.return_value.__enter__.return_value

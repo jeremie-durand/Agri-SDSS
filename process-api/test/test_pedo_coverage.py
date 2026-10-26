@@ -47,6 +47,10 @@ def mock_cursor(monkeypatch):
     Set ``fetchall.side_effect`` to one row list per query: 2026, then 2022.
     """
     monkeypatch.setenv("POSTGRES_PASS", "test")
+    monkeypatch.setenv(
+        "PEDO_TABLE_NAME", "public.couverture_pedologique_2026_01_couverture_p_cbc3c8"
+    )
+    monkeypatch.setenv("PEDO_2022_TABLE_NAME", "public.couverture_pedo_2022")
     cursor = MagicMock()
     with patch("processes.spatial_backend.pedo.psycopg.connect") as connect:
         conn = connect.return_value.__enter__.return_value

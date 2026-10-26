@@ -44,6 +44,7 @@ def processor() -> WaterDistanceProcessor:
 def mock_connect(monkeypatch):
     """Patch psycopg.connect in the water backend; yields the cursor mock."""
     monkeypatch.setenv("POSTGRES_PASS", "test")
+    monkeypatch.setenv("WATER_TABLE_NAME", "public.grhq_water_union")
     cursor = MagicMock()
     with patch("processes.spatial_backend.water.psycopg.connect") as connect:
         conn = connect.return_value.__enter__.return_value
