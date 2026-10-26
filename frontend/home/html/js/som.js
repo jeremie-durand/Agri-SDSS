@@ -1318,7 +1318,10 @@ export async function somAutoGenPedo() {
             status.className = 'som-field__status';
         } else {
             document.getElementById('somPedo').value = data.symbole;
-            status.textContent = data.count > 1 ? tLang['som-pedo-multi'] : '';
+            var parts = [tLang[data.source === 'irda_2022' ? 'som-pedo-src-2022' : 'som-pedo-src-2026']];
+            if (data.source === 'irda_2022' && data.description) parts.push(data.description);
+            if (data.count > 1) parts.push(tLang['som-pedo-multi']);
+            status.textContent = parts.join(' — ');
             status.className = 'som-field__status';
         }
     } catch(e) {
@@ -1344,7 +1347,7 @@ export async function somAutoGenWater() {
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         var data = (await r.json()).value || {};
-        if (data.distance_m == null) throw new Error(lang === 'fr' ? 'Aucun cours d\'eau à proximité' : 'No water features found nearby');
+        if (data.distance_m == null) throw new Error(tLang['som-water-none']);
         document.getElementById('somWater').value = (data.distance_m / 1000).toFixed(2);
         status.textContent = '';
     } catch(e) {
