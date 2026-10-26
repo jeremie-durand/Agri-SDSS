@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Agri-SDSS\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-23 20:19+0000\n"
+"POT-Creation-Date: 2026-10-23 21:09+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: fr\n"
@@ -57,6 +57,7 @@ msgstr "« {field} » doit être fourni lorsque location_type vaut « {field} »
 #: process-api/processes/climate_indicators.py:94
 #: process-api/processes/climate_timeseries.py:88
 #: process-api/processes/msc_observations.py:81
+#: process-api/processes/pedo_coverage.py:64
 #: process-api/processes/som_field_match.py:66
 #: process-api/processes/som_predict_soil.py:136
 #: process-api/processes/water_distance.py:66
@@ -194,6 +195,7 @@ msgid "Invalid temporal extent format: {error}"
 msgstr "Format d'étendue temporelle invalide : {error}"
 
 #: process-api/processes/eo_sentinel_fetch.py:1279
+#: process-api/processes/spatial_backend/geometry.py:54
 msgid ""
 "Invalid geometry provided. Geometry must be a valid Polygon or "
 "MultiPolygon."
@@ -235,13 +237,13 @@ msgid "Unsupported location type: {value}"
 msgstr "Type de localisation non pris en charge : {value}"
 
 #: process-api/processes/location_utils.py:90
-#: process-api/processes/spatial_backend/geometry.py:48
+#: process-api/processes/spatial_backend/geometry.py:49
 #, python-brace-format
 msgid "Invalid GeoJSON geometry: {error}"
 msgstr "Géométrie GeoJSON invalide : {error}"
 
 #: process-api/processes/location_utils.py:93
-#: process-api/processes/spatial_backend/geometry.py:53
+#: process-api/processes/spatial_backend/geometry.py:61
 msgid "GeoJSON geometry is invalid or empty"
 msgstr "La géométrie GeoJSON est invalide ou vide"
 
@@ -672,21 +674,15 @@ msgid "Pedological property tables are unavailable."
 msgstr "Les tables de propriétés pédologiques sont indisponibles."
 
 #: vector-api/src/pedo_properties_router.py:101
-#: vector-api/src/pedo_router.py:40 vector-api/src/som_router.py:42
-#: vector-api/src/water_router.py:44
 msgid "'geometry' field is required"
 msgstr "Le champ « geometry » est requis"
 
 #: vector-api/src/pedo_properties_router.py:107
-#: vector-api/src/pedo_router.py:47 vector-api/src/som_router.py:49
-#: vector-api/src/water_router.py:51
 #, python-brace-format
 msgid "Invalid geometry: {error}"
 msgstr "Géométrie invalide : {error}"
 
 #: vector-api/src/pedo_properties_router.py:120
-#: vector-api/src/pedo_router.py:73 vector-api/src/som_router.py:90
-#: vector-api/src/water_router.py:84
 msgid "Internal database error"
 msgstr "Erreur interne de la base de données"
 

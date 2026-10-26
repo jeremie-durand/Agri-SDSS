@@ -143,6 +143,9 @@ Backends that call slow external services cache results in a module-level
   - Callers send `som_field_boundaries.gid`; the process translates it to the
     GEE `FIELD_ID` through `gee_field_id`, which gis-pipeline stamps. The two
     identifiers differ, so never compare them directly.
+  - `som-field-match`, and `som-predict-soil` given a location, rank fields by
+    `som_field_boundaries.has_gee_data`, which gis-pipeline stamps at the end
+    of each run.
   - Known fields are served field-grouped cross-validated predictions, never
     out-of-bag ones. Bump `BUNDLE_FORMAT_VERSION` whenever cached bundles
     become wrong to serve.
