@@ -3,7 +3,7 @@ annotated-types==0.7.0
 attrs==25.3.0
 certifi==2026.10.19
 charset-normalizer==3.4.2
-click==8.4.2
+click==8.5.0
 click-plugins==1.1.1.2
 cligj==0.7.2
 colorama==0.4.6
@@ -37,6 +37,6 @@ structlog==26.1.0
 SQLAlchemy==2.0.52
 stac-pydantic==3.7.0
 typing_extensions==4.13.2
-tzdata==2025.2
+tzdata==2026.5
 urllib3==2.8.0
 
