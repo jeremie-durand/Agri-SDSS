@@ -2,8 +2,8 @@
 
 Process: `POST /processes/som-predict-soil/execution`
 
-Predicts Soil Organic Matter (SOM) for selected agricultural field IDs using a
-RandomForest model trained on GEE-derived bare-soil spectral indices, topographic
+Predicts Soil Organic Matter (SOM) for selected agricultural field IDs, or for the
+fields found at a location, using a RandomForest model trained on GEE-derived bare-soil spectral indices, topographic
 features, and bioclimatic variables (2019–2023). Returns a GeoJSON FeatureCollection
 with one Feature per image-level prediction and per-field aggregated metrics.
 
@@ -50,8 +50,23 @@ By default all three scenarios run; pass a subset to run fewer.
 
 | Parameter | Type | Required | Default | Constraints |
 | --- | --- | --- | --- | --- |
-| `field_ids` | array of integers | yes | — | ≥ 1 ID; `gid` values of `som_field_boundaries` (not GEE `FIELD_ID`) |
+| `field_ids` | array of integers | unless a location is sent | — | ≥ 1 ID; `gid` values of `som_field_boundaries` (not GEE `FIELD_ID`) |
+| `location_type` | string | unless `field_ids` is sent | — | `farm_id`, `point` or `polygon`; `bbox` is rejected |
+| `farm_id`, `point`, `polygon` | — | with the matching `location_type` | — | As in [som-field-match](SOM_FIELD_MATCH_SPECS.md#parameters) |
 | `scenarios` | array of strings | no | all three | values from the scenarios table |
+
+### Field IDs or a location
+
+Send either `field_ids` or a location, never both; sending both is a validation
+error. A location is resolved with the same query as
+[som-field-match](SOM_FIELD_MATCH_SPECS.md), at its default 20 m tolerance: the
+`gid` values of the matched fields that have GEE data replace `field_ids`, and
+the rest of the process runs unchanged. When no matched field has GEE data, the
+process fails with a translated error.
+
+The SOM form still calls `som-field-match` first, since it needs the list to
+enable prediction, then sends the `field_ids` it got. The location input is for
+the chatbot and API users.
 
 ### How predictions are produced
 
@@ -170,6 +185,7 @@ curl -s -X POST https://<host>/process-api/processes/som-predict-soil/execution 
 | NaN handling | All NaN/Inf values in the response are converted to JSON `null`. |
 | No plots | Matplotlib runs with the `Agg` backend — the process never writes plot files. |
 | Data coverage | Only `gid` values with a `gee_field_id` can be predicted. Others are skipped with a warning; if none has one, the process raises an error listing them. |
+| Location tolerance | A location always uses the 20 m default tolerance; to widen it, call `som-field-match` with `tolerance_m` and send the returned `gid` values as `field_ids`. |
 
 ---
 

@@ -127,7 +127,7 @@ Error messages are returned in **French by default**. To get English, send an `A
 header or a `lang` query parameter:
 
 ```bash
-curl -H "Accept-Language: en" .../vector-api/som-field-match
+curl -H "Accept-Language: en" .../vector-api/parquet/collections/missing
 curl '.../processes/msc-observations?f=json&lang=en'
 ```
 

@@ -153,21 +153,24 @@ async function somPredictFindField() {
 
     try {
         var geom = somContext.feature && somContext.feature.geometry;
-        if (!geom) {
+        var inputs;
+        if (geom) {
+            inputs = { location_type: 'polygon', polygon: geom };
+        } else {
             var b = somContext.layer && somContext.layer.getBounds ? somContext.layer.getBounds() : null;
             if (!b) throw new Error(tLang['som-err-no-geometry'] || 'No geometry available');
-            geom = { type: 'Point',
-                     coordinates: [(b.getWest() + b.getEast()) / 2, (b.getSouth() + b.getNorth()) / 2] };
+            inputs = { location_type: 'point',
+                       point: [(b.getWest() + b.getEast()) / 2, (b.getSouth() + b.getNorth()) / 2] };
         }
 
-        var r = await apiFetch('/vector-api/som-field-match', {
+        var r = await apiFetch('/process-api/processes/som-field-match/execution?f=json', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ geometry: geom })
+            body: JSON.stringify({ inputs: inputs })
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        var data = await r.json();
-        var matches = data.matches || [];
+        var result = await r.json();
+        var matches = (result.value && result.value.matches) || [];
 
         var geeMatches = matches.filter(function(m) { return m.has_gee_data; });
         somPredictFieldIds = geeMatches.map(function(m) { return m.gid; });
@@ -1302,20 +1305,23 @@ export async function somAutoGenPedo() {
     try {
         var geom = somContext.feature && somContext.feature.geometry;
         if (!geom) throw new Error(tLang['som-err-no-feature-geom'] || 'No feature geometry');
-        var r = await apiFetch('/vector-api/pedo-coverage', {
+        var r = await apiFetch('/process-api/processes/pedo-coverage/execution?f=json', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ geometry: geom })
+            body: JSON.stringify({ inputs: { location_type: 'polygon', polygon: geom } })
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        var data = await r.json();
-        if (data.description == null) {
+        var data = (await r.json()).value || {};
+        if (data.source == null) {
             document.getElementById('somPedo').value = '';
             status.textContent = tLang['som-pedo-none'];
             status.className = 'som-field__status';
         } else {
-            document.getElementById('somPedo').value = data.description;
-            status.textContent = data.count > 1 ? tLang['som-pedo-multi'] : '';
+            document.getElementById('somPedo').value = data.symbole;
+            var parts = [tLang[data.source === 'irda_2022' ? 'som-pedo-src-2022' : 'som-pedo-src-2026']];
+            if (data.source === 'irda_2022' && data.description) parts.push(data.description);
+            if (data.count > 1) parts.push(tLang['som-pedo-multi']);
+            status.textContent = parts.join(' — ');
             status.className = 'som-field__status';
         }
     } catch(e) {
@@ -1334,14 +1340,14 @@ export async function somAutoGenWater() {
     try {
         var geom = somContext.feature && somContext.feature.geometry;
         if (!geom) throw new Error(tLang['som-err-no-feature-geom'] || 'No feature geometry');
-        var r = await apiFetch('/vector-api/water-distance', {
+        var r = await apiFetch('/process-api/processes/water-distance/execution?f=json', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ geometry: geom })
+            body: JSON.stringify({ inputs: { location_type: 'polygon', polygon: geom } })
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        var data = await r.json();
-        if (data.distance_m == null) throw new Error(lang === 'fr' ? 'Aucun cours d\'eau à proximité' : 'No water features found nearby');
+        var data = (await r.json()).value || {};
+        if (data.distance_m == null) throw new Error(tLang['som-water-none']);
         document.getElementById('somWater').value = (data.distance_m / 1000).toFixed(2);
         status.textContent = '';
     } catch(e) {

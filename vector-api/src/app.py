@@ -38,9 +38,6 @@ from .config import (
 )
 from .parquet_router import router as parquet_router
 from .pedo_properties_router import router as pedo_properties_router
-from .pedo_router import router as pedo_router
-from .som_router import router as som_router
-from .water_router import router as water_router
 
 
 class MountRootPathMiddleware:
@@ -200,17 +197,8 @@ app.mount(
 # Include the Parquet router
 app.include_router(parquet_router)
 
-# Include the water-distance router
-app.include_router(water_router)
-
-# Include the pedo-coverage router
-app.include_router(pedo_router)
-
 # Include the pedo-properties router (IRDA components, hydro group, density)
 app.include_router(pedo_properties_router)
-
-# Include the SOM field-match router
-app.include_router(som_router)
 
 logger.info("Vector API initialized with TiPg + Parquet router")
 logger.info(f"PostGIS collections available at: {POSTGIS_COLLECTIONS}")

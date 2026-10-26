@@ -45,6 +45,17 @@ class FarmConfig(BaseSettings):
     FARM_ID_COLUMN: str = "gid"
 
 
+class SpatialTablesConfig(BaseSettings):
+    """PostGIS tables read by the spatial utility processes."""
+
+    model_config = SettingsConfigDict(env_prefix="")
+
+    WATER_TABLE_NAME: str = "public.grhq_water_union"
+    PEDO_TABLE_NAME: str = "public.couverture_pedologique_2026_01_couverture_p_cbc3c8"
+    PEDO_2022_TABLE_NAME: str = "public.couverture_pedo_2022"
+    SOM_TABLE_NAME: str = "public.som_field_boundaries"
+
+
 class ApiConfig(BaseSettings):
     """URLs for downstream internal service APIs."""
 

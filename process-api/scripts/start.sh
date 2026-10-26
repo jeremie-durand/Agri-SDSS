@@ -37,11 +37,18 @@ echo "Validating environment configuration..."
 python -c "
 import sys
 sys.path.insert(0, '/app')
-from processes.config import ApiConfig, DatabaseConfig, FarmConfig, StorageConfig
+from processes.config import (
+    ApiConfig,
+    DatabaseConfig,
+    FarmConfig,
+    SpatialTablesConfig,
+    StorageConfig,
+)
 try:
     DatabaseConfig()
     ApiConfig()
     FarmConfig()
+    SpatialTablesConfig()
     StorageConfig()
     print('Environment configuration: OK')
 except Exception as e:

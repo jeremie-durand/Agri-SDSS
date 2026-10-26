@@ -19,6 +19,9 @@ Dockerfile's `i18n` build stage compiles the catalogs.
 | `climate-indicators` | `climate_indicators.py` | PAVICS THREDDS | same |
 | `msc-observations` | `msc_observations.py` | MSC GeoMet | [docs/MSC_OBSERVATIONS_QUERY_SPECS.md](docs/MSC_OBSERVATIONS_QUERY_SPECS.md) |
 | `som-predict-soil` | `som_predict_soil.py` | local Parquet + PostGIS | [docs/SOM_PREDICT_SOIL_SPECS.md](docs/SOM_PREDICT_SOIL_SPECS.md) |
+| `water-distance` | `water_distance.py` | PostGIS (GRHQ) | [docs/WATER_DISTANCE_SPECS.md](docs/WATER_DISTANCE_SPECS.md) |
+| `som-field-match` | `som_field_match.py` | PostGIS | [docs/SOM_FIELD_MATCH_SPECS.md](docs/SOM_FIELD_MATCH_SPECS.md) |
+| `pedo-coverage` | `pedo_coverage.py` | PostGIS (IRDA 2026, 2022) | [docs/PEDO_COVERAGE_SPECS.md](docs/PEDO_COVERAGE_SPECS.md) |
 
 - Usage and examples: [README.md](README.md). openEO token:
   [docs/OPENEO_SETUP.md](docs/OPENEO_SETUP.md). Where these disagree with the
@@ -140,6 +143,9 @@ Backends that call slow external services cache results in a module-level
   - Callers send `som_field_boundaries.gid`; the process translates it to the
     GEE `FIELD_ID` through `gee_field_id`, which gis-pipeline stamps. The two
     identifiers differ, so never compare them directly.
+  - `som-field-match`, and `som-predict-soil` given a location, rank fields by
+    `som_field_boundaries.has_gee_data`, which gis-pipeline stamps at the end
+    of each run.
   - Known fields are served field-grouped cross-validated predictions, never
     out-of-bag ones. Bump `BUNDLE_FORMAT_VERSION` whenever cached bundles
     become wrong to serve.
