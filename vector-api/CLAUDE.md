@@ -6,16 +6,20 @@ unless overridden here.
 
 ## Service Overview
 
-OGC API – Features over two backends, plus three PostGIS utility endpoints, in
-one FastAPI app on port 8083 (`expose:` only). Public prefix: `/vector-api`.
+OGC API – Features over two backends, plus the `/pedo-properties` utility
+endpoint, in one FastAPI app on port 8083 (`expose:` only). Public prefix:
+`/vector-api`.
 
 | Route | Backend | Code |
 | --- | --- | --- |
 | `/postgis/*` | PostGIS via TiPg (mounted sub-app) | `app.py` |
 | `/parquet/*` | GeoParquet via DuckDB | `parquet_router.py`, `duckdb_manager.py` |
-| `POST /water-distance`, `/pedo-coverage`, `/som-field-match` | PostGIS via asyncpg | `*_router.py`, `db_pool.py` |
-| `POST /pedo-properties` | PostGIS overlap + GeoParquet joins | `pedo_properties_router.py` |
+| `POST /pedo-properties` | PostGIS overlap + GeoParquet joins | `pedo_properties_router.py`, `db_pool.py` |
 | `POST /parquet/collections/{id}/invalidate` | DuckDB cache | `parquet_router.py` |
+
+The water-distance, pedo-coverage and som-field-match utilities are OGC
+processes in process-api, not vector-api routes; see
+[process-api/CLAUDE.md](../process-api/CLAUDE.md).
 
 - Endpoint list, output formats, configuration:
   [README.md](README.md). Where it or
@@ -54,8 +58,8 @@ src/                      Copied to /app/vector_api — import as the vector_api
   duckdb_manager.py       DuckDBManager singleton: discovery, schema cache,
                           materialized connections, queries
   materialize.py          RTree-indexed .duckdb build (copy — see Cross-Service)
-  db_pool.py              Shared asyncpg pool for the utility routers
-  water_router.py, pedo_router.py, som_router.py   Utility endpoints
+  db_pool.py              asyncpg pool for pedo_properties_router
+  pedo_properties_router.py   /pedo-properties
 test/                     Bind-mounted at /app/vector_api/test
 scripts/entrypoint.sh     Waits for the database, then execs uvicorn
 ```
@@ -106,22 +110,19 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   interpolation. `bbox` values are floats parsed and range-checked in the
   router before they reach SQL.
 
-## PostGIS Utility Endpoints
+## The `/pedo-properties` Endpoint
 
-- Table names come from `WATER_TABLE_NAME`, `PEDO_TABLE_NAME` and
-  `SOM_TABLE_NAME` (set in `docker-compose.yml`) and are interpolated into
-  SQL. They are operator config, never request input.
-- The GeoJSON input is always bound as `$1`. Queries are written so the GiST
-  index is used (`<->` KNN, `ST_DWithin`, `ST_Intersects`); keep that when
-  editing them.
+- The polygon table comes from `PEDO_POLYGON_TABLE_NAME` (set in
+  `docker-compose.yml`) and is interpolated into SQL. It is operator config,
+  never request input.
+- The GeoJSON input is always bound as `$1`, and the overlap query filters with
+  `ST_Intersects` so the GiST index is used; keep that when editing it.
 - The database role is the app role (`DB_USER` mapped onto `POSTGRES_USER`),
   so queries are read-only DML.
-- `som_field_boundaries.has_gee_data` is stamped by gis-pipeline at the end of
-  each run; `/som-field-match` depends on it.
-- `/pedo-properties` is the one mixed endpoint: PostGIS only computes which IRDA
-  polygons (`PEDO_POLYGON_TABLE_NAME`) the parcel overlaps and by how much; the
-  component, hydrologic-group and bulk-density joins run in DuckDB on the
-  GeoParquet tables named by the `PEDO_*_COLLECTION` variables, through
+- It is a mixed endpoint: PostGIS only computes which IRDA polygons the
+  parcel overlaps and by how much; the component, hydrologic-group and
+  bulk-density joins run in DuckDB on the GeoParquet tables named by the
+  `PEDO_*_COLLECTION` variables, through
   `DuckDBManager.parquet_source()` / `query_rows()`. Missing tables return 503.
 - The IRDA `couverture_pps` table currently lacks every `numero_composante = 1`
   row (each polygon's dominant soil), so `described_pct` is low and the dominant
@@ -172,4 +173,4 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   `DuckDBManager(data_dir=tmp_path)`, as `conftest.py` does.
 - New utility endpoints need tests for the normal result, the empty result, a
   missing geometry (422) and a database error (500). Follow
-  `test_water_router.py`.
+  `test_pedo_properties_router.py`.

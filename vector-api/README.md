@@ -77,7 +77,8 @@ by horizon (`ppc_eessaq`, falling back to the 1990 inventory without depths).
 Error messages are returned in **French by default**:
 
 ```bash
-curl -H "Accept-Language: en" .../vector-api/som-field-match
+curl -H "Accept-Language: en" -H "Content-Type: application/json" -d '{}' \
+  .../vector-api/pedo-properties
 ```
 
 Status codes and response structure are identical in both languages — only the `detail` text
