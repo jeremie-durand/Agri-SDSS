@@ -55,7 +55,7 @@
       "datasets": [
         {
           "name": { "fr": "Inventaire annuel des cultures", "en": "Annual crop inventory" },
-          "years": { "fr": "2016 – 2024 (2025 non disponible)", "en": "2016 – 2024 (2025 not available)" },
+          "years": { "fr": "2016 – 2025", "en": "2016 – 2025" },
           "formats": [ { "label": "ArcGIS REST", "tag": "arc" }, { "label": "CSV", "tag": "csv" } ],
           "match": []
         }
