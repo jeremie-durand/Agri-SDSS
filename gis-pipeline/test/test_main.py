@@ -254,3 +254,42 @@ def test_process_raster_pipeline_gis_error_increments_errors():
 
     assert report_data["raster_data"]["errors"] == 1
     assert report_data["raster_data"]["processed"] == 0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("pipeline", ["vector_data", "raster_data"])
+def test_main_exits_non_zero_when_a_pipeline_reports_errors(pipeline):
+    from gis_pipeline import main as main_module
+
+    def add_error(*, report_data, **_):
+        report_data[pipeline]["errors"] += 1
+
+    with (
+        patch("sys.argv", ["main.py"]),
+        patch(
+            "gis_pipeline.modules.io_tools.input_data.discover_geodata",
+            return_value={"vectors": [], "rasters": []},
+        ),
+        patch.object(main_module, "process_vector_pipeline", side_effect=add_error),
+        patch.object(main_module, "process_raster_pipeline"),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        main_module.main()
+
+    assert exc_info.value.code == 1
+
+
+@pytest.mark.unit
+def test_main_returns_normally_without_errors():
+    from gis_pipeline import main as main_module
+
+    with (
+        patch("sys.argv", ["main.py"]),
+        patch(
+            "gis_pipeline.modules.io_tools.input_data.discover_geodata",
+            return_value={"vectors": [], "rasters": []},
+        ),
+        patch.object(main_module, "process_vector_pipeline"),
+        patch.object(main_module, "process_raster_pipeline"),
+    ):
+        main_module.main()

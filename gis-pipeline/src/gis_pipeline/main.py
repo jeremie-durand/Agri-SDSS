@@ -1,4 +1,5 @@
 import argparse
+import sys
 from pathlib import Path
 
 import structlog
@@ -291,6 +292,9 @@ def main():
     )
 
     generate_processing_report(log=logger, report_data=report_data)
+
+    if report_data["vector_data"]["errors"] or report_data["raster_data"]["errors"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
