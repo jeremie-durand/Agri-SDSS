@@ -54,9 +54,11 @@ def process_vector_pipeline(vector_files, args, report_data):
     )
     from gis_pipeline.modules.db.pg_utils import PostGISManager
     from gis_pipeline.modules.io_tools.input_data import (
+        apply_source_dtypes,
         detect_non_spatial_csv,
         extract_gpkg_fk_schema,
         read_csv_file,
+        read_source_dtypes,
     )
     from gis_pipeline.modules.processing.geoprocessing import (
         GeoprocessingVector,
@@ -142,6 +144,7 @@ def process_vector_pipeline(vector_files, args, report_data):
                 )
                 clean_name = GeoprocessingVector._harmonize_name_gdf(name=raw_name)
                 is_chunked = total_rows > CHUNK_SIZE
+                source_dtypes = read_source_dtypes(vector_file, layer)
 
                 if is_chunked:
                     staging_dir = Path(Config.DUCKDB_DATA_DIR) / ".chunks" / clean_name
@@ -152,6 +155,7 @@ def process_vector_pipeline(vector_files, args, report_data):
                     gdf_chunk = gpd.read_file(
                         vector_file, layer=layer, rows=slice(start, start + CHUNK_SIZE)
                     )
+                    gdf_chunk = apply_source_dtypes(gdf_chunk, source_dtypes)
 
                     geoprocessing_vector_data(
                         gdf_list=[(clean_name, gdf_chunk)],

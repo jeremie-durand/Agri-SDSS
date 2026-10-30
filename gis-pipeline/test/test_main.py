@@ -131,6 +131,10 @@ def test_process_vector_pipeline_calls_geoprocessing_vector_data():
         patch("fiona.open", mock_fiona_open),
         patch("geopandas.read_file", return_value=minimal_gdf),
         patch(
+            "gis_pipeline.modules.io_tools.input_data.read_source_dtypes",
+            return_value={},
+        ),
+        patch(
             "gis_pipeline.modules.processing.geoprocessing.geoprocessing_vector_data"
         ) as mock_geo,
     ):
