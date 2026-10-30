@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import geopandas as gpd
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 from gis_pipeline.core.config import Config
 from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
@@ -974,6 +976,53 @@ def test_finalize_chunked_geoparquet_preserves_projected_crs(tmp_path, monkeypat
     assert combined.crs is not None, "CRS was dropped when combining chunks"
     assert combined.crs.to_epsg() == 32198
     assert sorted(combined["gid"].tolist()) == [0, 1]
+
+
+def test_finalize_chunked_geoparquet_merges_text_column_types(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+    staging_dir = tmp_path / ".chunks" / "my_table"
+    staging_dir.mkdir(parents=True)
+
+    all_null = gpd.GeoDataFrame(
+        {"label": pd.Series([None], dtype="object")},
+        geometry=gpd.points_from_xy([0], [0]),
+        crs="EPSG:4326",
+    )
+    all_null.to_parquet(staging_dir / "part0000.parquet")
+    with_values = gpd.GeoDataFrame(
+        {"label": ["a"]}, geometry=gpd.points_from_xy([1], [1]), crs="EPSG:4326"
+    )
+    with_values.to_parquet(staging_dir / "part0001.parquet")
+
+    DuckDBManager.finalize_chunked_geoparquet("my_table")
+
+    combined = gpd.read_parquet(tmp_path / "my_table.parquet")
+    assert combined["label"].isna().tolist() == [True, False]
+    assert combined["label"].iloc[1] == "a"
+
+
+def test_finalize_chunked_geoparquet_bbox_covers_all_chunks(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gis_pipeline.modules.db.duckdb_utils.Config.DUCKDB_DATA_DIR", str(tmp_path)
+    )
+    staging_dir = tmp_path / ".chunks" / "my_table"
+    staging_dir.mkdir(parents=True)
+
+    for index, (x, y) in enumerate([(0, 5), (3, 1)]):
+        chunk = gpd.GeoDataFrame(
+            {"gid": [index]},
+            geometry=gpd.points_from_xy([x], [y]),
+            crs="EPSG:4326",
+        )
+        chunk.to_parquet(staging_dir / f"part{index:04d}.parquet")
+
+    DuckDBManager.finalize_chunked_geoparquet("my_table")
+
+    schema = pq.read_schema(tmp_path / "my_table.parquet")
+    geo = json.loads(schema.metadata[b"geo"])
+    assert geo["columns"]["geometry"]["bbox"] == [0, 1, 3, 5]
 
 
 def test_finalize_chunked_geoparquet_removes_staging_directory(tmp_path, monkeypatch):
