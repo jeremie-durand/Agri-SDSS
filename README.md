@@ -47,19 +47,36 @@ Reload the page, or run `docker compose restart vector-api` to see the result: P
 
 ### Adding more data
 
-Drop files in `data/input/`, then run the pipeline:
+Download the datasets you want from the source links on the
+**[data page](https://localhost/data)**, extract any zip files into `data/input/`
+(the pipeline does not read zip files), then run the pipeline and restart the API:
 
 ```bash
 docker compose exec gis-pipeline python3 -m gis_pipeline.main
+docker compose restart vector-api
 ```
 
 Data is now available across all APIs and frontends. See **[https://localhost/data](https://localhost/data)**.
+
+- **GRHQ:** `water-distance` also needs the
+  [water union table](docs/DEPLOYMENT.md#step-6--rebuild-the-grhq-water-union-table)
+  to be rebuilt after loading.
+- **BDPPAD:** if you load a year the demo extract covers, drop its table first; see
+  the [data catalog](docs/data/CATALOG.md).
+- **Size:** the six SIIGSOL rasters take about 13 GB once extracted.
+- **Versions:** providers publish their current version, so your data may differ from
+  the production instance.
+- **SOM:** the SOM data is not distributed, so `som-predict-soil` is unavailable on a
+  clone.
 
 ## Services
 
 Containerized services cover the full path from raw geodata to public APIs and frontends: the ETL pipeline (`gis-pipeline`), four standards-based APIs (`stac-api`, `vector-api`, `raster-api`, `process-api`), the AI assistant (`chatbot`), the `stac-browser` explorer, the unified `home` frontend, `caddy` for TLS, and the PostGIS `database`.
 
 ## Documentation
+
+Examples throughout the documentation use `localhost`. On a deployed instance,
+replace it with your `HOST_URL` value from `.env`.
 
 | | |
 | --- | --- |

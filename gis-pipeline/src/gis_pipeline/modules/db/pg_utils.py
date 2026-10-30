@@ -734,18 +734,6 @@ class DataInserter:
                 f"GeoDataFrame for table '{table_name}' is empty. Creating empty table in PostGIS."
             )
 
-        # Cast float64 columns whose non-null values are all whole numbers to
-        # nullable Int64. This prevents type mismatches when appending chunks:
-        # chunk 0 may have no NULLs (int64 → INTEGER table), while chunk 1+ may
-        # have NULLs (float64 → "3.0" sent to INTEGER column → psycopg error).
-        geom_col = gdf.geometry.name
-        for col in gdf.select_dtypes(include=["float64"]).columns:
-            if col == geom_col:
-                continue
-            non_null = gdf[col].dropna()
-            if non_null.empty or (non_null % 1 == 0).all():
-                gdf[col] = gdf[col].astype("Int64")
-
         logger.info(f"Inserting {len(gdf)} rows into PostGIS table '{table_name}'...")
         gdf.to_postgis(
             name=table_name,
@@ -779,6 +767,7 @@ class DataInserter:
         df.to_sql(
             name=table_name,
             con=self.engine,
+            schema="public",
             if_exists=override_method,
             index=False,
         )

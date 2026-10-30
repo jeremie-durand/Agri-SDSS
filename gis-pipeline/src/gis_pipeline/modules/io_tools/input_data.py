@@ -3,7 +3,9 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import Dict, List
 
+import geopandas as gpd
 import pandas as pd
+import pyogrio
 import structlog
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.utils import harmonize_name
@@ -16,6 +18,48 @@ from gis_pipeline.services.mapping import (
 )
 
 logger = structlog.get_logger()
+
+
+def read_source_dtypes(vector_file: Path, layer: str) -> dict[str, str]:
+    """Read the field types a vector layer declares, regardless of its values.
+
+    Args:
+        vector_file: Path to the vector file.
+        layer: Layer name inside the file.
+
+    Returns:
+        Mapping of field name to the dtype name reported by pyogrio.
+    """
+    info = pyogrio.read_info(vector_file, layer=layer)
+    return {
+        field: str(dtype)
+        for field, dtype in zip(info["fields"], info["dtypes"], strict=True)
+    }
+
+
+def apply_source_dtypes(
+    gdf: gpd.GeoDataFrame, source_dtypes: dict[str, str]
+) -> gpd.GeoDataFrame:
+    """Give a chunk the types its layer declares, so that all chunks share a schema.
+
+    Without this, pandas infers types from each chunk's values: an integer field
+    with NULLs becomes float64, and a float field can look like an integer.
+
+    Args:
+        gdf: Chunk read from the layer.
+        source_dtypes: Mapping returned by read_source_dtypes.
+
+    Returns:
+        The same GeoDataFrame with its columns cast.
+    """
+    for col, dtype in source_dtypes.items():
+        if col not in gdf.columns:
+            continue
+        if dtype.startswith(("int", "uint")):
+            gdf[col] = gdf[col].astype("Int64")
+        elif dtype.startswith("float"):
+            gdf[col] = gdf[col].astype("float64")
+    return gdf
 
 
 def discover_geodata(input_path: Path) -> Dict[str, List[Path]]:
