@@ -1844,3 +1844,20 @@ class TestHasTable:
         ) as mock_inspect:
             mock_inspect.return_value.has_table.return_value = False
             assert postgis_manager.has_table("som_field_boundaries") is False
+
+
+def test_insert_geodataframe_keeps_float_columns_with_whole_values(postgis_manager):
+    """A float field must not become BIGINT because one chunk only has whole values."""
+    gdf = gpd.GeoDataFrame(
+        {"share": [66.0, None]},
+        geometry=[Point(0, 0), Point(1, 1)],
+        crs="EPSG:4326",
+    )
+
+    with (
+        patch.object(gpd.GeoDataFrame, "to_postgis"),
+        patch.object(postgis_manager._inserter, "_drop_incoming_fk_constraints"),
+    ):
+        postgis_manager._insert_geodataframe(gdf, "parcels", "append")
+
+    assert gdf["share"].dtype == "float64"
