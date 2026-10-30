@@ -767,6 +767,7 @@ class DataInserter:
         df.to_sql(
             name=table_name,
             con=self.engine,
+            schema="public",
             if_exists=override_method,
             index=False,
         )
