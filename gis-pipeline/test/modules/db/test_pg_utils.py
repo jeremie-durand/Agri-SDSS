@@ -1846,6 +1846,19 @@ class TestHasTable:
             assert postgis_manager.has_table("som_field_boundaries") is False
 
 
+def test_insert_dataframe_targets_public_schema(postgis_manager):
+    """An unqualified table would land on the role's search_path, pgstac first."""
+    df = pd.DataFrame({"note": ["a"]})
+
+    with (
+        patch.object(pd.DataFrame, "to_sql") as mock_to_sql,
+        patch.object(postgis_manager._inserter, "_drop_incoming_fk_constraints"),
+    ):
+        postgis_manager._insert_dataframe(df, "version", "replace")
+
+    assert mock_to_sql.call_args.kwargs["schema"] == "public"
+
+
 def test_insert_geodataframe_keeps_float_columns_with_whole_values(postgis_manager):
     """A float field must not become BIGINT because one chunk only has whole values."""
     gdf = gpd.GeoDataFrame(
