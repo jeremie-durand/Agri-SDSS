@@ -12,7 +12,8 @@
     { "api": "postgis", "idPattern": "^public\\.[Ii]ndex_[Ii]nferences_json$" },
     { "api": "postgis", "idPattern": "^public\\.test_id_column$" },
     { "api": "postgis", "idPattern": "^public\\.test_station_id$" },
-    { "api": "postgis", "idPattern": "^public\\.sud_du_quebec_4326$" }
+    { "api": "postgis", "idPattern": "^public\\.sud_du_quebec_4326$" },
+    { "api": "postgis", "idPattern": "^public\\.cogs$" }
   ],
   "datasets": [
     {
@@ -247,7 +248,7 @@
           "match": [
             { "api": "process", "idPattern": "^lidar-fetch$" },
             { "api": "stac", "idPattern": "^lidar_quebec$" },
-            { "api": "raster", "idPattern": "^lidar_dtm_geom_" }
+            { "api": "raster", "idPattern": "^lidar_(dtm|mnt|chm|mhc|slope|aspect|hillshade)_" }
           ]
         },
         {
