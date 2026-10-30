@@ -75,6 +75,9 @@ Containerized services cover the full path from raw geodata to public APIs and f
 
 ## Documentation
 
+Examples throughout the documentation use `localhost`. On a deployed instance,
+replace it with your `HOST_URL` value from `.env`.
+
 | | |
 | --- | --- |
 | [Architecture](docs/ARCHITECTURE.md) | System diagram, data flow, common API commands |
