@@ -19,7 +19,7 @@ pandas==3.0.5
 psycopg[binary]==3.3.6
 pyarrow==26.0.0
 pydantic==2.11.9
-pydantic-settings==2.14.2
+pydantic-settings==2.16.2
 pydantic_core==2.33.2
 pyparsing==3.3.2
 pyproj==3.7.2
