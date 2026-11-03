@@ -56,7 +56,8 @@ WORKDIR /app
 # requirements.txt lives at opengeo-ai-assistant/ root (not inside container-app/)
 COPY --from=source /src/opengeo-ai-assistant/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall -y pip
 
 # Copy all app code from container-app/ (*.py, *.json, agents/, geoint/)
 COPY --from=source /src/opengeo-ai-assistant/container-app/ .
@@ -95,7 +96,8 @@ FROM runtime AS test
 USER root
 
 COPY chatbot/requirements-chatbot-test.txt /tmp/
-RUN pip install --no-cache-dir -r /tmp/requirements-chatbot-test.txt
+RUN python -m ensurepip && \
+    python -m pip install --no-cache-dir -r /tmp/requirements-chatbot-test.txt
 
 COPY chatbot/test /app/chatbot/test
 COPY chatbot/pytest.ini /app/pytest.ini
