@@ -159,6 +159,7 @@ git commit -m "fix: resolve projection issue in pipeline"
 - [ ] New logic is covered by tests
 - [ ] Documentation updated (READMEs, guides, catalog)
 - [ ] If you changed CLI arguments: `make generate-args` was run (CI fails if `ARGS.md` is out of sync)
+- [ ] If you use Claude Code: the `agri-reviewer` subagent ran clean, or its findings were addressed
 
 CI will build the service images, verify `ARGS.md` sync, run the full test suite, and run a security scan.
 
