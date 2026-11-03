@@ -24,7 +24,9 @@ const L = {
         live: 'in the backend', collection: 'collection', collections: 'collections',
         notIngested: 'not ingested', unknown: 'status unavailable — API offline',
         external: 'external source — fetched on demand',
-        otherBadge: 'Backend', license: 'License', source: 'Source',
+        otherBadge: 'Backend', license: 'License',
+        sourceDownload: 'Download from source', sourceAccess: 'Access the source',
+        sourceUnavailable: 'Not publicly available',
         loadError: 'Unable to load the data catalog.',
         loading: 'Loading data…',
         apiName: { postgis: 'PostGIS', parquet: 'GeoParquet', stac: 'STAC', raster: 'Raster (COG)' },
@@ -34,7 +36,9 @@ const L = {
         live: 'dans le backend', collection: 'collection', collections: 'collections',
         notIngested: 'non ingéré', unknown: 'statut indisponible — API hors ligne',
         external: 'source externe — accès à la demande',
-        otherBadge: 'Backend', license: 'Licence', source: 'Source',
+        otherBadge: 'Backend', license: 'Licence',
+        sourceDownload: 'Télécharger depuis la source', sourceAccess: 'Accéder à la source',
+        sourceUnavailable: 'Non disponible publiquement',
         loadError: 'Impossible de charger le catalogue de données.',
         loading: 'Chargement des données…',
         apiName: { postgis: 'PostGIS', parquet: 'GeoParquet', stac: 'STAC', raster: 'Raster (COG)' },
@@ -193,6 +197,24 @@ function renderFormats(formats) {
     return tags;
 }
 
+function link(href, label) {
+    const a = el('a', null, label);
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    return a;
+}
+
+function renderSource(source, lang) {
+    const t = L[lang];
+    const action = source.kind === 'download' ? t.sourceDownload : t.sourceAccess;
+    const formats = (source.formats || []).join(', ');
+    const button = link(source.url, formats ? action + ' · ' + formats : action);
+    button.className = 'source-button';
+    button.title = source.label;
+    return button;
+}
+
 function renderBlock(block, entryType, matches, apiStatus, lang) {
     const t = L[lang];
     const div = el('div', 'dataset-block');
@@ -206,15 +228,8 @@ function renderBlock(block, entryType, matches, apiStatus, lang) {
     const status = blockStatus(block, entryType, matches, apiStatus, t);
     div.appendChild(el('div', 'dataset-status dataset-status--' + status.kind,
         status.dot + ' ' + status.label));
+    if (block.source && block.source.url) div.appendChild(renderSource(block.source, lang));
     return div;
-}
-
-function link(href, label) {
-    const a = el('a', null, label);
-    a.href = href;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    return a;
 }
 
 function renderCardShell(iconText, category, title, lang) {
@@ -241,16 +256,16 @@ function renderCard(entry, joined, apiStatus, lang) {
     }
     card.appendChild(blocks);
     card.appendChild(el('p', 'card-description', pick(entry.description, lang)));
+    if (entry.source && entry.source.url) {
+        card.appendChild(renderSource(entry.source, lang));
+    } else if (!entry.datasets.some((block) => block.source)) {
+        card.appendChild(el('p', 'card-links', t.sourceUnavailable));
+    }
 
     const links = el('p', 'card-links');
     if (entry.license && entry.license.url) {
         links.appendChild(document.createTextNode(t.license + ': '));
         links.appendChild(link(entry.license.url, entry.license.label));
-    }
-    if (entry.source && entry.source.url) {
-        if (links.childNodes.length) links.appendChild(document.createTextNode(' · '));
-        links.appendChild(document.createTextNode(t.source + ': '));
-        links.appendChild(link(entry.source.url, entry.source.label));
     }
     if (links.childNodes.length) card.appendChild(links);
     return card;

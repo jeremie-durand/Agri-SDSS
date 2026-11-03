@@ -12,7 +12,8 @@
     { "api": "postgis", "idPattern": "^public\\.[Ii]ndex_[Ii]nferences_json$" },
     { "api": "postgis", "idPattern": "^public\\.test_id_column$" },
     { "api": "postgis", "idPattern": "^public\\.test_station_id$" },
-    { "api": "postgis", "idPattern": "^public\\.sud_du_quebec_4326$" }
+    { "api": "postgis", "idPattern": "^public\\.sud_du_quebec_4326$" },
+    { "api": "postgis", "idPattern": "^public\\.cogs$" }
   ],
   "datasets": [
     {
@@ -26,7 +27,7 @@
         "en": "Farm parcel boundaries and crop declarations submitted to La Financière Agricole du Québec. Used to link agronomic interventions to field locations and track land use change over time."
       },
       "license": { "label": "OGL-Québec", "url": "https://www.donneesquebec.ca/licence/" },
-      "source": { "label": "fadq.qc.ca", "url": "https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees" },
+      "source": { "label": "fadq.qc.ca", "url": "https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees", "kind": "download", "formats": ["Shapefile"] },
       "datasets": [
         {
           "name": { "fr": "Parcelles et productions agricoles déclarées", "en": "Farm parcel and crop declarations" },
@@ -50,11 +51,11 @@
         "en": "Annual land use classification at 30 m resolution from Agriculture and Agri-Food Canada. Identifies crop types across Quebec. Accessed via ArcGIS ImageServer; metadata distributed as CSV."
       },
       "license": { "label": "OGL-Canada", "url": "https://open.canada.ca/en/open-government-licence-canada" },
-      "source": { "label": "open.canada.ca", "url": "https://open.canada.ca/data/en/dataset/ba2645d5-4458-414d-b196-6303ac06c1c9" },
+      "source": { "label": "open.canada.ca", "url": "https://open.canada.ca/data/en/dataset/ba2645d5-4458-414d-b196-6303ac06c1c9", "kind": "download", "formats": ["GeoTIFF", "ArcGIS REST"] },
       "datasets": [
         {
           "name": { "fr": "Inventaire annuel des cultures", "en": "Annual crop inventory" },
-          "years": { "fr": "2016 – 2024 (2025 non disponible)", "en": "2016 – 2024 (2025 not available)" },
+          "years": { "fr": "2016 – 2025", "en": "2016 – 2025" },
           "formats": [ { "label": "ArcGIS REST", "tag": "arc" }, { "label": "CSV", "tag": "csv" } ],
           "match": []
         }
@@ -71,7 +72,7 @@
         "en": "Sentinel-2 Level-2A surface reflectance imagery. Used to derive bare-soil spectral indices (BSI, NDTI, SWIR) as covariates in SOM prediction models (2019–2023)."
       },
       "license": { "label": "Copernicus Sentinel licence", "url": "https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice" },
-      "source": { "label": "dataspace.copernicus.eu", "url": "https://dataspace.copernicus.eu/" },
+      "source": { "label": "dataspace.copernicus.eu", "url": "https://dataspace.copernicus.eu/explore-data/data-collections/sentinel-data/sentinel-2", "kind": "service", "formats": [] },
       "datasets": [
         {
           "name": { "fr": "Sentinel-2 L2A", "en": "Sentinel-2 L2A" },
@@ -96,7 +97,7 @@
         "en": "Pedological survey maps and soil series classification for agricultural Quebec. Provides soil type as a categorical covariate in SOM prediction models, along with field-measured SOM values."
       },
       "license": { "label": "OGL-Québec", "url": "https://www.donneesquebec.ca/licence/" },
-      "source": { "label": "irda.qc.ca", "url": "https://www.irda.qc.ca/fr/services/protection-ressources/sante-sols/information-sols/etudes-pedologiques/" },
+      "source": { "label": "irda.qc.ca", "url": "https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/donnees-pedologiques/cartes-pedologiques-quebec-irda/", "kind": "download", "formats": ["GeoPackage", "Geodatabase", "Shapefile", "GeoJSON"] },
       "datasets": [
         {
           "name": { "fr": "Couverture pédologique 2026-01 — Version pédologique (principale)", "en": "2026-01 pedological cover — Pedology version (primary)" },
@@ -205,7 +206,7 @@
         "en": "Land capability classes for agriculture at the provincial scale. Used to contextualize agronomic intervention zones and for land use planning."
       },
       "license": { "label": "OGL-Canada", "url": "https://open.canada.ca/en/open-government-licence-canada" },
-      "source": { "label": "sis.agr.gc.ca", "url": "https://sis.agr.gc.ca/cansis/nsdb/cli/index.html" },
+      "source": { "label": "sis.agr.gc.ca", "url": "https://sis.agr.gc.ca/cansis/nsdb/cli/index.html", "kind": "download", "formats": ["Shapefile"] },
       "datasets": [
         {
           "name": { "fr": "Capacité des terres agricoles du Québec", "en": "Agricultural land capability classes for Quebec" },
@@ -228,11 +229,11 @@
         "en": "Five provincial spatial datasets: SIIGSOL-100m soil property rasters (organic carbon, pH, texture), LiDAR-derived elevation products (DEM, slope, topographic index), the provincial hydrographic network (GRHQ), topographic contour lines, and hydrometric stations. The first three are used as environmental covariates in SOM modelling."
       },
       "license": { "label": "OGL-Québec", "url": "https://www.donneesquebec.ca/licence/" },
-      "source": { "label": "donneesquebec.ca", "url": "https://www.donneesquebec.ca/" },
       "datasets": [
         {
           "name": { "fr": "SIIGSOL-100m — Cartes des propriétés du sol", "en": "SIIGSOL-100m — Soil property maps" },
           "years": { "fr": "2022", "en": "2022" },
+          "source": { "label": "donneesquebec.ca", "url": "https://www.donneesquebec.ca/recherche/dataset/siigsol-100m-carte-des-proprietes-du-sol", "kind": "download", "formats": ["GeoTIFF"] },
           "formats": [ { "label": "GeoTIFF", "tag": "tif" } ],
           "match": [
             { "api": "stac", "idPattern": "siigsol" },
@@ -242,16 +243,18 @@
         {
           "name": { "fr": "Produits dérivés du lidar", "en": "LiDAR-derived products" },
           "years": { "fr": "Données les plus récentes (2026)", "en": "Most recent MRNF data (2026)" },
+          "source": { "label": "donneesquebec.ca", "url": "https://www.donneesquebec.ca/recherche/dataset/produits-derives-de-base-du-lidar", "kind": "download", "formats": ["GeoTIFF"] },
           "formats": [ { "label": "GeoTIFF", "tag": "tif" } ],
           "match": [
             { "api": "process", "idPattern": "^lidar-fetch$" },
             { "api": "stac", "idPattern": "^lidar_quebec$" },
-            { "api": "raster", "idPattern": "^lidar_dtm_geom_" }
+            { "api": "raster", "idPattern": "^lidar_(dtm|mnt|chm|mhc|slope|aspect|hillshade)_" }
           ]
         },
         {
           "name": { "fr": "GRHQ — Géobase du Réseau Hydrographique du Québec", "en": "GRHQ — Quebec Hydrographic Network Geobase" },
           "years": { "fr": "Données les plus récentes (2026)", "en": "Most recent MRNF data (2026)" },
+          "source": { "label": "donneesquebec.ca", "url": "https://www.donneesquebec.ca/recherche/dataset/geobase-du-reseau-hydrographique-du-quebec-a-haute-resolution-grhq-hr", "kind": "download", "formats": ["GeoPackage", "FGDB"] },
           "formats": [ { "label": "GeoJSON", "tag": "geojson" } ],
           "match": [
             { "api": "postgis", "idPattern": "^public\\.grhq" },
@@ -261,6 +264,7 @@
         {
           "name": { "fr": "Courbes de niveau (feuillet 31H01SE)", "en": "Contour lines (sheet 31H01SE)" },
           "years": { "fr": "Non daté", "en": "Undated" },
+          "source": { "label": "donneesquebec.ca", "url": "https://www.donneesquebec.ca/recherche/dataset/produits-derives-de-base-du-lidar", "kind": "download", "formats": ["GeoPackage", "FGDB"] },
           "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
           "match": [
             { "api": "parquet", "idPattern": "^courbes_31h01se_courbes_31h01se$" }
@@ -269,6 +273,7 @@
         {
           "name": { "fr": "Stations hydrométriques", "en": "Hydrometric stations" },
           "years": { "fr": "Non daté", "en": "Undated" },
+          "source": { "label": "donneesquebec.ca", "url": "https://www.donneesquebec.ca/recherche/dataset/stations-hydrometriques", "kind": "download", "formats": ["CSV", "Shapefile"] },
           "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
           "match": [
             { "api": "parquet", "idPattern": "^stations_hydrometriques$" },
@@ -288,7 +293,7 @@
         "en": "Real-time and historical meteorological data from the Meteorological Service of Canada, accessed via OGC API standards. Provides daily precipitation data used as a climate covariate in SOM prediction models."
       },
       "license": { "label": "ECCC Data Servers End-use Licence", "url": "https://eccc-msc.github.io/open-data/licence/readme_en/" },
-      "source": { "label": "eccc-msc.github.io", "url": "https://eccc-msc.github.io/open-data/" },
+      "source": { "label": "eccc-msc.github.io", "url": "https://eccc-msc.github.io/open-data/", "kind": "service", "formats": ["OGC API"] },
       "datasets": [
         {
           "name": { "fr": "MSC GeoMet", "en": "MSC GeoMet" },
@@ -296,15 +301,6 @@
           "formats": [ { "label": "OGC API – Features", "tag": "ogc" }, { "label": "OGC API – Coverages", "tag": "ogc" } ],
           "match": [
             { "api": "process", "idPattern": "^msc-observations$" }
-          ]
-        },
-        {
-          "name": { "fr": "Réseau agrométéorologique", "en": "Agrometeorological network" },
-          "years": { "fr": "Données les plus récentes", "en": "Most recent data" },
-          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
-          "match": [
-            { "api": "parquet", "idPattern": "^reseau_agrometeo_\\d{8}_\\d{6}$" },
-            { "api": "postgis", "idPattern": "^public\\.reseau_agrometeo_\\d{8}_\\d{6}$" }
           ]
         }
       ]
@@ -320,7 +316,7 @@
         "en": "Climate simulation outputs and observational data from the PAVICS platform, accessed via OPeNDAP. Provides historical climate data (ERA5-Land, RDRSv2.1, CMIP6) for long-term model training and future climate projections."
       },
       "license": { "label": "C3S / ECCC / CC-BY 4.0", "url": "https://pavics.ouranos.ca/" },
-      "source": { "label": "pavics.ouranos.ca", "url": "https://pavics.ouranos.ca/" },
+      "source": { "label": "pavics.ouranos.ca", "url": "https://pavics.ouranos.ca/", "kind": "service", "formats": ["NetCDF", "OPeNDAP"] },
       "datasets": [
         {
           "name": { "fr": "Thredds Data Server via OPeNDAP", "en": "Thredds Data Server via OPeNDAP" },

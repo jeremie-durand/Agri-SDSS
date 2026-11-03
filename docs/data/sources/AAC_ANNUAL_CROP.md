@@ -15,7 +15,7 @@ Annual raster crop classification for Canada published by Agriculture and Agri-F
 | **CRS** | Web Mercator (EPSG:3857) |
 | **Resolution** | 30m |
 | **Spatial Extent** | Canada |
-| **Years available** | 2016 – 2024 (2025 not yet live) |
+| **Years available** | 2016 – 2025 |
 | **Update Frequency** | Annual |
 | **License** | Open Government Licence - Canada |
 | **Source URL** | <https://agriculture.canada.ca/imagery-images/rest/services/inventaire_annuel_des_cultures/> |
