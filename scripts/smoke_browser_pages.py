@@ -129,7 +129,7 @@ def fetch(path: str, accept: str) -> tuple[int, list[str], str, str]:
         return (
             exc.code,
             exc.headers.get_all("Access-Control-Allow-Origin") or [],
-            "",
+            exc.headers.get("Content-Type", ""),
             "",
         )
     except urllib.error.URLError as exc:
@@ -307,8 +307,12 @@ def check_landing_links(path: str, body: str) -> list[str]:
         target = (
             f"{resolved.path}?{resolved.query}" if resolved.query else resolved.path
         )
-        status = fetch(target, "application/json")[0]
-        if status == 404 and _is_empty_catalog_queryables(target):
+        status, _, content_type, _ = fetch(target, "application/json")
+        if (
+            status == 404
+            and "json" in content_type
+            and _is_empty_catalog_queryables(target)
+        ):
             print(f"note: {target} 404 on an empty STAC catalog, not checked")
             continue
         if status != 200:
@@ -317,16 +321,20 @@ def check_landing_links(path: str, body: str) -> list[str]:
 
 
 def _is_empty_catalog_queryables(target: str) -> bool:
-    """stac-fastapi-pgstac answers /queryables 404 while no collection exists."""
+    """stac-fastapi-pgstac answers /queryables 404 while no collection exists.
+
+    The caller also requires a JSON body, so an nginx 404 page still fails.
+    """
     return target == "/stac-api/queryables" and stac_catalog_is_empty()
 
 
 def first_collection_items_page() -> str | None:
-    """Items page of the first PostGIS collection whose items answer 200.
+    """Items page of the first PostGIS collection that is not a SQL function.
 
     TiPg also lists SQL functions as collections (PostGIS's own postgis_srs,
     for one), and those 422 without their arguments. Nothing in the
     collection metadata tells them apart from tables, so probe each in turn.
+    Only a 422 is skipped: any other error is returned so main() reports it.
     """
     status, _, _, body = fetch(
         "/vector-api/postgis/collections?f=json&limit=100", "application/json"
@@ -340,7 +348,7 @@ def first_collection_items_page() -> str | None:
     for collection in collections:
         collection_id = quote(collection["id"], safe="")
         page = f"/vector-api/postgis/collections/{collection_id}/items?limit=5"
-        if fetch(page, "application/geo+json")[0] == 200:
+        if fetch(page, "application/geo+json")[0] != 422:
             return page
     return None
 
