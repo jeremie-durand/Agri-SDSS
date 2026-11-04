@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.middleware.cors import CORSMiddleware
+from tipg.main import app as tipg_app
 from vector_api.app import MountRootPathMiddleware, app
 
 
@@ -48,6 +50,19 @@ def test_root_landing_page_links_include_postgis_and_parquet(app_client):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("path", ["/", "/parquet"])
+def test_landing_page_links_carry_the_external_prefix(app_client, path):
+    """Root-relative /postgis or /parquet hrefs 404 behind the /vector-api proxy."""
+    with patch("vector_api.config.EXTERNAL_ROOT", "/vector-api"):
+        resp = app_client.get(path)
+
+    hrefs = [link["href"] for link in resp.json()["links"]]
+    assert hrefs
+    for href in hrefs:
+        assert href.startswith("http://testserver/vector-api/"), href
+
+
+@pytest.mark.unit
 def test_parquet_landing_page_returns_200(app_client):
     """GET /parquet returns 200 with title, description, and links."""
     resp = app_client.get("/parquet")
@@ -80,6 +95,42 @@ def test_parquet_openapi_spec_includes_external_root_as_server(app_client):
         resp = app_client.get("/parquet/openapi.json")
     assert resp.status_code == 200
     assert resp.json().get("servers") == [{"url": "/vector-api"}]
+
+
+# --- Main docs pages ---
+
+
+@pytest.mark.unit
+def test_docs_page_loads_the_spec_under_the_external_prefix(app_client):
+    """/docs must fetch /vector-api/openapi.json; /openapi.json 404s behind home."""
+    with patch("vector_api.app.EXTERNAL_ROOT", "/vector-api"):
+        resp = app_client.get("/docs")
+
+    assert resp.status_code == 200
+    assert "url: '/vector-api/openapi.json'" in resp.text
+
+
+@pytest.mark.unit
+def test_redoc_page_loads_the_spec_under_the_external_prefix(app_client):
+    """/redoc must fetch the prefixed spec and skip the CSP-blocked Google Fonts."""
+    with patch("vector_api.app.EXTERNAL_ROOT", "/vector-api"):
+        resp = app_client.get("/redoc")
+
+    assert resp.status_code == 200
+    assert 'spec-url="/vector-api/openapi.json"' in resp.text
+    assert "fonts.googleapis.com" not in resp.text
+
+
+@pytest.mark.unit
+def test_main_openapi_spec_declares_the_external_prefix_as_server(app_client):
+    """Without servers, "Try it out" on /docs calls the domain root and 404s."""
+    external = os.getenv("APP_ROOT_PATH", "").rstrip("/")
+    assert external, "APP_ROOT_PATH must be set for this test to mean anything"
+
+    resp = app_client.get("/openapi.json")
+
+    assert resp.status_code == 200
+    assert resp.json().get("servers") == [{"url": external}]
 
 
 # --- Lifespan ---
@@ -186,12 +237,34 @@ def test_rewrite_is_a_no_op_without_an_external_prefix():
 
 
 @pytest.mark.unit
-def test_non_json_responses_are_not_rewritten():
-    """Only JSON bodies are touched; tiles and HTML pass through."""
+def test_external_prefix_is_inserted_into_html_pages():
+    """TiPg's HTML pages link with absolute URLs, which must carry the prefix."""
     middleware = MountRootPathMiddleware(None, "/postgis", "/vector-api")
-    body = b"\x89PNG\r\n/postgis/not-a-link"
+    body = (
+        b'<a href="https://example.org/postgis/collections">Collections</a>'
+        b'<script>var currentURL = "https://example.org/postgis/items"</script>'
+    )
 
-    sent = _run_middleware(middleware, body, content_type=b"image/png")
+    sent = _run_middleware(middleware, body, content_type=b"text/html; charset=utf-8")
+
+    assert b'href="https://example.org/vector-api/postgis/collections"' in (
+        sent[-1]["body"]
+    )
+    assert b'"https://example.org/vector-api/postgis/items"' in sent[-1]["body"]
+    assert b'"https://example.org/postgis/' not in sent[-1]["body"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "content_type",
+    [b"image/png", b"application/vnd.mapbox-vector-tile"],
+)
+def test_binary_responses_are_not_rewritten(content_type):
+    """Tiles and images pass through byte for byte."""
+    middleware = MountRootPathMiddleware(None, "/postgis", "/vector-api")
+    body = b"\x89PNG\r\nhttps://example.org/postgis/not-a-link"
+
+    sent = _run_middleware(middleware, body, content_type=content_type)
 
     assert sent[-1]["body"] == body
 
@@ -249,6 +322,22 @@ def test_postgis_mount_is_wired_with_the_external_prefix():
 
 
 @pytest.mark.unit
+def test_mount_root_path_middleware_routes_url_for_to_the_sub_app():
+    """request.url_for inside TiPg must resolve TiPg's own route names."""
+    captured = []
+
+    async def capture_app(scope, receive, send):
+        captured.append(scope)
+
+    capture_app.router = tipg_app.router
+    middleware = MountRootPathMiddleware(capture_app, "/postgis")
+    scope = {"type": "http", "router": app.router, "headers": []}
+    asyncio.run(middleware(scope, None, None))
+
+    assert captured[0]["router"] is tipg_app.router
+
+
+@pytest.mark.unit
 def test_mount_root_path_middleware_passes_non_http_scope_unchanged():
     """Non-HTTP scopes (e.g. lifespan) are forwarded without modification."""
     captured = []
@@ -261,3 +350,14 @@ def test_mount_root_path_middleware_passes_non_http_scope_unchanged():
     asyncio.run(middleware(scope, None, None))
 
     assert captured[0]["root_path"] == ""
+
+
+@pytest.mark.unit
+def test_tipg_sub_app_has_no_cors_middleware_of_its_own():
+    """The parent app must be the only CORS layer on /postgis/*.
+
+    TiPg ships its own CORSMiddleware (allow_origins=*, allow_credentials=True).
+    Left in place, it reflects any Origin the parent refuses, so
+    VECTOR_API_CORS_ORIGINS has no effect on PostGIS routes.
+    """
+    assert not any(m.cls is CORSMiddleware for m in tipg_app.user_middleware)
