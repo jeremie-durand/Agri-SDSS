@@ -12,9 +12,10 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi import FastAPI, Request
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import HTMLResponse
 from starlette.middleware.cors import CORSMiddleware
 from tipg.collections import register_collection_catalog
 from tipg.database import close_db_connection, connect_to_db
@@ -35,9 +36,16 @@ from .config import (
     PARQUET_PREFIX,
     POSTGIS_COLLECTIONS,
     POSTGIS_PREFIX,
+    external_base_url,
 )
 from .parquet_router import router as parquet_router
 from .pedo_properties_router import router as pedo_properties_router
+
+
+def _is_rewritable(content_type: bytes) -> bool:
+    """Whether a response body may hold hrefs that need the proxy prefix."""
+    lowered = content_type.lower()
+    return b"json" in lowered or b"text/html" in lowered
 
 
 class MountRootPathMiddleware:
@@ -52,6 +60,8 @@ class MountRootPathMiddleware:
         the scope. Widening root_path to include it makes the sub-app fail to
         resolve its own routes (verified: /postgis/* returns 404), so the
         prefix is inserted into emitted hrefs after routing has happened.
+        JSON and HTML bodies are rewritten (TiPg's HTML pages use absolute
+        links); tiles and images pass through untouched.
     """
 
     def __init__(self, app: FastAPI, root_path: str, external_root: str = "") -> None:
@@ -76,6 +86,12 @@ class MountRootPathMiddleware:
                 "root_path": self.root_path,
                 "app_root_path": self.root_path,
             }
+            # TiPg's landing calls request.url_for("openapi"/"swagger_ui_html"),
+            # which reads scope["router"]; the parent's router would resolve
+            # them to its own /docs and /openapi.json, which 404 under /postgis.
+            sub_router = getattr(self.app, "router", None)
+            if sub_router is not None:
+                scope["router"] = sub_router
         if not self.external_root:
             await self.app(scope, receive, send)
             return
@@ -85,7 +101,7 @@ class MountRootPathMiddleware:
         await self.app(scope, receive, self._rewriting_send(send, needle, replacement))
 
     def _rewriting_send(self, send, needle: bytes, replacement: bytes):
-        """Wrap send so hrefs in JSON bodies carry the proxy prefix."""
+        """Wrap send so hrefs in JSON and HTML bodies carry the proxy prefix."""
         state = {"rewrite": False}
 
         async def wrapped(message):
@@ -96,7 +112,7 @@ class MountRootPathMiddleware:
                     if k.lower() != b"content-length"
                 ]
                 state["rewrite"] = any(
-                    k.lower() == b"content-type" and b"json" in v.lower()
+                    k.lower() == b"content-type" and _is_rewritable(v)
                     for k, v in headers
                 )
                 message = {**message, "headers": headers}
@@ -173,6 +189,9 @@ app = FastAPI(
     description=API_DESCRIPTION,
     version=API_VERSION,
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    servers=[{"url": EXTERNAL_ROOT}] if EXTERNAL_ROOT else None,
 )
 
 # Bind the request locale before routing so error messages localise.
@@ -187,6 +206,12 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+# TiPg adds its own CORSMiddleware (allow_origins=*, allow_credentials=True),
+# which reflects origins this app refuses. Drop it so the parent owns CORS.
+tipg_app.user_middleware = [
+    m for m in tipg_app.user_middleware if m.cls is not CORSMiddleware
+]
 
 # Mount TiPg under /postgis prefix, wrapped so request.base_url includes the prefix.
 app.mount(
@@ -206,35 +231,36 @@ logger.info(f"Parquet collections available at: {PARQUET_COLLECTIONS}")
 
 
 @app.get("/", tags=["Landing"])
-async def root_landing():
+async def root_landing(request: Request) -> dict:
     """Root landing page for Vector API.
 
     Returns information about available data source namespaces.
     """
+    base = external_base_url(request)
     return {
         "title": API_TITLE,
         "description": API_DESCRIPTION,
         "links": [
             {
-                "href": POSTGIS_PREFIX,
+                "href": f"{base}{POSTGIS_PREFIX}/",
                 "rel": "data",
                 "type": "application/json",
                 "title": f"{ENDPOINTS['postgis']['title']}",
             },
             {
-                "href": PARQUET_PREFIX,
+                "href": f"{base}{PARQUET_PREFIX}",
                 "rel": "data",
                 "type": "application/json",
                 "title": f"{ENDPOINTS['parquet']['title']}",
             },
             {
-                "href": POSTGIS_COLLECTIONS,
+                "href": f"{base}{POSTGIS_COLLECTIONS}",
                 "rel": "data",
                 "type": "application/json",
                 "title": "PostGIS Collections List",
             },
             {
-                "href": PARQUET_COLLECTIONS,
+                "href": f"{base}{PARQUET_COLLECTIONS}",
                 "rel": "data",
                 "type": "application/json",
                 "title": "Parquet Collections List",
@@ -260,6 +286,25 @@ async def parquet_openapi_spec():
     )
 
 
+@app.get("/docs", include_in_schema=False)
+async def swagger_ui() -> HTMLResponse:
+    """Swagger UI for the whole Vector API, served behind the proxy prefix."""
+    return get_swagger_ui_html(
+        openapi_url=f"{EXTERNAL_ROOT}/openapi.json",
+        title=API_TITLE,
+    )
+
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_ui() -> HTMLResponse:
+    """ReDoc for the whole Vector API; Google Fonts are blocked by the CSP."""
+    return get_redoc_html(
+        openapi_url=f"{EXTERNAL_ROOT}/openapi.json",
+        title=API_TITLE,
+        with_google_fonts=False,
+    )
+
+
 @app.get("/parquet/api.html", include_in_schema=False)
 async def parquet_swagger_ui():
     """Swagger UI for the Parquet Collections API."""
@@ -270,23 +315,24 @@ async def parquet_swagger_ui():
 
 
 @app.get(PARQUET_PREFIX, tags=["Parquet Landing"])
-async def parquet_landing():
+async def parquet_landing(request: Request) -> dict:
     """Landing page for Parquet API namespace.
 
     Returns information about the Parquet API endpoints.
     """
+    base = external_base_url(request)
     return {
         "title": ENDPOINTS["parquet"]["title"],
         "description": ENDPOINTS["parquet"]["long_description"],
         "links": [
             {
-                "href": PARQUET_COLLECTIONS,
+                "href": f"{base}{PARQUET_COLLECTIONS}",
                 "rel": "data",
                 "type": "application/json",
                 "title": "Parquet Collections",
             },
             {
-                "href": POSTGIS_COLLECTIONS,
+                "href": f"{base}{POSTGIS_COLLECTIONS}",
                 "rel": "related",
                 "type": "application/json",
                 "title": ENDPOINTS["postgis"]["title"],

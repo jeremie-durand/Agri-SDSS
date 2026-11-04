@@ -27,6 +27,8 @@ server {
     listen 8080;
     listen [::]:8080;
     server_name localhost;
+    # Behind Caddy, an absolute redirect would carry http:// and port 8080.
+    absolute_redirect off;
     resolver 127.0.0.11 valid=5s ipv6=off;
     root /usr/share/nginx/html;
     client_header_timeout 10s;
@@ -134,13 +136,15 @@ server {
     # ── Local Agri-SDSS API proxies (used by chatbot-bridge.js) ────────────────
     # Read-only in public: stac-api runs the Transactions extension with no auth,
     # for gis-pipeline and process-api, which publish on the internal URL.
+    # stac-api, vector-api and raster-api send their own CORS headers: an
+    # add_header Access-Control-Allow-Origin here duplicates them and browsers
+    # then reject the response.
     location /stac-api/ {
         limit_except GET OPTIONS { deny all; }
         proxy_pass http://stac-api:8080/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $forwarded_proto;
-        add_header Access-Control-Allow-Origin *;
     }
     # POST /search is a read (CQL2 filters in the body), used by STAC Browser.
     location = /stac-api/search {
@@ -149,7 +153,6 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $forwarded_proto;
-        add_header Access-Control-Allow-Origin *;
     }
     location /vector-api/ {
         proxy_pass http://vector-api:8080/;
@@ -157,7 +160,8 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $forwarded_proto;
         proxy_set_header Accept-Encoding "";
-        add_header Access-Control-Allow-Origin *;
+        # vector-api runs without root_path, so its slash redirects omit the prefix.
+        proxy_redirect ~^(?:https?://[^/]+)?/(?!vector-api(?:/|$))(.*)$ /vector-api/$1;
         proxy_read_timeout 120s;
         sub_filter_once off;
         sub_filter_types text/html;
@@ -168,22 +172,23 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $forwarded_proto;
-        add_header Access-Control-Allow-Origin *;
     }
     location /process-api/ {
         proxy_pass http://process-api:5000/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $forwarded_proto;
-        add_header Access-Control-Allow-Origin *;
+        add_header Access-Control-Allow-Origin * always;
         proxy_read_timeout 630s;
     }
-    # ── Agriculture Canada AAC identify proxy (no CORS headers on origin) ───────
+    # ── Agriculture Canada AAC identify proxy ───────────────────────────────────
+    # ArcGIS reflects the request Origin; hide it so only nginx's * is sent.
     location /aac-identify/ {
         proxy_pass https://agriculture.canada.ca/imagery-images/rest/services/;
         proxy_set_header Host agriculture.canada.ca;
         proxy_ssl_server_name on;
-        add_header Access-Control-Allow-Origin *;
+        proxy_hide_header Access-Control-Allow-Origin;
+        add_header Access-Control-Allow-Origin * always;
         proxy_read_timeout 30s;
     }
 
@@ -197,7 +202,7 @@ server {
     # Serves the raster files referenced by STAC asset hrefs
     location ~ ^/cog/[^/]+\.tiff?$ {
         root /usr/share/nginx;
-        add_header Access-Control-Allow-Origin *;
+        add_header Access-Control-Allow-Origin * always;
         add_header Cache-Control "public, max-age=0, must-revalidate";
         limit_rate_after 16m;
         limit_rate       6m;

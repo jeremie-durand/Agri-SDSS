@@ -79,10 +79,24 @@ What needs a rebuild:
   the location is rate-limited. The route string and the mount are one of the
   four `/cog` copies, so run `make test-repo-consistency` after touching
   either.
+- **CORS has one owner per location**, because browsers reject a response with
+  two `Access-Control-Allow-Origin` values. stac-api (`CORS_ORIGINS`),
+  vector-api (`VECTOR_API_CORS_ORIGINS`) and raster-api (TiTiler) set their own,
+  so nginx adds none on `/stac-api/`, `/vector-api/` or `/raster-api/`. nginx
+  owns it (`*`) on `/process-api/` and `/cog/`, whose upstreams send none, and
+  on `/aac-identify/`, where `proxy_hide_header` drops the origin ArcGIS
+  reflects. `make smoke-browser-pages` fails on any duplicate.
+- **Redirects stay relative and prefixed.** `absolute_redirect off` keeps
+  nginx's own slash redirects (`/stac-api` → `/stac-api/`) from advertising
+  `http://` and port 8080 behind Caddy. vector-api has no `root_path`, so
+  `proxy_redirect` on `/vector-api/` puts the prefix back into its slash
+  redirects. `make smoke-browser-pages` follows each one.
 - `sub_filter` needs uncompressed upstream bodies. Keep
   `proxy_set_header Accept-Encoding ""` on every location that uses it.
-- Security headers and CSP come from Caddy. A new CDN script must be allowed
-  in `caddy/Caddyfile`'s CSP, which currently lists unpkg, cdnjs and jsdelivr.
+- Security headers and CSP come from Caddy. A new CDN script on a home page
+  must be allowed in `caddy/Caddyfile`'s site policy, which lists unpkg, cdnjs
+  and jsdelivr. The API paths have their own, wider policy (see
+  [caddy/CLAUDE.md](../../caddy/CLAUDE.md#security-headers)).
 
 ## Front-End Code
 

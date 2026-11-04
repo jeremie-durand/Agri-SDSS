@@ -74,6 +74,7 @@ docker compose build              # Rebuild images (make build also creates data
 docker compose logs -f <service>  # Follow logs
 make smoke-entrypoints            # Verify every service entrypoint still imports
 make smoke-stac-browser           # Start stac-browser and probe /stac/, its config and bundle
+make smoke-browser-pages          # API HTML pages via home: one CORS header, prefixed links, CSP
 
 # home has no published port — reach it from inside the Docker network
 docker run --rm --network eoapi-network curlimages/curl:latest -sI http://home:8080/

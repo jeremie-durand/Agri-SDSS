@@ -87,7 +87,7 @@ test-caddy:
 	exit $$status
 
 .PHONY: build lint-dockerfiles lint-md lint-nginx scan-secrets test-caddy generate-args \
-	smoke-entrypoints smoke-stac-browser \
+	smoke-entrypoints smoke-stac-browser smoke-browser-pages \
 	test-i18n i18n-extract i18n-update i18n-compile i18n-check
 
 # Ignored rules, and why (hadolint exits non-zero on any warning, so each must be
@@ -170,3 +170,13 @@ smoke-stac-browser:
 			|| { echo "✗ app bundle not found or not served"; status=1; }; \
 	fi; \
 	exit $$status
+
+# CORS, public-prefix links and CSP coverage of the API HTML pages, through home.
+smoke-browser-pages:
+	docker run --rm \
+		--network eoapi-network \
+		-v $(CURDIR)/scripts/smoke_browser_pages.py:/smoke/smoke_browser_pages.py:ro \
+		-v $(CURDIR)/caddy/Caddyfile:/caddy/Caddyfile:ro \
+		-e SMOKE_PUBLIC_HOST=$$(docker compose exec -T home printenv HOST_URL) \
+		python:3.13-slim \
+		python -I /smoke/smoke_browser_pages.py
