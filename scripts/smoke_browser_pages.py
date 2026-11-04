@@ -308,26 +308,50 @@ def check_landing_links(path: str, body: str) -> list[str]:
             f"{resolved.path}?{resolved.query}" if resolved.query else resolved.path
         )
         status = fetch(target, "application/json")[0]
+        if status == 404 and _is_empty_catalog_queryables(target):
+            print(f"note: {target} 404 on an empty STAC catalog, not checked")
+            continue
         if status != 200:
             failures.append(f"{path}: rel={link.get('rel')} {target} -> HTTP {status}")
     return failures
 
 
+def _is_empty_catalog_queryables(target: str) -> bool:
+    """stac-fastapi-pgstac answers /queryables 404 while no collection exists."""
+    return target == "/stac-api/queryables" and stac_catalog_is_empty()
+
+
 def first_collection_items_page() -> str | None:
-    """Items page of the first vector-api PostGIS collection, if any exist."""
+    """Items page of the first PostGIS collection whose items answer 200.
+
+    TiPg also lists SQL functions as collections (PostGIS's own postgis_srs,
+    for one), and those 422 without their arguments. Nothing in the
+    collection metadata tells them apart from tables, so probe each in turn.
+    """
     status, _, _, body = fetch(
-        "/vector-api/postgis/collections?f=json&limit=1", "application/json"
+        "/vector-api/postgis/collections?f=json&limit=100", "application/json"
     )
     if status != 200:
         return None
     try:
         collections = json.loads(body).get("collections", [])
-    except ValueError:
+    except (ValueError, AttributeError):
         return None
-    if not collections:
-        return None
-    collection_id = quote(collections[0]["id"], safe="")
-    return f"/vector-api/postgis/collections/{collection_id}/items?limit=5"
+    for collection in collections:
+        collection_id = quote(collection["id"], safe="")
+        page = f"/vector-api/postgis/collections/{collection_id}/items?limit=5"
+        if fetch(page, "application/geo+json")[0] == 200:
+            return page
+    return None
+
+
+def stac_catalog_is_empty() -> bool:
+    """Whether stac-api holds no collection, as in CI's fresh database."""
+    status, _, _, body = fetch("/stac-api/collections", "application/json")
+    try:
+        return status == 200 and not json.loads(body).get("collections")
+    except (ValueError, AttributeError):
+        return False
 
 
 def main() -> int:
@@ -340,7 +364,10 @@ def main() -> int:
     if items_page:
         pages.append(items_page)
     else:
-        print("note: no PostGIS collection, items page not checked", flush=True)
+        print(
+            "note: no PostGIS collection serves items, items page not checked",
+            flush=True,
+        )
 
     failures: list[str] = []
     for path in pages:
