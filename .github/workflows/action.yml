@@ -69,3 +69,10 @@ jobs:
 
       - name: Run all tests
         run: make test-all
+
+      - name: Smoke-test API browser pages through home
+        run: |
+          docker compose up -d --wait stac-api vector-api raster-api process-api
+          docker compose up -d home
+          docker compose restart home
+          make smoke-browser-pages
