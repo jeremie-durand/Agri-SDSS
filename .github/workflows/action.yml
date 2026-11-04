@@ -17,6 +17,16 @@ jobs:
       contents: read
 
     steps:
+      # The service images (chatbot-backend's ML stack above all) fill the
+      # runner's disk once test-all rebuilds them. The runner ships SDKs this
+      # job never uses.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Checkout repository
         uses: actions/checkout@v7
 
