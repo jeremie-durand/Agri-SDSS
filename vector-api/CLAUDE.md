@@ -74,14 +74,24 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   `external_base_url(request)` from `config.py`; never emit
   `request.base_url` directly.
 - TiPg is mounted at `/postgis` through `MountRootPathMiddleware`. It sets
-  `root_path` to the mount prefix and rewrites JSON response bodies to insert
-  `APP_ROOT_PATH`. Widening `root_path` instead breaks TiPg routing (404).
-- Home nginx strips `/vector-api/` and also `sub_filter`s the Swagger HTML. A
+  `root_path` to the mount prefix and rewrites JSON and HTML response bodies to
+  insert `APP_ROOT_PATH` (tiles and images pass through). The rewrite needs
+  uncompressed bodies, which home's `Accept-Encoding ""` guarantees. Widening `root_path` instead breaks TiPg routing (404).
+  It also points `scope["router"]` at TiPg's router: TiPg's landing resolves
+  `request.url_for("openapi")` / `("swagger_ui_html")`, which on the parent
+  router become `/postgis/openapi.json` and `/postgis/docs` (404).
+- Home nginx strips `/vector-api/`, `sub_filter`s the Swagger HTML, and
+  rewrites Starlette's slash-redirect `Location` back under `/vector-api/`
+  (`proxy_redirect`). A
   new HTML page may need a matching rule in `frontend/home/scripts/entrypoint.sh`.
 - `config.py` sets `TIPG_NAME` / `TIPG_ROOT_PATH` defaults, but `app.py`
   imports TiPg first, so they have no effect: the `/postgis` landing title is
   TiPg's default. Set TiPg options through `docker-compose.yml` env instead
   (as `TIPG_FALLBACK_KEY_NAMES` and `TIPG_DB_SPATIAL_EXTENT` are).
+- CORS belongs to the parent app alone (`VECTOR_API_CORS_ORIGINS`). `app.py`
+  removes TiPg's own `CORSMiddleware`, which would otherwise reflect any
+  origin on `/postgis/*` with `allow-credentials: true`. Home nginx adds no
+  CORS header on `/vector-api/`.
 
 ## Parquet Backend
 
