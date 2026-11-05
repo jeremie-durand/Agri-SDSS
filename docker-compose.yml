@@ -270,6 +270,7 @@ services:
       - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-*}
       - TIPG_FALLBACK_KEY_NAMES=["gid"]
       - TIPG_DB_SPATIAL_EXTENT=false
+      - TIPG_DB_FUNCTIONS=[]
       - DUCKDB_DATA_DIR=/data/duckdb
       - VECTOR_API_CORS_ORIGINS=${VECTOR_API_CORS_ORIGINS:-${HOST_PROTOCOL:-https}://${HOST_URL:-localhost}}
       - PEDO_POLYGON_TABLE_NAME=${PEDO_POLYGON_TABLE_NAME:-public.couverture_pedologique_2026_01_couverture_p_cbc3c8}
