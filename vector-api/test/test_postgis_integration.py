@@ -143,10 +143,7 @@ def test_every_listed_collection_serves_items(postgis_integration_client):
         items = postgis_integration_client.get(
             f"/postgis/collections/{collection_id}/items?limit=1"
         )
-        if (
-            items.status_code != 200
-            or items.json().get("type") != "FeatureCollection"
-        ):
+        if items.status_code != 200 or items.json().get("type") != "FeatureCollection":
             failures.append(f"{collection_id}: {items.status_code}")
     assert failures == []
 
