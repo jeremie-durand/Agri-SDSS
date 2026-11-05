@@ -127,7 +127,9 @@ POSTGIS_FUNCTION_IDS: frozenset[str] = frozenset(
 
 
 @pytest.mark.integration
-def test_every_listed_collection_serves_items(postgis_integration_client):
+def test_every_listed_collection_serves_items(
+    postgis_integration_client: TestClient,
+) -> None:
     """Every listed collection answers its items page, so the catalog can be walked.
 
     TiPg publishes SQL functions as collections unless TIPG_DB_FUNCTIONS
@@ -135,7 +137,9 @@ def test_every_listed_collection_serves_items(postgis_integration_client):
     """
     resp = postgis_integration_client.get("/postgis/collections?limit=1000")
     assert resp.status_code == 200
-    collection_ids = [c["id"] for c in resp.json()["collections"]]
+    data = resp.json()
+    assert not [link for link in data["links"] if link["rel"] == "next"]
+    collection_ids = [c["id"] for c in data["collections"]]
 
     assert POSTGIS_FUNCTION_IDS.isdisjoint(collection_ids)
     failures: list[str] = []
@@ -149,7 +153,9 @@ def test_every_listed_collection_serves_items(postgis_integration_client):
 
 
 @pytest.mark.integration
-def test_postgis_function_id_is_not_found(postgis_integration_client):
+def test_postgis_function_id_is_not_found(
+    postgis_integration_client: TestClient,
+) -> None:
     """A PostGIS function is not a collection, so its items page is a 404."""
     resp = postgis_integration_client.get(
         "/postgis/collections/public.postgis_srs/items"
