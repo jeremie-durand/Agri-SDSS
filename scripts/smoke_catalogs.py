@@ -51,6 +51,10 @@ class ServiceDown(Exception):
     """An API answered 502/503/504 or dropped the connection: stop walking it."""
 
 
+class CatalogUnreadable(Exception):
+    """A collection list answered, but not with a readable page of collections."""
+
+
 def fetch_json(path: str, accept: str = "application/json") -> tuple[int, Any]:
     """GET ``path`` on home; return the status and the decoded JSON body.
 
@@ -98,11 +102,15 @@ def collection_ids(list_path: str) -> Iterator[str]:
     seen: set[str] = set()
     while page:
         if page in seen:
-            raise ServiceDown(f"{page}: next link loops back to a page already read")
+            raise CatalogUnreadable(
+                f"{page}: next link loops back to a page already read"
+            )
         seen.add(page)
         status, body = fetch_json(page)
         if status != 200 or not isinstance(body, dict):
-            raise ServiceDown(f"{page}: HTTP {status}, collection list unreadable")
+            raise CatalogUnreadable(
+                f"{page}: HTTP {status}, collection list unreadable"
+            )
         for collection in body.get("collections", []):
             yield collection["id"]
         page = next_page(body)
@@ -150,6 +158,8 @@ def walk_collections(name: str, list_path: str, cap: int | None) -> list[str]:
             failures += check_items(list_path, collection_id)
             walked += 1
             last_walked = collection_id
+    except CatalogUnreadable as exc:
+        failures.append(f"{name}: {exc}")
     except ServiceDown as exc:
         failures.append(f"{name}: service down after {last_walked}: {exc}")
     print(f"{name}: {walked} collections walked, {len(failures)} failures")
