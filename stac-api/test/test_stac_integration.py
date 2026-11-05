@@ -106,6 +106,26 @@ def test_stac_collections_list_includes_created_collection(
 
 
 @pytest.mark.integration
+def test_every_listed_collection_serves_items(stac_integration_client, _created_item):
+    """Every listed collection answers its items page, so the catalog can be walked."""
+    resp = stac_integration_client.get("/collections?limit=1000")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert not [link for link in data["links"] if link["rel"] == "next"]
+    collection_ids = [c["id"] for c in data["collections"]]
+    assert collection_ids
+
+    failures: list[str] = []
+    for collection_id in collection_ids:
+        items = stac_integration_client.get(
+            f"/collections/{collection_id}/items?limit=1"
+        )
+        if items.status_code != 200 or items.json().get("type") != "FeatureCollection":
+            failures.append(f"{collection_id}: {items.status_code}")
+    assert failures == []
+
+
+@pytest.mark.integration
 def test_stac_collection_metadata_is_valid(
     stac_integration_client, _created_collection
 ):
