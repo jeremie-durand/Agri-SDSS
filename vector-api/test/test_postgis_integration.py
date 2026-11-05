@@ -114,6 +114,52 @@ def test_postgis_collections_has_oaf_structure(postgis_integration_client):
     assert "links" in data
 
 
+POSTGIS_FUNCTION_IDS: frozenset[str] = frozenset(
+    {
+        "public.postgis_srs",
+        "public.postgis_srs_all",
+        "public.postgis_srs_search",
+        "public.st_subdivide",
+        "public.st_hexagongrid",
+        "public.st_squaregrid",
+    }
+)
+
+
+@pytest.mark.integration
+def test_every_listed_collection_serves_items(postgis_integration_client):
+    """Every listed collection answers its items page, so the catalog can be walked.
+
+    TiPg publishes SQL functions as collections unless TIPG_DB_FUNCTIONS
+    restricts them; their items pages answer 422 without arguments (#277).
+    """
+    resp = postgis_integration_client.get("/postgis/collections?limit=1000")
+    assert resp.status_code == 200
+    collection_ids = [c["id"] for c in resp.json()["collections"]]
+
+    assert POSTGIS_FUNCTION_IDS.isdisjoint(collection_ids)
+    failures: list[str] = []
+    for collection_id in collection_ids:
+        items = postgis_integration_client.get(
+            f"/postgis/collections/{collection_id}/items?limit=1"
+        )
+        if (
+            items.status_code != 200
+            or items.json().get("type") != "FeatureCollection"
+        ):
+            failures.append(f"{collection_id}: {items.status_code}")
+    assert failures == []
+
+
+@pytest.mark.integration
+def test_postgis_function_id_is_not_found(postgis_integration_client):
+    """A PostGIS function is not a collection, so its items page is a 404."""
+    resp = postgis_integration_client.get(
+        "/postgis/collections/public.postgis_srs/items"
+    )
+    assert resp.status_code == 404
+
+
 # ------------------------------------------
 # /postgis/collections/{id} and /items — using FARM_TABLE_NAME when available
 # ------------------------------------------
