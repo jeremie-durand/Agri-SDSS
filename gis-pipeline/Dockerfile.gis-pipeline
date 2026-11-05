@@ -51,7 +51,8 @@ ENV PROJ_DIR=/usr
 
 # Download GDAL release tarball, verify integrity, and build using CMake
 ENV GDAL_SHA256=54638f6990f84c16142d93c9daaafaf1eab0a6a61538162095c334de086ef91f
-RUN wget -q https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz \
+RUN wget -nv --tries=5 --waitretry=10 --retry-connrefused --timeout=60 \
+    https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz \
     && echo "${GDAL_SHA256}  gdal-${GDAL_VERSION}.tar.gz" | sha256sum --check --strict \
     && tar -xzf gdal-${GDAL_VERSION}.tar.gz \
     && rm gdal-${GDAL_VERSION}.tar.gz \
