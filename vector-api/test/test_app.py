@@ -5,7 +5,9 @@ and MountRootPathMiddleware ASGI middleware.
 """
 
 import asyncio
+import json
 import os
+import re
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -13,6 +15,15 @@ from fastapi.testclient import TestClient
 from starlette.middleware.cors import CORSMiddleware
 from tipg.main import app as tipg_app
 from vector_api.app import MountRootPathMiddleware, app
+
+PARQUET_SPEC_PATHS: set[str] = {
+    "/parquet/collections",
+    "/parquet/collections/{collection_id}",
+    "/parquet/collections/{collection_id}/items",
+    "/parquet/collections/{collection_id}/items/{item_id}",
+    "/parquet/collections/{collection_id}/queryables",
+    "/parquet/collections/{collection_id}/invalidate",
+}
 
 
 @pytest.fixture
@@ -95,6 +106,31 @@ def test_parquet_openapi_spec_includes_external_root_as_server(app_client):
         resp = app_client.get("/parquet/openapi.json")
     assert resp.status_code == 200
     assert resp.json().get("servers") == [{"url": "/vector-api"}]
+
+
+@pytest.mark.unit
+def test_parquet_openapi_spec_lists_parquet_paths_only(app_client):
+    """An empty spec leaves /parquet/api.html with no endpoints (issue #276)."""
+    resp = app_client.get("/parquet/openapi.json")
+
+    assert resp.status_code == 200
+    paths = resp.json()["paths"]
+    assert PARQUET_SPEC_PATHS <= set(paths), PARQUET_SPEC_PATHS - set(paths)
+    assert "/" not in paths
+    assert "/pedo-properties" not in paths
+    for path in paths:
+        assert path.startswith("/parquet"), path
+
+
+@pytest.mark.unit
+def test_parquet_openapi_spec_resolves_every_schema_reference(app_client):
+    """Swagger UI fails to render an operation whose $ref points nowhere."""
+    spec = app_client.get("/parquet/openapi.json").json()
+
+    refs = set(re.findall(r'"#/components/schemas/([^"]+)"', json.dumps(spec)))
+    defined = set(spec.get("components", {}).get("schemas", {}))
+    assert refs
+    assert refs <= defined, refs - defined
 
 
 # --- Main docs pages ---
