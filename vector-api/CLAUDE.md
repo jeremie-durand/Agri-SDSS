@@ -183,7 +183,7 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | Marker | Where | What it needs |
 | --- | --- | --- |
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
-| `integration` | `test_parquet_ogc_compliance.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
 | `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
 
 - Build Parquet fixtures with the `sample_geoparquet` and `temp_parquet_dir`
