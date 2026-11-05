@@ -355,15 +355,13 @@ def _is_empty_catalog_queryables(target: str) -> bool:
 
 
 def first_collection_items_page() -> str | None:
-    """Items page of the first PostGIS collection that is not a SQL function.
+    """Items page of the first listed PostGIS collection.
 
-    TiPg also lists SQL functions as collections (PostGIS's own postgis_srs,
-    for one), and those 422 without their arguments. Nothing in the
-    collection metadata tells them apart from tables, so probe each in turn.
-    Only a 422 is skipped: any other error is returned so main() reports it.
+    TIPG_DB_FUNCTIONS=[] keeps SQL functions out of the catalog (#277), so
+    every listed collection serves items; main() reports any error it gives.
     """
     status, _, _, body = fetch(
-        "/vector-api/postgis/collections?f=json&limit=100", "application/json"
+        "/vector-api/postgis/collections?f=json&limit=1", "application/json"
     )
     if status != 200:
         return None
@@ -371,12 +369,10 @@ def first_collection_items_page() -> str | None:
         collections = json.loads(body).get("collections", [])
     except (ValueError, AttributeError):
         return None
-    for collection in collections:
-        collection_id = quote(collection["id"], safe="")
-        page = f"/vector-api/postgis/collections/{collection_id}/items?limit=5"
-        if fetch(page, "application/geo+json")[0] != 422:
-            return page
-    return None
+    if not collections:
+        return None
+    collection_id = quote(collections[0]["id"], safe="")
+    return f"/vector-api/postgis/collections/{collection_id}/items?limit=5"
 
 
 def stac_catalog_is_empty() -> bool:
@@ -399,7 +395,7 @@ def main() -> int:
         pages.append(items_page)
     else:
         print(
-            "note: no PostGIS collection serves items, items page not checked",
+            "note: no PostGIS collection listed, items page not checked",
             flush=True,
         )
 
