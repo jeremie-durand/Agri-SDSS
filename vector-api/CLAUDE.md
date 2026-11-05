@@ -84,6 +84,11 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   rewrites Starlette's slash-redirect `Location` back under `/vector-api/`
   (`proxy_redirect`). A
   new HTML page may need a matching rule in `frontend/home/scripts/entrypoint.sh`.
+- `/parquet/openapi.json` is generated from `parquet_router.routes`, so a
+  route added to that router appears in `/parquet/api.html` automatically; a
+  route defined in `app.py` (the `/parquet` landing) does not. Do not build it
+  by filtering `app.routes`: since FastAPI 0.141 an included router is a
+  single `_IncludedRouter` entry there, and the spec came back empty (#276).
 - `config.py` sets `TIPG_NAME` / `TIPG_ROOT_PATH` defaults, but `app.py`
   imports TiPg first, so they have no effect: the `/postgis` landing title is
   TiPg's default. Set TiPg options through `docker-compose.yml` env instead

@@ -11,6 +11,7 @@ through a unified API with consistent namespace prefixes.
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
@@ -270,18 +271,13 @@ async def root_landing(request: Request) -> dict:
 
 
 @app.get("/parquet/openapi.json", include_in_schema=False)
-async def parquet_openapi_spec():
-    """OpenAPI schema filtered to Parquet routes only."""
-    parquet_routes = [
-        route
-        for route in app.routes
-        if hasattr(route, "tags") and route.tags and "Parquet Collections" in route.tags
-    ]
+async def parquet_openapi_spec() -> dict[str, Any]:
+    """OpenAPI schema of the Parquet router's routes only."""
     return get_openapi(
         title=ENDPOINTS["parquet"]["title"],
         version=API_VERSION,
         description=ENDPOINTS["parquet"]["long_description"],
-        routes=parquet_routes,
+        routes=parquet_router.routes,
         servers=[{"url": EXTERNAL_ROOT}] if EXTERNAL_ROOT else None,
     )
 

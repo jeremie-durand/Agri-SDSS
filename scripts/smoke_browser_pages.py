@@ -12,7 +12,9 @@ this script asserts that:
    caddy/Caddyfile sets on API paths;
 4. every same-origin, non-templated link of each API landing page answers 200;
 5. every slash redirect, requested with Caddy's X-Forwarded-Proto: https,
-   stays on the public HTTPS origin, under the page's prefix, and lands on a 200.
+   stays on the public HTTPS origin, under the page's prefix, and lands on a 200;
+6. every OpenAPI spec an API docs page loads answers 200 with JSON whose
+   ``paths`` is not empty, so Swagger UI and ReDoc never show an empty page.
 
 Run it with ``make smoke-browser-pages``. It exits 1 and prints one line per
 failure when any check fails. Standard library only, so it runs in a bare
@@ -75,6 +77,15 @@ REDIRECT_PAGES: list[str] = [
     "/raster-api",
     "/raster-api/tileMatrixSets/",
     "/process-api",
+]
+
+OPENAPI_SPECS: list[str] = [
+    "/stac-api/api",
+    "/vector-api/openapi.json",
+    "/vector-api/postgis/api",
+    "/vector-api/parquet/openapi.json",
+    "/raster-api/api",
+    "/process-api/openapi?f=json",
 ]
 
 EXTERNAL_CORS_PAGES: list[str] = [
@@ -320,6 +331,21 @@ def check_landing_links(path: str, body: str) -> list[str]:
     return failures
 
 
+def check_openapi_spec(path: str) -> list[str]:
+    """Report a spec that is missing, is not JSON, or documents no path."""
+    status, _, _, body = fetch(path, "application/json")
+    if status != 200:
+        return [f"{path}: HTTP {status}"]
+    try:
+        spec = json.loads(body)
+    except ValueError:
+        return [f"{path}: not JSON"]
+    paths = spec.get("paths") if isinstance(spec, dict) else None
+    if not isinstance(paths, dict) or not paths:
+        return [f"{path}: no paths"]
+    return []
+
+
 def _is_empty_catalog_queryables(target: str) -> bool:
     """stac-fastapi-pgstac answers /queryables 404 while no collection exists.
 
@@ -407,6 +433,9 @@ def main() -> int:
     for path in REDIRECT_PAGES:
         failures += check_redirect(path)
 
+    for path in OPENAPI_SPECS:
+        failures += check_openapi_spec(path)
+
     for path in EXTERNAL_CORS_PAGES:
         status, acao, _, _ = fetch(path, "application/json")
         if status != 200:
@@ -421,6 +450,7 @@ def main() -> int:
         + len(CORS_ONLY_PAGES)
         + len(LANDING_PAGES)
         + len(REDIRECT_PAGES)
+        + len(OPENAPI_SPECS)
         + len(EXTERNAL_CORS_PAGES)
     )
     if failures:
