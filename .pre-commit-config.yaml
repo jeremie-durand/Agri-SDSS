@@ -19,5 +19,6 @@ repos:
     hooks:
       - id: markdownlint-cli2
         args: [--fix]
+        require_serial: true
         language_version: 22.23.2
         exclude: ^(gis-pipeline/docs/ARGS\.md|docs/superpowers/|\.claude/commands/opsx/|\.claude/skills/openspec-)
