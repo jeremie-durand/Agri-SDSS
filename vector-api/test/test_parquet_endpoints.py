@@ -5,8 +5,9 @@ GeoParquet files through OGC API Features style endpoints.
 """
 
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import duckdb
 import geopandas as gpd
 import pytest
 import responses
@@ -890,3 +891,25 @@ def test_query_items_duckdb_error_returns_500(parquet_app_client):
         resp = parquet_app_client.get("/parquet/collections/test_collection/items")
 
     assert resp.status_code == 500
+
+
+@pytest.mark.unit
+def test_query_items_out_of_memory_returns_translated_500_without_leaking(
+    parquet_app_client,
+):
+    """DuckDB running out of memory gives a translated 500, not its message (#279)."""
+    mock_manager = MagicMock()
+    mock_manager.query_items.side_effect = duckdb.OutOfMemoryException(
+        "Out of Memory Error: could not allocate block of size 256.0 KiB"
+    )
+
+    with patch(
+        "vector_api.parquet_router.get_duckdb_manager", return_value=mock_manager
+    ):
+        resp = parquet_app_client.get(
+            "/parquet/collections/test_collection/items?offset=200000&limit=100"
+        )
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Erreur interne du serveur"
+    assert "Out of Memory" not in resp.text

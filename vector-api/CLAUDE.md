@@ -125,6 +125,12 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   `_fetchone`/`_fetchall` with the matching lock. For a materialized
   connection, hold its lock across count and select, as `query_items()` does,
   so `/invalidate` cannot close it mid-request.
+- Every DuckDB connection is opened with `config={"memory_limit": ...}` from
+  `DUCKDB_MEMORY_LIMIT` (default `512MB`). The limit is per DuckDB instance,
+  not per process: the in-memory connection and each materialized `.duckdb`
+  are separate instances with their own budget. A connection opened without it
+  defaults to 80% of the container memory, and a heavy query then gets the
+  process OOM-killed instead of raising (#279).
 - SQL: escape identifiers with `escape_identifier()` and path literals with
   `_escape_sql_string()`. Bind values as `$1` parameters, never
   interpolation. `bbox` values are floats parsed and range-checked in the

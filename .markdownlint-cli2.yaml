@@ -14,6 +14,8 @@ config:
 globs:
   - "**/*.md"
 
+gitignore: true
+
 ignores:
   - "node_modules"
   - "data"
