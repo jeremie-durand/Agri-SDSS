@@ -56,10 +56,13 @@ def test_empty_env_setting_falls_back_to_default(
     monkeypatch.setenv(env_name, "")
     manager = DuckDBManager(data_dir=str(tmp_path))
     try:
-        assert getattr(manager, attribute) == {
-            "max_open": DEFAULT_MAX_OPEN_DUCKDB,
-            "max_queries": DEFAULT_MAX_DUCKDB_QUERIES,
-        }[attribute]
+        assert (
+            getattr(manager, attribute)
+            == {
+                "max_open": DEFAULT_MAX_OPEN_DUCKDB,
+                "max_queries": DEFAULT_MAX_DUCKDB_QUERIES,
+            }[attribute]
+        )
     finally:
         manager.close()
 
