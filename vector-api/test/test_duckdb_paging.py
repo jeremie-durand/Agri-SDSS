@@ -38,7 +38,9 @@ def _square(minx: float, miny: float, size: float = 0.005) -> Polygon:
     )
 
 
-def _write_collection(directory: Path, gdf: gpd.GeoDataFrame, materialized: bool) -> None:
+def _write_collection(
+    directory: Path, gdf: gpd.GeoDataFrame, materialized: bool
+) -> None:
     parquet_path = directory / f"{COLLECTION_ID}.parquet"
     gdf.to_parquet(parquet_path)
     if materialized:
@@ -77,7 +79,9 @@ def _bbox_sql(manager: DuckDBManager, bbox: Bbox) -> str:
         return ""
     geom = manager.escape_identifier("geometry")
     minx, miny, maxx, maxy = bbox
-    return f"WHERE ST_Intersects({geom}, ST_MakeEnvelope({minx}, {miny}, {maxx}, {maxy}))"
+    return (
+        f"WHERE ST_Intersects({geom}, ST_MakeEnvelope({minx}, {miny}, {maxx}, {maxy}))"
+    )
 
 
 def _legacy_page(
