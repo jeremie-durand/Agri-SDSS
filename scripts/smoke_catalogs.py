@@ -53,9 +53,9 @@ PARQUET_COLLECTIONS: str = COLLECTION_CATALOGS["parquet"]
 # evenly spaced sample can miss them. Each is (collection id, items query,
 # the bug it guards against).
 HEAVY_PARQUET_CHECKS: list[tuple[str, str, str]] = [
-    ("grhq_hr_06aa_udh", "limit=1", "one 56 MB polygon; 500 at 512MB (#288)"),
-    ("grhq_hr_06ac_udh", "limit=1", "one 55 MB polygon; 500 at 512MB (#288)"),
-    ("grhq_hr_04ac_udh", "limit=1", "46 MB feature; peaks near the 1 GiB limit"),
+    ("grhq_hr_06aa_udh", "limit=1", "one 54 MiB polygon; 500 at 512MB (#288)"),
+    ("grhq_hr_06ac_udh", "limit=1", "one 53 MiB polygon; 500 at 512MB (#288)"),
+    ("grhq_hr_04ac_udh", "limit=1", "46 MiB feature; peaks near the 1 GiB limit"),
     (
         "couverture_pedo_2022",
         "offset=200000&limit=100",
@@ -133,13 +133,15 @@ def collection_ids(list_path: str) -> Iterator[str]:
         page = next_page(body)
 
 
-def check_items(list_path: str, collection_id: str) -> list[str]:
+def check_items(
+    list_path: str, collection_id: str, query: str = "limit=1"
+) -> list[str]:
     """Open the first items page as GeoJSON.
 
     TiPg answers ``Accept: application/json`` with a plain JSON array of rows,
     so items pages ask for ``application/geo+json``.
     """
-    path = f"{list_path}/{quote(collection_id, safe='')}/items?limit=1"
+    path = f"{list_path}/{quote(collection_id, safe='')}/items?{query}"
     status, body = fetch_json(path, "application/geo+json")
     if status != 200:
         return [f"{path}: HTTP {status}"]
@@ -184,23 +186,22 @@ def walk_collections(name: str, list_path: str, cap: int | None) -> list[str]:
 
 
 def check_heavy_parquet() -> list[str]:
-    """Run each HEAVY_PARQUET_CHECKS request, skipping collections not listed."""
+    """Run each HEAVY_PARQUET_CHECKS request, skipping collections that answer 404."""
     failures: list[str] = []
     checked = 0
     try:
         for collection_id, query, guards in HEAVY_PARQUET_CHECKS:
-            collection_path = f"{PARQUET_COLLECTIONS}/{quote(collection_id, safe='')}"
-            status, _ = fetch_json(collection_path)
+            status, _ = fetch_json(
+                f"{PARQUET_COLLECTIONS}/{quote(collection_id, safe='')}"
+            )
             if status == 404:
                 print(f"note: heavy: {collection_id} not on this stack, skipped")
                 continue
-            path = f"{collection_path}/items?{query}"
-            status, body = fetch_json(path, "application/geo+json")
             checked += 1
-            if status != 200:
-                failures.append(f"{path}: HTTP {status} ({guards})")
-            elif not isinstance(body, dict) or body.get("type") != "FeatureCollection":
-                failures.append(f"{path}: not a FeatureCollection ({guards})")
+            failures += [
+                f"{failure} ({guards})"
+                for failure in check_items(PARQUET_COLLECTIONS, collection_id, query)
+            ]
     except ServiceDown as exc:
         failures.append(f"heavy: service down: {exc}")
     print(f"heavy: {checked} parquet checks run, {len(failures)} failures")
@@ -247,7 +248,10 @@ def main() -> int:
     for name, list_path in COLLECTION_CATALOGS.items():
         cap = PARQUET_DEFAULT_CAP if name == "parquet" and not WALK_ALL else None
         failures += walk_collections(name, list_path, cap)
-    failures += check_heavy_parquet()
+    if any(failure.startswith("parquet: service down") for failure in failures):
+        print("note: heavy: skipped, vector-api is down")
+    else:
+        failures += check_heavy_parquet()
     failures += walk_processes()
 
     for failure in failures:

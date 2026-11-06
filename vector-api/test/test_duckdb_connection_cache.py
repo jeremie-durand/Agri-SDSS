@@ -46,9 +46,7 @@ def _invalidate_after_lookup(
             manager.invalidate_materialized(collection_id)
         return entry
 
-    monkeypatch.setattr(
-        manager, "_get_materialized_connection", lookup_then_invalidate
-    )
+    monkeypatch.setattr(manager, "_get_materialized_connection", lookup_then_invalidate)
     return raced
 
 
