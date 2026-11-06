@@ -12,6 +12,9 @@ test-gis-pipeline:
 test-repo-consistency:
 	docker compose run --rm --no-deps -T -v $(CURDIR):/repo -w /repo \
 		process-api pytest process-api/test/test_cog_route_consistency.py -v
+	docker compose run --rm --no-deps -T -v $(CURDIR):/repo -w /repo \
+		-e PYTHONPATH=/app vector-api \
+		pytest vector-api/test/test_memory_defaults_consistency.py -v -rs -p no:cacheprovider
 
 generate-args:
 	docker compose run --build --rm --no-deps \
