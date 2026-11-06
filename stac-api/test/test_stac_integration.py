@@ -12,6 +12,7 @@ This avoids polluting the shared database between test runs.
 import re
 
 import pytest
+from fastapi.testclient import TestClient
 from stac_api.test.db_utils import (
     admin_credentials_available,
     admin_delete_collection,
@@ -103,6 +104,28 @@ def test_stac_collections_list_includes_created_collection(
     assert "collections" in data
     ids = [c["id"] for c in data["collections"]]
     assert _created_collection in ids, f"'{_created_collection}' not found in {ids}"
+
+
+@pytest.mark.integration
+def test_every_listed_collection_serves_items(
+    stac_integration_client: TestClient, _created_item: str
+) -> None:
+    """Every listed collection answers its items page, so the catalog can be walked."""
+    resp = stac_integration_client.get("/collections?limit=1000")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert not [link for link in data["links"] if link["rel"] == "next"]
+    collection_ids = [c["id"] for c in data["collections"]]
+    assert collection_ids
+
+    failures: list[str] = []
+    for collection_id in collection_ids:
+        items = stac_integration_client.get(
+            f"/collections/{collection_id}/items?limit=1"
+        )
+        if items.status_code != 200 or items.json().get("type") != "FeatureCollection":
+            failures.append(f"{collection_id}: {items.status_code}")
+    assert failures == []
 
 
 @pytest.mark.integration

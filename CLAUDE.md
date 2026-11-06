@@ -75,6 +75,9 @@ docker compose logs -f <service>  # Follow logs
 make smoke-entrypoints            # Verify every service entrypoint still imports
 make smoke-stac-browser           # Start stac-browser and probe /stac/, its config and bundle
 make smoke-browser-pages          # API HTML pages via home: one CORS header, prefixed links, CSP
+make smoke-catalogs               # Open every listed PostGIS/Parquet/STAC collection and process via home
+                                  # (Parquet: 25 spread out; ALL=1 walks all, local only until #288;
+                                  # exits 1 on real data until #287/#289 are fixed)
 
 # home has no published port — reach it from inside the Docker network
 docker run --rm --network eoapi-network curlimages/curl:latest -sI http://home:8080/

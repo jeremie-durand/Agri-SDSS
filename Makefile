@@ -87,7 +87,7 @@ test-caddy:
 	exit $$status
 
 .PHONY: build lint-dockerfiles lint-md lint-nginx scan-secrets test-caddy generate-args \
-	smoke-entrypoints smoke-stac-browser smoke-browser-pages \
+	smoke-entrypoints smoke-stac-browser smoke-browser-pages smoke-catalogs \
 	test-i18n i18n-extract i18n-update i18n-compile i18n-check
 
 # Ignored rules, and why (hadolint exits non-zero on any warning, so each must be
@@ -180,3 +180,23 @@ smoke-browser-pages:
 		-e SMOKE_PUBLIC_HOST=$$(docker compose exec -T home printenv HOST_URL) \
 		python:3.13-slim \
 		python -I /smoke/smoke_browser_pages.py
+
+# Opens every entry of the PostGIS, Parquet, STAC and process catalogs through home,
+# on the running stack's real data. Not run in CI. ALL=1 walks every Parquet
+# collection, which OOM-kills vector-api until #288 is fixed: local stack only.
+smoke-catalogs:
+	@before=$$(docker inspect -f '{{.RestartCount}}' $$(docker compose ps -q vector-api) 2>/dev/null); \
+	[ -n "$$before" ] || { echo "✗ vector-api is not running"; exit 1; }; \
+	docker run --rm \
+		--network eoapi-network \
+		-v $(CURDIR)/scripts/smoke_catalogs.py:/smoke/smoke_catalogs.py:ro \
+		-e SMOKE_CATALOGS_ALL=$(if $(filter 1,$(ALL)),1,0) \
+		python:3.13-slim \
+		python -I /smoke/smoke_catalogs.py; \
+	status=$$?; \
+	after=$$(docker inspect -f '{{.RestartCount}}' $$(docker compose ps -q vector-api) 2>/dev/null); \
+	if [ "$$before" != "$$after" ]; then \
+		echo "✗ vector-api restarted during the walk ($$before → $$after restarts)"; \
+		status=1; \
+	fi; \
+	exit $$status

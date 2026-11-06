@@ -90,6 +90,7 @@ changes. See [Internationalization](../docs/I18N.md).
 | --- | --- | --- |
 | `DUCKDB_DATA_DIR` | `/data/duckdb` | Directory scanned for `.parquet` files |
 | `VECTOR_API_CORS_ORIGINS` | _(empty)_ | Comma-separated allowed CORS origins |
+| `TIPG_DB_FUNCTIONS` | `[]` (set in `docker-compose.yml`) | SQL functions TiPg publishes as `/postgis` collections. `[]` publishes none, which keeps PostGIS's own functions (`postgis_srs`, `st_squaregrid`, …) out of the catalog. To publish a project function, list it by `schema.name`, e.g. `["public.my_function"]` |
 
 ## PostGIS table requirements
 

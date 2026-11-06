@@ -92,7 +92,12 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 - `config.py` sets `TIPG_NAME` / `TIPG_ROOT_PATH` defaults, but `app.py`
   imports TiPg first, so they have no effect: the `/postgis` landing title is
   TiPg's default. Set TiPg options through `docker-compose.yml` env instead
-  (as `TIPG_FALLBACK_KEY_NAMES` and `TIPG_DB_SPATIAL_EXTENT` are).
+  (as `TIPG_FALLBACK_KEY_NAMES`, `TIPG_DB_SPATIAL_EXTENT` and
+  `TIPG_DB_FUNCTIONS` are).
+- `TIPG_DB_FUNCTIONS=[]` keeps SQL functions out of the `/postgis` catalog.
+  Without it TiPg lists every geometry-returning function in `public`,
+  PostGIS's own included, and their items pages answer 422 (#277). To publish
+  a project function, list it by `schema.name`; do not remove the setting.
 - CORS belongs to the parent app alone (`VECTOR_API_CORS_ORIGINS`). `app.py`
   removes TiPg's own `CORSMiddleware`, which would otherwise reflect any
   origin on `/postgis/*` with `allow-credentials: true`. Home nginx adds no
@@ -178,7 +183,7 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | Marker | Where | What it needs |
 | --- | --- | --- |
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
-| `integration` | `test_parquet_ogc_compliance.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
 | `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
 
 - Build Parquet fixtures with the `sample_geoparquet` and `temp_parquet_dir`
