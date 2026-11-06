@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 # Strict pattern for collection IDs to prevent path traversal
 COLLECTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 
+DEFAULT_MEMORY_LIMIT: str = "512MB"
+
 
 class DuckDBDescribeColumn(IntEnum):
     """Column indices for DuckDB DESCRIBE query result.
@@ -84,14 +86,25 @@ class DuckDBManager:
         "wkb_geometry",
     ]
 
-    def __init__(self, data_dir: Optional[str] = None):
+    def __init__(
+        self, data_dir: Optional[str] = None, memory_limit: str | None = None
+    ) -> None:
         """Initialize the DuckDBManager with an in-memory connection.
 
         Args:
             data_dir: Directory containing Parquet files. Defaults to DUCKDB_DATA_DIR env var.
+            memory_limit: DuckDB memory_limit applied to every connection this
+                manager opens (each one is a separate DuckDB instance).
+                Defaults to the DUCKDB_MEMORY_LIMIT env var, then
+                DEFAULT_MEMORY_LIMIT.
         """
         self.data_dir = Path(data_dir or os.getenv("DUCKDB_DATA_DIR", "/data/duckdb"))
-        self.conn = duckdb.connect(database=":memory:")
+        self.memory_limit: str = (
+            memory_limit or os.getenv("DUCKDB_MEMORY_LIMIT") or DEFAULT_MEMORY_LIMIT
+        )
+        self.conn = duckdb.connect(
+            database=":memory:", config={"memory_limit": self.memory_limit}
+        )
         # DuckDB in-memory connections are not thread-safe; a single shared
         # connection requires serialised access.
         self._lock = threading.Lock()
@@ -412,7 +425,11 @@ class DuckDBManager:
                 return None
 
             try:
-                conn = duckdb.connect(database=str(db_path), read_only=True)
+                conn = duckdb.connect(
+                    database=str(db_path),
+                    read_only=True,
+                    config={"memory_limit": self.memory_limit},
+                )
                 conn.execute("INSTALL spatial")
                 conn.execute("LOAD spatial")
                 conn.execute(f"SELECT 1 FROM {MATERIALIZED_TABLE_NAME} LIMIT 1")
