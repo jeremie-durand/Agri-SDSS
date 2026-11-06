@@ -114,23 +114,56 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   column: first of `geometry`, `geom`, `the_geom`, `shape`, `wkb_geometry`.
   Without an ID column, item ids are 1-based row numbers.
 - A `<id>.duckdb` next to the Parquet file (built by gis-pipeline) is
-  preferred automatically. It is opened read-only and cached per collection,
-  and a file that fails to open is remembered and skipped.
-  `invalidate_materialized()` clears both.
+  preferred automatically. It is opened read-only, and a file that fails to
+  open is remembered and skipped. `invalidate_materialized()` clears both.
+- Open `.duckdb` connections form an LRU capped by
+  `VECTOR_API_MAX_OPEN_DUCKDB` (default 2). Each one is a separate DuckDB
+  instance that keeps its own block cache, so an unbounded cache got the
+  container OOM-killed after about 40 collections (#288). On the real data in
+  1 GiB, cap 4 at 819MB was still killed and cap 2 walks all 253 collections.
+  Raise the cap only together with the container memory. The cap bounds the
+  cache, not every open instance: a new connection opens before the oldest is
+  popped, and a popped one stays open until its running query ends, so up to
+  `max_open + max_queries + 1` instances can be live for a moment, with one
+  opener at a time (true while the routes run on the event loop; each extra
+  concurrent opener after #281 can add one more).
 - The schema cache (`_schema_cache`) is never cleared. The code assumes
   Parquet files are immutable, but gis-pipeline overwrites `<id>.parquet` on
   re-ingestion, so feature count, bbox and detected columns stay stale until a
   restart. `/invalidate` does not clear it.
-- DuckDB connections are not thread-safe. Every query goes through
-  `_fetchone`/`_fetchall` with the matching lock. For a materialized
-  connection, hold its lock across count and select, as `query_items()` does,
-  so `/invalidate` cannot close it mid-request.
+- DuckDB connections are not thread-safe. In-memory queries go through
+  `_fetchone`/`_fetchall`, which hold `self._lock`. Materialized queries go
+  only through `_run_materialized(collection_id, work)`; never use the pair
+  `_get_materialized_connection()` returns directly, because eviction or
+  `/invalidate` can close it at any time. `_run_materialized` takes a query
+  slot (`VECTOR_API_MAX_DUCKDB_QUERIES`, default 1), then the connection's
+  lock, for the whole of `work`. It reopens a connection closed between lookup
+  and lock. Run count and select in one `work`, as `query_items()` does.
+- Lock rules that keep this deadlock-free:
+  - `_cache_lock` guards only the cache dicts, including the identity check
+    `_run_materialized` makes while holding a connection lock.
+  - A connection is popped from the cache under `_cache_lock`, and then closed
+    under its own lock with `_cache_lock` released. Never hold `_cache_lock`
+    while waiting for a connection lock.
+  - Order: query slot, then connection lock.
+  - `self._lock` is separate: it is held for whole in-memory queries.
+- The Parquet routes are `async def` handlers that call DuckDB synchronously,
+  so they block the event loop and run one at a time. Moving them to a thread
+  pool (#281) makes the query slots matter: four parallel heavy queries were
+  OOM-killed without them.
 - Every DuckDB connection is opened with `config={"memory_limit": ...}` from
   `DUCKDB_MEMORY_LIMIT` (default `819MB`). The limit is per DuckDB instance,
   not per process: the in-memory connection and each materialized `.duckdb`
   are separate instances with their own budget. A connection opened without it
   defaults to 80% of the container memory, and a heavy query then gets the
   process OOM-killed instead of raising (#279).
+- 819MB is sized for the largest single feature. `grhq_hr_06aa_udh` and
+  `grhq_hr_06ac_udh` are each one polygon of about 56 MB of GeoJSON. They
+  answer 500 at 512MB, and 200 at 819MB, with an HTTP peak of about 800 MB in
+  1 GiB. The default memory settings and the cap were measured as a set:
+  `make test-repo-consistency` checks that the compose defaults match the
+  `DEFAULT_*` constants. Heavy queries spill to `<id>.duckdb.tmp` next to the
+  data, which needs the read-write `./data/duckdb` mount.
 - SQL: escape identifiers with `escape_identifier()` and path literals with
   `_escape_sql_string()`. Bind values as `$1` parameters, never
   interpolation. `bbox` values are floats parsed and range-checked in the
