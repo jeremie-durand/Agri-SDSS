@@ -186,7 +186,7 @@ smoke-browser-pages:
 
 # Opens every entry of the PostGIS, Parquet, STAC and process catalogs through home,
 # on the running stack's real data. Not run in CI. ALL=1 walks every Parquet
-# collection, which OOM-kills vector-api until #288 is fixed: local stack only.
+# collection instead of a spread sample (about 4 minutes on the local data).
 smoke-catalogs:
 	@before=$$(docker inspect -f '{{.RestartCount}}' $$(docker compose ps -q vector-api) 2>/dev/null); \
 	[ -n "$$before" ] || { echo "✗ vector-api is not running"; exit 1; }; \

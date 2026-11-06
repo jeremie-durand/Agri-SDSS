@@ -8,13 +8,15 @@ show up (#277, #287, #289). For each catalog it asserts that:
 
 1. every PostGIS, Parquet and STAC collection answers ``items?limit=1`` with
    200 and a GeoJSON FeatureCollection;
-2. every listed process answers ``/processes/{id}`` with 200 and its own id.
+2. every listed process answers ``/processes/{id}`` with 200 and its own id;
+3. the known heavy Parquet requests (HEAVY_PARQUET_CHECKS) answer 200, on
+   every run; a collection missing from the stack is skipped.
 
 Requests run one at a time. The first 502, 503 or 504 stops the walk of that
 API, since the service is down and further requests only hit it while it
 restarts. Parquet is capped at PARQUET_DEFAULT_CAP collections, evenly spaced
-over the list: walking all of them OOM-kills vector-api until #288 is fixed.
-``SMOKE_CATALOGS_ALL=1`` walks them all; run it on a local stack only.
+over the list, to keep a routine run short. ``SMOKE_CATALOGS_ALL=1`` walks
+them all.
 
 Run it with ``make smoke-catalogs`` (``ALL=1`` for the full walk). It exits 1
 and prints one line per failure when any check fails. Standard library only,
@@ -45,6 +47,21 @@ COLLECTION_CATALOGS: dict[str, str] = {
     "stac": "/stac-api/collections",
 }
 PROCESS_LIST: str = "/process-api/processes"
+PARQUET_COLLECTIONS: str = COLLECTION_CATALOGS["parquet"]
+
+# Known heavy requests on the real data, checked on every run because the
+# evenly spaced sample can miss them. Each is (collection id, items query,
+# the bug it guards against).
+HEAVY_PARQUET_CHECKS: list[tuple[str, str, str]] = [
+    ("grhq_hr_06aa_udh", "limit=1", "one 56 MB polygon; 500 at 512MB (#288)"),
+    ("grhq_hr_06ac_udh", "limit=1", "one 55 MB polygon; 500 at 512MB (#288)"),
+    ("grhq_hr_04ac_udh", "limit=1", "46 MB feature; peaks near the 1 GiB limit"),
+    (
+        "couverture_pedo_2022",
+        "offset=200000&limit=100",
+        "deep offset OOM-killed vector-api (#279)",
+    ),
+]
 
 
 class ServiceDown(Exception):
@@ -166,6 +183,30 @@ def walk_collections(name: str, list_path: str, cap: int | None) -> list[str]:
     return failures
 
 
+def check_heavy_parquet() -> list[str]:
+    """Run each HEAVY_PARQUET_CHECKS request, skipping collections not listed."""
+    failures: list[str] = []
+    checked = 0
+    try:
+        for collection_id, query, guards in HEAVY_PARQUET_CHECKS:
+            collection_path = f"{PARQUET_COLLECTIONS}/{quote(collection_id, safe='')}"
+            status, _ = fetch_json(collection_path)
+            if status == 404:
+                print(f"note: heavy: {collection_id} not on this stack, skipped")
+                continue
+            path = f"{collection_path}/items?{query}"
+            status, body = fetch_json(path, "application/geo+json")
+            checked += 1
+            if status != 200:
+                failures.append(f"{path}: HTTP {status} ({guards})")
+            elif not isinstance(body, dict) or body.get("type") != "FeatureCollection":
+                failures.append(f"{path}: not a FeatureCollection ({guards})")
+    except ServiceDown as exc:
+        failures.append(f"heavy: service down: {exc}")
+    print(f"heavy: {checked} parquet checks run, {len(failures)} failures")
+    return failures
+
+
 def walk_processes() -> list[str]:
     """Describe every listed process.
 
@@ -202,16 +243,11 @@ def walk_processes() -> list[str]:
 
 def main() -> int:
     """Walk every catalog and return the process exit code."""
-    if WALK_ALL:
-        print(
-            "warning: walking every Parquet collection can OOM-kill vector-api "
-            "until #288 is fixed; run it on a local stack only",
-            flush=True,
-        )
     failures: list[str] = []
     for name, list_path in COLLECTION_CATALOGS.items():
         cap = PARQUET_DEFAULT_CAP if name == "parquet" and not WALK_ALL else None
         failures += walk_collections(name, list_path, cap)
+    failures += check_heavy_parquet()
     failures += walk_processes()
 
     for failure in failures:
