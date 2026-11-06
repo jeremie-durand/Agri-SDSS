@@ -127,6 +127,7 @@ class DuckDBManager:
         # broken file. Cleared per-collection by invalidate_materialized()
         # after an external rebuild.
         self._failed_materialized: set = set()
+        self._warned_position_collisions: set[str] = set()
         self._init_extensions()
 
     def __enter__(self):
@@ -589,6 +590,70 @@ class DuckDBManager:
 
         return schema_info
 
+    def _can_page_by_position(
+        self, schema: ParquetSchemaInfo, position_column: str, collection_id: str
+    ) -> bool:
+        """Return False when a source column would shadow the row-position column.
+
+        Warns once per collection and position column, not on every page.
+        """
+        column_names = {column["name"].lower() for column in schema["columns"]}
+        if position_column not in column_names:
+            return True
+        warning_key = f"{collection_id}:{position_column}"
+        with self._lock:
+            first_time = warning_key not in self._warned_position_collisions
+            self._warned_position_collisions.add(warning_key)
+        if first_time:
+            logger.warning(
+                "Collection %s has a column named %s; paging with the "
+                "single-statement query, which sorts full rows",
+                collection_id,
+                position_column,
+            )
+        return False
+
+    @staticmethod
+    def _position_paged_select_sql(
+        *,
+        from_sql: str,
+        position_column: str,
+        exclude_position: bool,
+        escaped_id_col: str,
+        escaped_geom_col: str | None,
+        where_sql: str,
+        limit: int,
+        offset: int,
+    ) -> str:
+        """Build a page query that sorts only (id, row position), then joins full rows.
+
+        A single ``SELECT * ... ORDER BY id LIMIT n OFFSET k`` makes DuckDB keep
+        the top ``k + n`` full rows, geometry included, which exhausts memory
+        on deep offsets of large collections (#279). Sorting the narrow
+        (id, position) pair keeps memory proportional to the key width, and
+        the position tie-break gives duplicate ids a fixed order, so every page
+        holds exactly ``limit`` rows and pages never overlap.
+        """
+        exclude_sql = f" EXCLUDE ({position_column})" if exclude_position else ""
+        geojson_sql = (
+            f", ST_AsGeoJSON(t.{escaped_geom_col}) AS __geojson__"
+            if escaped_geom_col
+            else ""
+        )
+        return f"""
+            WITH page AS (
+                SELECT {position_column} AS __pos__, {escaped_id_col} AS __id__
+                FROM {from_sql}
+                {where_sql}
+                ORDER BY {escaped_id_col}, {position_column}
+                LIMIT {limit} OFFSET {offset}
+            )
+            SELECT t.*{exclude_sql}{geojson_sql}
+            FROM {from_sql} t
+            JOIN page p ON t.{position_column} = p.__pos__
+            ORDER BY p.__id__, p.__pos__
+        """
+
     def query_items(
         self,
         collection_id: str,
@@ -644,16 +709,30 @@ class DuckDBManager:
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
-        # Build ORDER BY for stable pagination
-        if id_column:
-            order_sql = f"ORDER BY {self.escape_identifier(id_column)}"
-        else:
-            order_sql = ""
-
         count_query = f"SELECT COUNT(*) FROM {from_sql} {where_sql}"
 
-        # Build SELECT with geometry conversion
-        if has_geometry:
+        position_column = "rowid" if materialized else "file_row_number"
+        page_by_position = id_column is not None and self._can_page_by_position(
+            schema, position_column, collection_id
+        )
+        order_sql = f"ORDER BY {self.escape_identifier(id_column)}" if id_column else ""
+
+        if page_by_position:
+            select_sql = self._position_paged_select_sql(
+                from_sql=(
+                    from_sql
+                    if materialized
+                    else f"read_parquet('{escaped_path}', file_row_number = true)"
+                ),
+                position_column=position_column,
+                exclude_position=not materialized,
+                escaped_id_col=self.escape_identifier(id_column),
+                escaped_geom_col=escaped_geom_col if has_geometry else None,
+                where_sql=where_sql,
+                limit=limit,
+                offset=offset,
+            )
+        elif has_geometry:
             select_sql = f"""
                 SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
                 FROM {from_sql}
