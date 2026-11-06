@@ -76,7 +76,7 @@ make smoke-entrypoints            # Verify every service entrypoint still import
 make smoke-stac-browser           # Start stac-browser and probe /stac/, its config and bundle
 make smoke-browser-pages          # API HTML pages via home: one CORS header, prefixed links, CSP
 make smoke-catalogs               # Open every listed PostGIS/Parquet/STAC collection and process via home
-                                  # (Parquet: 25 spread out; ALL=1 walks all, local only until #288;
+                                  # (Parquet: 25 spread out plus known heavy requests; ALL=1 walks all;
                                   # exits 1 on real data until #287/#289 are fixed)
 
 # home has no published port — reach it from inside the Docker network
@@ -98,7 +98,7 @@ afterwards. This includes containers recreated as dependencies, for example by
 make test-all             # Everything CI runs
 make test-<service>       # gis-pipeline | stac-api | vector-api | raster-api |
                           # process-api | chatbot | i18n
-make test-repo-consistency  # Guards the /cog route duplicated across 4 files
+make test-repo-consistency  # Guards the /cog route (4 files) and the vector-api memory defaults (compose vs code)
 make test-caddy           # Rate-limit integration tests (hot-reloads Caddyfile.test)
 
 # Single test file or test (inside the service container)

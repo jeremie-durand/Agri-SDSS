@@ -12,6 +12,9 @@ test-gis-pipeline:
 test-repo-consistency:
 	docker compose run --rm --no-deps -T -v $(CURDIR):/repo -w /repo \
 		process-api pytest process-api/test/test_cog_route_consistency.py -v
+	docker compose run --rm --no-deps -T -v $(CURDIR):/repo -w /repo \
+		-e PYTHONPATH=/app vector-api \
+		pytest vector-api/test/test_memory_defaults_consistency.py -v -rs -p no:cacheprovider
 
 generate-args:
 	docker compose run --build --rm --no-deps \
@@ -183,7 +186,7 @@ smoke-browser-pages:
 
 # Opens every entry of the PostGIS, Parquet, STAC and process catalogs through home,
 # on the running stack's real data. Not run in CI. ALL=1 walks every Parquet
-# collection, which OOM-kills vector-api until #288 is fixed: local stack only.
+# collection instead of a spread sample (about 4 minutes on the local data).
 smoke-catalogs:
 	@before=$$(docker inspect -f '{{.RestartCount}}' $$(docker compose ps -q vector-api) 2>/dev/null); \
 	[ -n "$$before" ] || { echo "✗ vector-api is not running"; exit 1; }; \

@@ -11,9 +11,11 @@ import logging
 import os
 import re
 import threading
+from collections import OrderedDict
+from collections.abc import Callable
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, TypeVar
 
 import duckdb
 
@@ -24,7 +26,39 @@ logger = logging.getLogger(__name__)
 # Strict pattern for collection IDs to prevent path traversal
 COLLECTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 
-DEFAULT_MEMORY_LIMIT: str = "512MB"
+DEFAULT_MEMORY_LIMIT: str = "819MB"
+DEFAULT_MAX_OPEN_DUCKDB: int = 2
+DEFAULT_MAX_DUCKDB_QUERIES: int = 1
+
+MaterializedEntry = tuple[duckdb.DuckDBPyConnection, threading.Lock]
+T = TypeVar("T")
+
+
+class DuckDBConfigError(RuntimeError):
+    """Raised when a DuckDB manager setting is invalid.
+
+    Deliberately not a ValueError: the router maps ValueError from manager
+    calls to 400 "Invalid collection ID".
+    """
+
+
+def _positive_int_setting(name: str, value: int | None, default: int) -> int:
+    """Return value, else the env var name, else default, as a positive int.
+
+    Raises:
+        DuckDBConfigError: If the resolved value is not a positive integer.
+    """
+    raw = value if value is not None else os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    error = DuckDBConfigError(f"{name} must be a positive integer, got {raw!r}")
+    try:
+        resolved = int(raw)
+    except (TypeError, ValueError):
+        raise error from None
+    if resolved < 1:
+        raise error
+    return resolved
 
 
 class DuckDBDescribeColumn(IntEnum):
@@ -87,7 +121,11 @@ class DuckDBManager:
     ]
 
     def __init__(
-        self, data_dir: Optional[str] = None, memory_limit: str | None = None
+        self,
+        data_dir: Optional[str] = None,
+        memory_limit: str | None = None,
+        max_open: int | None = None,
+        max_queries: int | None = None,
     ) -> None:
         """Initialize the DuckDBManager with an in-memory connection.
 
@@ -97,10 +135,26 @@ class DuckDBManager:
                 manager opens (each one is a separate DuckDB instance).
                 Defaults to the DUCKDB_MEMORY_LIMIT env var, then
                 DEFAULT_MEMORY_LIMIT.
+            max_open: Most materialized connections kept open at once.
+                Defaults to VECTOR_API_MAX_OPEN_DUCKDB, then
+                DEFAULT_MAX_OPEN_DUCKDB.
+            max_queries: Most queries running on materialized connections at
+                once. Defaults to VECTOR_API_MAX_DUCKDB_QUERIES, then
+                DEFAULT_MAX_DUCKDB_QUERIES.
+
+        Raises:
+            DuckDBConfigError: If max_open or max_queries (or their env var)
+                is not a positive integer.
         """
         self.data_dir = Path(data_dir or os.getenv("DUCKDB_DATA_DIR", "/data/duckdb"))
         self.memory_limit: str = (
             memory_limit or os.getenv("DUCKDB_MEMORY_LIMIT") or DEFAULT_MEMORY_LIMIT
+        )
+        self.max_open: int = _positive_int_setting(
+            "VECTOR_API_MAX_OPEN_DUCKDB", max_open, DEFAULT_MAX_OPEN_DUCKDB
+        )
+        self.max_queries: int = _positive_int_setting(
+            "VECTOR_API_MAX_DUCKDB_QUERIES", max_queries, DEFAULT_MAX_DUCKDB_QUERIES
         )
         self.conn = duckdb.connect(
             database=":memory:", config={"memory_limit": self.memory_limit}
@@ -113,20 +167,22 @@ class DuckDBManager:
         # Populated lazily on first access; protected by self._lock.
         self._schema_cache: Dict[str, ParquetSchemaInfo] = {}
         # Lazily-opened read-only connections to materialized, RTree-indexed
-        # collections (see materialize.py). A collection becomes materialized
-        # purely by having a <collection_id>.duckdb file in data_dir -- there
-        # is no allowlist. Keyed by collection_id; each entry pairs a
-        # connection with its own lock since it is a distinct DuckDB
-        # connection object from self.conn.
-        self._materialized_conns: Dict[
-            str, Tuple[duckdb.DuckDBPyConnection, threading.Lock]
-        ] = {}
+        # collections (see materialize.py), in least-recently-used order and
+        # capped at max_open: each one is a separate DuckDB instance with its
+        # own block cache, so an unbounded cache OOM-kills the process (#288).
+        # Each entry pairs a connection with its own lock.
+        self._materialized_conns: OrderedDict[str, MaterializedEntry] = OrderedDict()
         # Collection IDs whose .duckdb file exists but failed to open or
         # failed the validity probe during this process's lifetime -- avoids
         # retrying (and re-logging) on every request for a persistently
         # broken file. Cleared per-collection by invalidate_materialized()
         # after an external rebuild.
-        self._failed_materialized: set = set()
+        self._failed_materialized: set[str] = set()
+        # Guards _materialized_conns and _failed_materialized. Separate from
+        # self._lock, which is held for whole queries on the in-memory
+        # connection and would make every cache lookup wait behind them.
+        self._cache_lock = threading.Lock()
+        self._query_slots = threading.BoundedSemaphore(self.max_queries)
         self._warned_position_collisions: set[str] = set()
         self._init_extensions()
 
@@ -143,10 +199,13 @@ class DuckDBManager:
     def close(self) -> None:
         """Explicitly close the DuckDB connection(s). Use only on shutdown."""
         self.conn.close()
-        for conn, _ in self._materialized_conns.values():
-            conn.close()
-        self._materialized_conns.clear()
-        self._failed_materialized.clear()
+        with self._cache_lock:
+            entries = list(self._materialized_conns.values())
+            self._materialized_conns.clear()
+            self._failed_materialized.clear()
+        for conn, conn_lock in entries:
+            with conn_lock:
+                conn.close()
 
     def _init_extensions(self) -> None:
         """Install and load spatial extension."""
@@ -393,7 +452,7 @@ class DuckDBManager:
 
     def _get_materialized_connection(
         self, collection_id: str
-    ) -> Optional[Tuple[duckdb.DuckDBPyConnection, threading.Lock]]:
+    ) -> MaterializedEntry | None:
         """Return the (connection, lock) for a materialized collection, if available.
 
         A collection is materialized purely by having a valid
@@ -402,21 +461,21 @@ class DuckDBManager:
         or fails now; callers must fall back to querying the Parquet file
         directly in that case.
 
+        Opening one more than max_open closes the least recently used ones.
+        Run queries through _run_materialized(), never on the returned pair
+        directly: it may be closed by an eviction at any time.
+
         Args:
             collection_id: The collection identifier.
 
         Returns:
             (connection, lock) tuple, or None.
         """
-        if collection_id in self._materialized_conns:
-            return self._materialized_conns[collection_id]
-
-        if collection_id in self._failed_materialized:
-            return None
-
-        with self._lock:
-            if collection_id in self._materialized_conns:
-                return self._materialized_conns[collection_id]
+        with self._cache_lock:
+            entry = self._materialized_conns.get(collection_id)
+            if entry is not None:
+                self._materialized_conns.move_to_end(collection_id)
+                return entry
 
             if collection_id in self._failed_materialized:
                 return None
@@ -436,7 +495,9 @@ class DuckDBManager:
                 conn.execute(f"SELECT 1 FROM {MATERIALIZED_TABLE_NAME} LIMIT 1")
             except duckdb.Error as e:
                 logger.warning(
-                    f"Failed to open materialized connection for {collection_id}: {e}"
+                    "Failed to open materialized connection for %s: %s",
+                    collection_id,
+                    e,
                 )
                 if "conn" in locals():
                     conn.close()
@@ -445,8 +506,58 @@ class DuckDBManager:
 
             entry = (conn, threading.Lock())
             self._materialized_conns[collection_id] = entry
-            logger.info(f"Opened materialized DuckDB connection for {collection_id}.")
-            return entry
+            evicted: list[tuple[str, MaterializedEntry]] = []
+            while len(self._materialized_conns) > self.max_open:
+                evicted.append(self._materialized_conns.popitem(last=False))
+
+        logger.info("Opened materialized DuckDB connection for %s.", collection_id)
+        for evicted_id, (evicted_conn, evicted_lock) in evicted:
+            # Closed outside _cache_lock: waiting here for the evicted
+            # connection's running query would otherwise block every cache
+            # lookup behind it.
+            with evicted_lock:
+                evicted_conn.close()
+            logger.info("Evicted materialized DuckDB connection for %s.", evicted_id)
+        return entry
+
+    def _run_materialized(
+        self, collection_id: str, work: Callable[[duckdb.DuckDBPyConnection], T]
+    ) -> T | None:
+        """Run work on a collection's materialized connection, if it has one.
+
+        Holds a query slot, then the connection's lock, for the whole of
+        work. An entry is always removed from the cache before it is closed,
+        and closed only under its lock, so finding the same entry still
+        cached while holding the lock means the connection is open. A
+        connection evicted or invalidated between lookup and lock is reopened
+        once; if it is closed again, the caller falls back to read_parquet,
+        which returns the same rows, more slowly.
+
+        Args:
+            collection_id: The collection identifier.
+            work: Runs the queries; must not return None.
+
+        Returns:
+            work's result, or None when the collection has no usable
+            materialized connection (callers then query read_parquet).
+        """
+        for _ in range(2):
+            entry = self._get_materialized_connection(collection_id)
+            if entry is None:
+                return None
+            conn, conn_lock = entry
+            with self._query_slots, conn_lock:
+                with self._cache_lock:
+                    still_cached = self._materialized_conns.get(collection_id) is entry
+                if not still_cached:
+                    continue
+                return work(conn)
+        logger.warning(
+            "Materialized connection for %s was closed twice before a query "
+            "could use it; falling back to read_parquet",
+            collection_id,
+        )
+        return None
 
     def invalidate_materialized(self, collection_id: str) -> bool:
         """Drop any cached materialized connection/failure state for a collection.
@@ -462,7 +573,7 @@ class DuckDBManager:
         Returns:
             True if a cached connection was found and closed, False otherwise.
         """
-        with self._lock:
+        with self._cache_lock:
             self._failed_materialized.discard(collection_id)
             entry = self._materialized_conns.pop(collection_id, None)
 
@@ -472,7 +583,7 @@ class DuckDBManager:
         conn, conn_lock = entry
         with conn_lock:
             conn.close()
-        logger.info(f"Invalidated materialized connection for {collection_id}.")
+        logger.info("Invalidated materialized connection for %s.", collection_id)
         return True
 
     def get_parquet_schema(self, collection_id: str) -> ParquetSchemaInfo:
@@ -686,14 +797,6 @@ class DuckDBManager:
         )
         id_column = schema["id_column"]
 
-        materialized = self._get_materialized_connection(collection_id)
-        if materialized:
-            conn, lock = materialized
-            from_sql = self.escape_identifier(MATERIALIZED_TABLE_NAME)
-        else:
-            conn, lock = None, None
-            from_sql = f"read_parquet('{escaped_path}')"
-
         # Build WHERE clause
         where_clauses = []
         if bbox and has_geometry:
@@ -708,61 +811,78 @@ class DuckDBManager:
             )
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-
-        count_query = f"SELECT COUNT(*) FROM {from_sql} {where_sql}"
-
-        position_column = "rowid" if materialized else "file_row_number"
-        page_by_position = id_column is not None and self._can_page_by_position(
-            schema, position_column, collection_id
-        )
         order_sql = f"ORDER BY {self.escape_identifier(id_column)}" if id_column else ""
 
-        if page_by_position:
-            select_sql = self._position_paged_select_sql(
-                from_sql=(
-                    from_sql
-                    if materialized
-                    else f"read_parquet('{escaped_path}', file_row_number = true)"
-                ),
-                position_column=position_column,
-                exclude_position=not materialized,
-                escaped_id_col=self.escape_identifier(id_column),
-                escaped_geom_col=escaped_geom_col if has_geometry else None,
-                where_sql=where_sql,
-                limit=limit,
-                offset=offset,
+        def build(materialized: bool) -> tuple[str, str]:
+            from_sql = (
+                self.escape_identifier(MATERIALIZED_TABLE_NAME)
+                if materialized
+                else f"read_parquet('{escaped_path}')"
             )
-        elif has_geometry:
-            select_sql = f"""
-                SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
-                FROM {from_sql}
-                {where_sql}
-                {order_sql}
-                LIMIT {limit} OFFSET {offset}
-            """
-        else:
-            select_sql = f"""
-                SELECT *
-                FROM {from_sql}
-                {where_sql}
-                {order_sql}
-                LIMIT {limit} OFFSET {offset}
-            """
+            count_query = f"SELECT COUNT(*) FROM {from_sql} {where_sql}"
+            position_column = "rowid" if materialized else "file_row_number"
+            page_by_position = id_column is not None and self._can_page_by_position(
+                schema, position_column, collection_id
+            )
+            if page_by_position:
+                select_sql = self._position_paged_select_sql(
+                    from_sql=(
+                        from_sql
+                        if materialized
+                        else f"read_parquet('{escaped_path}', file_row_number = true)"
+                    ),
+                    position_column=position_column,
+                    exclude_position=not materialized,
+                    escaped_id_col=self.escape_identifier(id_column),
+                    escaped_geom_col=escaped_geom_col if has_geometry else None,
+                    where_sql=where_sql,
+                    limit=limit,
+                    offset=offset,
+                )
+            elif has_geometry:
+                select_sql = f"""
+                    SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
+                    FROM {from_sql}
+                    {where_sql}
+                    {order_sql}
+                    LIMIT {limit} OFFSET {offset}
+                """
+            else:
+                select_sql = f"""
+                    SELECT *
+                    FROM {from_sql}
+                    {where_sql}
+                    {order_sql}
+                    LIMIT {limit} OFFSET {offset}
+                """
+            return count_query, select_sql
 
-        if materialized:
-            # Hold the lock for the entire count+select sequence so a
-            # concurrent invalidate_materialized() can't close conn between
-            # the two calls (see invalidate_materialized's docstring for the
-            # race this avoids). Only needed for materialized connections --
-            # invalidate_materialized never touches self.conn, so the
-            # fallback path below is safe with independent lock acquisitions,
-            # same as before this fix.
-            with lock:
-                number_matched = self._fetchone_unlocked(conn, count_query)[0]
-                result, columns = self._fetchall_unlocked(conn, select_sql)
-        else:
+        materialized_queries = (
+            build(materialized=True)
+            if (self.data_dir / f"{collection_id}.duckdb").exists()
+            else None
+        )
+
+        def run_page(
+            conn: duckdb.DuckDBPyConnection,
+        ) -> tuple[int, list[tuple], list[str]]:
+            assert materialized_queries is not None
+            count_query, select_sql = materialized_queries
+            matched = self._fetchone_unlocked(conn, count_query)[0]
+            rows, row_columns = self._fetchall_unlocked(conn, select_sql)
+            return matched, rows, row_columns
+
+        page = (
+            self._run_materialized(collection_id, run_page)
+            if materialized_queries is not None
+            else None
+        )
+        if page is None:
+            count_query, select_sql = build(materialized=False)
             number_matched = self._fetchone(count_query)[0]
             result, columns = self._fetchall(select_sql)
+        else:
+            number_matched, result, columns = page
 
         # Convert to GeoJSON features
         features = []
@@ -820,56 +940,52 @@ class DuckDBManager:
         )
         id_column = schema["id_column"]
 
-        materialized = self._get_materialized_connection(collection_id)
-        if materialized:
-            conn, lock = materialized
-            from_sql = self.escape_identifier(MATERIALIZED_TABLE_NAME)
+        if id_column:
+            # Parameterized to prevent SQL injection
+            where_sql = f"WHERE {self.escape_identifier(id_column)} = $1"
+            offset_sql = ""
+            params: list | None = [item_id]
         else:
-            conn, lock = None, None
-            from_sql = f"read_parquet('{escaped_path}')"
-
-        if not id_column:
             # Fall back to row number (1-indexed)
             try:
                 row_num = int(item_id)
-                if has_geometry:
-                    query = f"""
-                        SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
-                        FROM {from_sql}
-                        LIMIT 1 OFFSET {row_num - 1}
-                    """
-                else:
-                    query = f"""
-                        SELECT *
-                        FROM {from_sql}
-                        LIMIT 1 OFFSET {row_num - 1}
-                    """
-                params = None
             except ValueError:
                 return None
-        else:
-            # Use ID column with parameterized query to prevent SQL injection
-            escaped_id_col = self.escape_identifier(id_column)
-            if has_geometry:
-                query = f"""
-                    SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
-                    FROM {from_sql}
-                    WHERE {escaped_id_col} = $1
-                    LIMIT 1
-                """
-            else:
-                query = f"""
-                    SELECT *
-                    FROM {from_sql}
-                    WHERE {escaped_id_col} = $1
-                    LIMIT 1
-                """
-            params = [item_id]
+            where_sql = ""
+            offset_sql = f"OFFSET {row_num - 1}"
+            params = None
+        geojson_sql = (
+            f", ST_AsGeoJSON({escaped_geom_col}) as __geojson__" if has_geometry else ""
+        )
 
+        def build(materialized: bool) -> str:
+            from_sql = (
+                self.escape_identifier(MATERIALIZED_TABLE_NAME)
+                if materialized
+                else f"read_parquet('{escaped_path}')"
+            )
+            return f"""
+                SELECT *{geojson_sql}
+                FROM {from_sql}
+                {where_sql}
+                LIMIT 1 {offset_sql}
+            """
+
+        materialized_query = build(materialized=True)
         try:
-            rows, columns = self._fetchall(query, params, conn=conn, lock=lock)
+            found = self._run_materialized(
+                collection_id,
+                lambda conn: self._fetchall_unlocked(conn, materialized_query, params),
+            )
+            rows, columns = (
+                found
+                if found is not None
+                else self._fetchall(build(materialized=False), params)
+            )
         except duckdb.Error as e:
-            logger.warning(f"Error querying item {item_id} from {collection_id}: {e}")
+            logger.warning(
+                "Error querying item %s from %s: %s", item_id, collection_id, e
+            )
             return None
 
         if not rows:

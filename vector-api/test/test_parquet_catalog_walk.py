@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import duckdb
 import geopandas as gpd
 import pandas as pd
 import pytest
@@ -18,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from shapely.geometry import Point
 from vector_api.duckdb_manager import DuckDBManager
+from vector_api.materialize import materialize_collection
 from vector_api.parquet_router import router as parquet_router
 
 
@@ -104,3 +106,58 @@ def test_every_listed_collection_serves_items(catalog_client: TestClient) -> Non
         if items.status_code != 200 or items.json().get("type") != "FeatureCollection":
             failures.append(f"{collection_id}: {items.status_code}")
     assert failures == []
+
+
+WALK_COLLECTIONS: int = 6
+WALK_MAX_OPEN: int = 2
+
+
+@pytest.mark.integration
+def test_catalog_walk_keeps_open_materialized_collections_under_the_cap(
+    temp_parquet_dir: Path,
+) -> None:
+    """#288: walking more collections than the cap must not keep them all open.
+
+    Every materialized connection is its own DuckDB instance with its own
+    block cache, so an unbounded cache grows until the container is
+    OOM-killed. The walk asserts the cap after every request, and that
+    connections dropped from the cache were really closed.
+    """
+    for index in range(WALK_COLLECTIONS):
+        gdf = gpd.GeoDataFrame(
+            {"gid": [1, 2], "geometry": [Point(-73.5, 45.5), Point(-73.6, 45.6)]},
+            crs="EPSG:4326",
+        )
+        parquet_path = temp_parquet_dir / f"walk_{index}.parquet"
+        gdf.to_parquet(parquet_path)
+        materialize_collection(parquet_path, temp_parquet_dir / f"walk_{index}.duckdb")
+
+    manager = DuckDBManager(data_dir=str(temp_parquet_dir), max_open=WALK_MAX_OPEN)
+    app = FastAPI()
+    app.include_router(parquet_router)
+    seen: dict[int, duckdb.DuckDBPyConnection] = {}
+    try:
+        with patch(
+            "vector_api.parquet_router.get_shared_manager", return_value=manager
+        ):
+            with TestClient(app, raise_server_exceptions=False) as client:
+                listed = client.get("/parquet/collections").json()["collections"]
+                assert len(listed) == WALK_COLLECTIONS
+                for collection in listed:
+                    resp = client.get(
+                        f"/parquet/collections/{collection['id']}/items?limit=1"
+                    )
+                    assert resp.status_code == 200, collection["id"]
+                    open_now = manager._materialized_conns
+                    assert len(open_now) <= WALK_MAX_OPEN, sorted(open_now)
+                    for conn, _ in open_now.values():
+                        seen[id(conn)] = conn
+
+        still_open = {id(conn) for conn, _ in manager._materialized_conns.values()}
+        dropped = [conn for key, conn in seen.items() if key not in still_open]
+        assert len(dropped) == WALK_COLLECTIONS - WALK_MAX_OPEN
+        for conn in dropped:
+            with pytest.raises(duckdb.ConnectionException):
+                conn.execute("SELECT 1")
+    finally:
+        manager.close()
