@@ -5,11 +5,14 @@ an OGC-compliant API interface under the /parquet namespace.
 """
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import anyio
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import TypeAdapter
 
 from agri_i18n import _
 
@@ -20,6 +23,7 @@ from .duckdb_manager import (
     DuckDBSpatialExtensionError,
     ParquetSchemaInfo,
     get_shared_manager,
+    run_duckdb_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +32,8 @@ logger = logging.getLogger(__name__)
 OGC_CRS84 = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
 router = APIRouter(prefix=PARQUET_PREFIX, tags=["Parquet Collections"])
+
+_RESPONSE_ADAPTER: TypeAdapter[dict[str, Any]] = TypeAdapter(dict[str, Any])
 
 
 def validate_collection_exists(collection_id: str) -> Path:
@@ -152,8 +158,24 @@ def build_links(request: Request, collection_id: Optional[str] = None) -> List[D
     return links
 
 
-@router.get("/collections", response_class=JSONResponse)
-async def list_collections(request: Request) -> Dict[str, Any]:
+def _json_response(body: dict[str, Any]) -> JSONResponse:
+    """Render body exactly as FastAPI renders a dict[str, Any] response model.
+
+    Validates, serializes in Pydantic's JSON mode (dates as ISO strings,
+    decimals as strings), then lets JSONResponse encode the bytes, so the
+    worker thread produces the same body the event loop used to.
+    """
+    value = _RESPONSE_ADAPTER.validate_python(body)
+    return JSONResponse(_RESPONSE_ADAPTER.dump_python(value, mode="json"))
+
+
+def _render(build: Callable[..., dict[str, Any]], *args: Any) -> JSONResponse:
+    """Build a response body and render it, both in the calling worker thread."""
+    return _json_response(build(*args))
+
+
+@router.get("/collections", response_class=JSONResponse, response_model=dict[str, Any])
+async def list_collections(request: Request) -> JSONResponse:
     """List all available Parquet collections.
 
     Args:
@@ -163,6 +185,11 @@ async def list_collections(request: Request) -> Dict[str, Any]:
         OGC API Features style collection listing, auto-discovering
         all *.parquet files in the configured data directory.
     """
+    return await run_duckdb_request(_render, _collections_body, request)
+
+
+def _collections_body(request: Request) -> dict[str, Any]:
+    """Build the GET /parquet/collections response body."""
     try:
         manager = get_duckdb_manager()
         parquet_files = manager.list_parquet_files()
@@ -194,7 +221,7 @@ async def list_collections(request: Request) -> Dict[str, Any]:
                 )
             except Exception as e:
                 logger.warning(
-                    f"Could not get schema for {collection_id}: {e}", exc_info=True
+                    "Could not get schema for %s: %s", collection_id, e, exc_info=True
                 )
                 collections.append(
                     {
@@ -212,12 +239,16 @@ async def list_collections(request: Request) -> Dict[str, Any]:
             "numberReturned": len(collections),
         }
     except Exception as e:
-        logger.error(f"Error listing collections: {e}", exc_info=True)
+        logger.error("Error listing collections: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=_("Internal server error"))
 
 
-@router.get("/collections/{collection_id}", response_class=JSONResponse)
-async def get_collection(request: Request, collection_id: str) -> Dict[str, Any]:
+@router.get(
+    "/collections/{collection_id}",
+    response_class=JSONResponse,
+    response_model=dict[str, Any],
+)
+async def get_collection(request: Request, collection_id: str) -> JSONResponse:
     """Get metadata for a specific Parquet collection.
 
     Args:
@@ -227,6 +258,11 @@ async def get_collection(request: Request, collection_id: str) -> Dict[str, Any]
     Returns:
         OGC API Features style collection metadata.
     """
+    return await run_duckdb_request(_render, _collection_body, request, collection_id)
+
+
+def _collection_body(request: Request, collection_id: str) -> dict[str, Any]:
+    """Build the GET /parquet/collections/{id} response body."""
     try:
         # Validate collection exists before opening DB connection
         validate_collection_exists(collection_id)
@@ -273,11 +309,15 @@ async def get_collection(request: Request, collection_id: str) -> Dict[str, Any]
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting collection {collection_id}: {e}", exc_info=True)
+        logger.error("Error getting collection %s: %s", collection_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_("Internal server error"))
 
 
-@router.get("/collections/{collection_id}/items", response_class=JSONResponse)
+@router.get(
+    "/collections/{collection_id}/items",
+    response_class=JSONResponse,
+    response_model=dict[str, Any],
+)
 async def get_items(
     request: Request,
     collection_id: str,
@@ -289,7 +329,7 @@ async def get_items(
         default=None,
         description="Bounding box filter: minx,miny,maxx,maxy",
     ),
-) -> Dict[str, Any]:
+) -> JSONResponse:
     """Get items from a Parquet collection.
 
     Args:
@@ -302,6 +342,19 @@ async def get_items(
     Returns:
         GeoJSON FeatureCollection.
     """
+    return await run_duckdb_request(
+        _render, _items_body, request, collection_id, limit, offset, bbox
+    )
+
+
+def _items_body(
+    request: Request,
+    collection_id: str,
+    limit: int,
+    offset: int,
+    bbox: str | None,
+) -> dict[str, Any]:
+    """Build the GET .../items response body."""
     try:
         # Parse bbox if provided
         bbox_tuple = None
@@ -390,14 +443,16 @@ async def get_items(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting items from {collection_id}: {e}", exc_info=True)
+        logger.error("Error getting items from %s: %s", collection_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_("Internal server error"))
 
 
-@router.get("/collections/{collection_id}/items/{item_id}", response_class=JSONResponse)
-async def get_item(
-    request: Request, collection_id: str, item_id: str
-) -> Dict[str, Any]:
+@router.get(
+    "/collections/{collection_id}/items/{item_id}",
+    response_class=JSONResponse,
+    response_model=dict[str, Any],
+)
+async def get_item(request: Request, collection_id: str, item_id: str) -> JSONResponse:
     """Get a single item from a Parquet collection.
 
     Args:
@@ -408,6 +463,13 @@ async def get_item(
     Returns:
         GeoJSON Feature.
     """
+    return await run_duckdb_request(
+        _render, _item_body, request, collection_id, item_id
+    )
+
+
+def _item_body(request: Request, collection_id: str, item_id: str) -> dict[str, Any]:
+    """Build the GET .../items/{itemId} response body."""
     try:
         # Try to convert item_id to int if it looks numeric
         try:
@@ -447,13 +509,21 @@ async def get_item(
         raise
     except Exception as e:
         logger.error(
-            f"Error getting item {item_id} from {collection_id}: {e}", exc_info=True
+            "Error getting item %s from %s: %s",
+            item_id,
+            collection_id,
+            e,
+            exc_info=True,
         )
         raise HTTPException(status_code=500, detail=_("Internal server error"))
 
 
-@router.get("/collections/{collection_id}/queryables", response_class=JSONResponse)
-async def get_queryables(request: Request, collection_id: str) -> Dict[str, Any]:
+@router.get(
+    "/collections/{collection_id}/queryables",
+    response_class=JSONResponse,
+    response_model=dict[str, Any],
+)
+async def get_queryables(request: Request, collection_id: str) -> JSONResponse:
     """Get queryable properties for a Parquet collection.
 
     Args:
@@ -463,6 +533,11 @@ async def get_queryables(request: Request, collection_id: str) -> Dict[str, Any]
     Returns:
         JSON Schema describing queryable properties.
     """
+    return await run_duckdb_request(_render, _queryables_body, request, collection_id)
+
+
+def _queryables_body(request: Request, collection_id: str) -> dict[str, Any]:
+    """Build the GET .../queryables response body."""
     try:
         # Validate collection exists before opening DB connection
         validate_collection_exists(collection_id)
@@ -515,7 +590,7 @@ async def get_queryables(request: Request, collection_id: str) -> Dict[str, Any]
         raise
     except Exception as e:
         logger.error(
-            f"Error getting queryables for {collection_id}: {e}", exc_info=True
+            "Error getting queryables for %s: %s", collection_id, e, exc_info=True
         )
         raise HTTPException(status_code=500, detail=_("Internal server error"))
 
@@ -536,6 +611,10 @@ async def invalidate_collection(collection_id: str) -> Dict[str, Any]:
     Returns:
         Whether a cached connection was found and dropped.
     """
-    manager = get_duckdb_manager()
-    invalidated = manager.invalidate_materialized(collection_id)
+    invalidated = await anyio.to_thread.run_sync(_invalidate, collection_id)
     return {"collection_id": collection_id, "invalidated": invalidated}
+
+
+def _invalidate(collection_id: str) -> bool:
+    """Close the collection's cached connection, waiting for its running query."""
+    return get_duckdb_manager().invalidate_materialized(collection_id)
