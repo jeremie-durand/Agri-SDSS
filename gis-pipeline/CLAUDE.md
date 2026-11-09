@@ -198,8 +198,15 @@ This overrides the root rule on log formatting.
 
 ## Testing
 
-- Tests are unit tests with mocked I/O: no live PostGIS or STAC API calls.
-  DuckDB runs in-process against temp files.
+- Tests are unit tests with mocked I/O: no live STAC API calls. DuckDB runs
+  in-process against temp files.
+- The one exception is `test/modules/db/test_pg_utils_integration.py`
+  (`integration`): it runs `PostGISManager` writes against the live database
+  on throwaway `zz_it_*` tables and skips when PostgreSQL is unreachable. It
+  is what catches SQLAlchemy / GeoAlchemy2 / pandas / geopandas
+  incompatibilities, which the mocked engine hides (SQLAlchemy 2.1 needs
+  GeoAlchemy2 ≥ 0.20). Bump those libraries together and run it. Add a case
+  there when a new write path reaches PostGIS; keep everything else mocked.
 - Mock with `unittest.mock.patch`/`MagicMock` and `monkeypatch`. Use in-memory
   GeoDataFrames and `tmp_path` rasters. `responses` is used only for STAC HTTP
   tests.
