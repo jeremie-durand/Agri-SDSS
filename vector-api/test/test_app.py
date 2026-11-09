@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import re
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -16,6 +17,7 @@ from starlette.middleware.cors import CORSMiddleware
 from tipg.main import app as tipg_app
 from vector_api.app import MountRootPathMiddleware, app
 
+PARQUET_OPENAPI_SNAPSHOT: Path = Path(__file__).parent / "data" / "parquet_openapi.json"
 PARQUET_SPEC_PATHS: set[str] = {
     "/parquet/collections",
     "/parquet/collections/{collection_id}",
@@ -131,6 +133,20 @@ def test_parquet_openapi_spec_resolves_every_schema_reference(app_client):
     defined = set(spec.get("components", {}).get("schemas", {}))
     assert refs
     assert refs <= defined, refs - defined
+
+
+@pytest.mark.unit
+def test_parquet_openapi_spec_matches_snapshot(app_client: TestClient) -> None:
+    """Paths, response schemas and descriptions stay as pinned for #280.
+
+    After an intended change (a FastAPI or Pydantic upgrade included),
+    regenerate the snapshot with json.dump(spec, f, indent=2, sort_keys=True,
+    ensure_ascii=False) and review the diff.
+    """
+    with patch("vector_api.app.EXTERNAL_ROOT", "/vector-api"):
+        spec = app_client.get("/parquet/openapi.json").json()
+
+    assert spec == json.loads(PARQUET_OPENAPI_SNAPSHOT.read_text(encoding="utf-8"))
 
 
 # --- Main docs pages ---

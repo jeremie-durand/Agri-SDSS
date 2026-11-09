@@ -17,6 +17,7 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, TypeVar
 
+import anyio
 import duckdb
 
 from .materialize import MATERIALIZED_TABLE_NAME
@@ -1031,3 +1032,29 @@ def get_shared_manager() -> DuckDBManager:
                 _shared_manager = DuckDBManager()
                 logger.info("DuckDB shared manager singleton created.")
     return _shared_manager
+
+
+# ---------------------------------------------------------------------------
+# Request gate
+# ---------------------------------------------------------------------------
+
+_REQUEST_GATE = anyio.CapacityLimiter(1)
+
+
+async def run_duckdb_request(func: Callable[..., T], *args: Any) -> T:
+    """Run a request's DuckDB work and response building in a worker thread.
+
+    Every request-time DuckDB call goes through here, so it never blocks the
+    event loop (#280). The gate admits one request at a time across the
+    in-memory and the materialized connections, keeping the one-heavy-query
+    memory envelope measured for #279 and #288. A request waiting for the gate
+    holds no worker thread.
+
+    Args:
+        func: Synchronous callable doing the DuckDB work.
+        *args: Positional arguments passed to func.
+
+    Returns:
+        func's result. Exceptions raised by func propagate unchanged.
+    """
+    return await anyio.to_thread.run_sync(func, *args, limiter=_REQUEST_GATE)
