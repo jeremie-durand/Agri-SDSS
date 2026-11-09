@@ -15,6 +15,8 @@ test-repo-consistency:
 	docker compose run --rm --no-deps -T -v $(CURDIR):/repo -w /repo \
 		-e PYTHONPATH=/app vector-api \
 		pytest vector-api/test/test_memory_defaults_consistency.py -v -rs -p no:cacheprovider
+	docker compose run --rm --no-deps -T -v $(CURDIR):/repo -w /repo \
+		process-api pytest caddy/test/test_dockerfile_version_consistency.py -v -p no:cacheprovider
 
 generate-args:
 	docker compose run --build --rm --no-deps \
