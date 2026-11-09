@@ -9,7 +9,7 @@ cligj==0.7.2
 colorama==0.4.6
 duckdb==1.5.6
 fiona==1.10.1
-geoalchemy2==0.18.3
+geoalchemy2==0.21.0
 geopandas==1.1.2
 greenlet==3.5.6
 idna==3.20
@@ -34,7 +34,7 @@ shapely==2.2.0
 six==1.17.0
 snuggs==1.4.7
 structlog==26.1.0
-SQLAlchemy==2.0.52
+SQLAlchemy==2.1.8
 stac-pydantic==3.7.2
 typing_extensions==4.13.2
 tzdata==2026.6
