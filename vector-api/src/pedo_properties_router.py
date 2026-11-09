@@ -18,7 +18,11 @@ from fastapi.responses import JSONResponse
 from agri_i18n import _
 
 from .db_pool import get_pool
-from .duckdb_manager import DuckDBSpatialExtensionError, get_shared_manager
+from .duckdb_manager import (
+    DuckDBSpatialExtensionError,
+    get_shared_manager,
+    run_duckdb_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +84,20 @@ async def pedo_properties(body: Dict[str, Any]) -> JSONResponse:
     """
     geom_json = _geometry_json(body)
     fractions = await _polygon_fractions(geom_json)
+    components, densities = await run_duckdb_request(_load_soil_tables, list(fractions))
+    return JSONResponse(_aggregate(fractions, components, densities))
+
+
+def _load_soil_tables(
+    codes: list[str],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Return the polygons' components and their soils' bulk densities.
+
+    Runs the DuckDB joins in a worker thread, inside the request gate.
+    """
     manager = _manager()
     try:
-        components = _load_components(manager, list(fractions))
+        components = _load_components(manager, codes)
         code_sols = sorted({c["code_sol"] for c in components if c["code_sol"]})
         densities = _load_bulk_densities(manager, code_sols)
     except FileNotFoundError as exc:
@@ -91,7 +106,7 @@ async def pedo_properties(body: Dict[str, Any]) -> JSONResponse:
             status_code=503,
             detail=_("Pedological property tables are unavailable."),
         ) from exc
-    return JSONResponse(_aggregate(fractions, components, densities))
+    return components, densities
 
 
 def _geometry_json(body: Dict[str, Any]) -> str:

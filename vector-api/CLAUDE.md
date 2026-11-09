@@ -204,6 +204,8 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   bulk-density joins run in DuckDB on the GeoParquet tables named by the
   `PEDO_*_COLLECTION` variables, through
   `DuckDBManager.parquet_source()` / `query_rows()`. Missing tables return 503.
+  Those joins run in `_load_soil_tables` through `run_duckdb_request`, the
+  same gate as `/parquet`. The asyncpg overlap query stays on the event loop.
 - The IRDA `couverture_pps` table currently lacks every `numero_composante = 1`
   row (each polygon's dominant soil), so `described_pct` is low and the dominant
   hydrologic group can be wrong until it is re-imported. The endpoint reports
