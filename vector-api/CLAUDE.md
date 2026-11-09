@@ -124,9 +124,9 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   Raise the cap only together with the container memory. The cap bounds the
   cache, not every open instance: a new connection opens before the oldest is
   popped, and a popped one stays open until its running query ends, so up to
-  `max_open + max_queries + 1` instances can be live for a moment, with one
-  opener at a time (true while the routes run on the event loop; each extra
-  concurrent opener after #281 can add one more).
+  `max_open + max_queries + 1` instances can be live for a moment. Openers stay
+  one at a time: connections open under `_cache_lock`, and the request gate
+  (below) admits one request.
 - The schema cache (`_schema_cache`) is never cleared. The code assumes
   Parquet files are immutable, but gis-pipeline overwrites `<id>.parquet` on
   re-ingestion, so feature count, bbox and detected columns stay stale until a
@@ -147,10 +147,31 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
     while waiting for a connection lock.
   - Order: query slot, then connection lock.
   - `self._lock` is separate: it is held for whole in-memory queries.
-- The Parquet routes are `async def` handlers that call DuckDB synchronously,
-  so they block the event loop and run one at a time. Moving them to a thread
-  pool (#281) makes the query slots matter: four parallel heavy queries were
-  OOM-killed without them.
+- Every request-time DuckDB call goes through
+  `await run_duckdb_request(func, *args)` (`duckdb_manager.py`). It runs `func`
+  in a worker thread behind one process-wide `CapacityLimiter(1)`, so DuckDB
+  never blocks the event loop (#280) and one request at a time runs DuckDB
+  work, on the in-memory and the materialized connections alike. That keeps
+  the memory envelope the 819MB figure below and the cap figures above were
+  measured with: `/postgis` and `/` stay responsive, and Parquet requests still
+  queue behind each other. A waiting request holds no thread. Calling the
+  manager directly from an `async def` route stalls the whole app again. A
+  plain `def` route or `run_in_threadpool` skips the gate, so response
+  rendering, feature building and in-memory vs materialized queries run in
+  parallel outside that envelope. The query slots alone still serialize
+  materialized queries: four parallel heavy queries were OOM-killed before
+  they existed.
+- The `/parquet` read routes are thin `async def` handlers. Each one keeps its
+  signature and docstring, which feed `/parquet/openapi.json`, and passes a
+  `_*_body` builder to `_render`. Rendering happens in the worker through
+  `_json_response`, the same Pydantic JSON-mode serialization FastAPI used, so
+  decimals stay strings and dates ISO. `response_model=dict[str, Any]` on the
+  decorator keeps the OpenAPI schema. `test_parquet_response_encoding.py` and
+  the snapshot in `test/data/parquet_openapi.json` pin both.
+- `/invalidate` runs in the default thread pool, outside the gate. It runs no
+  query, but it waits for a running query on the same collection, and
+  gis-pipeline calls it with a 10 s timeout, so it must not queue behind other
+  collections.
 - Every DuckDB connection is opened with `config={"memory_limit": ...}` from
   `DUCKDB_MEMORY_LIMIT` (default `819MB`). The limit is per DuckDB instance,
   not per process: the in-memory connection and each materialized `.duckdb`
@@ -222,7 +243,7 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | Marker | Where | What it needs |
 | --- | --- | --- |
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
-| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
 | `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
 
 - Build Parquet fixtures with the `sample_geoparquet` and `temp_parquet_dir`
