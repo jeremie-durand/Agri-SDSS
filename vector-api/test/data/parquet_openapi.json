@@ -1,0 +1,375 @@
+{
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "OGC API Features style endpoints for GeoParquet files",
+    "title": "Parquet Collections API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/parquet/collections": {
+      "get": {
+        "description": "List all available Parquet collections.\n\nArgs:\n    request: FastAPI request object for URL building.\n\nReturns:\n    OGC API Features style collection listing, auto-discovering\n    all *.parquet files in the configured data directory.",
+        "operationId": "list_collections_parquet_collections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Collections Parquet Collections Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Collections",
+        "tags": [
+          "Parquet Collections"
+        ]
+      }
+    },
+    "/parquet/collections/{collection_id}": {
+      "get": {
+        "description": "Get metadata for a specific Parquet collection.\n\nArgs:\n    request: FastAPI request object for URL building.\n    collection_id: The collection identifier (Parquet filename without extension).\n\nReturns:\n    OGC API Features style collection metadata.",
+        "operationId": "get_collection_parquet_collections__collection_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Collection Parquet Collections  Collection Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Collection",
+        "tags": [
+          "Parquet Collections"
+        ]
+      }
+    },
+    "/parquet/collections/{collection_id}/invalidate": {
+      "post": {
+        "description": "Drop any cached materialized connection for a collection.\n\nCalled after an external rebuild (the manual CLI script or gis-pipeline's\nautomatic trigger) swaps in a fresh .duckdb file for this collection, so\nthe next request re-opens it instead of serving stale cached data.\nIdempotent: returns success whether or not anything was cached, and\nregardless of whether collection_id refers to a real collection at all.\n\nArgs:\n    collection_id: The collection identifier.\n\nReturns:\n    Whether a cached connection was found and dropped.",
+        "operationId": "invalidate_collection_parquet_collections__collection_id__invalidate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Invalidate Collection Parquet Collections  Collection Id  Invalidate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Invalidate Collection",
+        "tags": [
+          "Parquet Collections"
+        ]
+      }
+    },
+    "/parquet/collections/{collection_id}/items": {
+      "get": {
+        "description": "Get items from a Parquet collection.\n\nArgs:\n    request: FastAPI request object for URL building.\n    collection_id: The collection identifier.\n    limit: Maximum number of items to return (default: 10, max: 10000).\n    offset: Number of items to skip for pagination.\n    bbox: Optional bounding box filter as comma-separated values.\n\nReturns:\n    GeoJSON FeatureCollection.",
+        "operationId": "get_items_parquet_collections__collection_id__items_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number of items to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "description": "Number of items to return",
+              "maximum": 10000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Number of items to skip",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Bounding box filter: minx,miny,maxx,maxy",
+            "in": "query",
+            "name": "bbox",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Bounding box filter: minx,miny,maxx,maxy",
+              "title": "Bbox"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Items Parquet Collections  Collection Id  Items Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Items",
+        "tags": [
+          "Parquet Collections"
+        ]
+      }
+    },
+    "/parquet/collections/{collection_id}/items/{item_id}": {
+      "get": {
+        "description": "Get a single item from a Parquet collection.\n\nArgs:\n    request: FastAPI request object for URL building.\n    collection_id: The collection identifier.\n    item_id: The item identifier (value of ID column or row number).\n\nReturns:\n    GeoJSON Feature.",
+        "operationId": "get_item_parquet_collections__collection_id__items__item_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Item Parquet Collections  Collection Id  Items  Item Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Item",
+        "tags": [
+          "Parquet Collections"
+        ]
+      }
+    },
+    "/parquet/collections/{collection_id}/queryables": {
+      "get": {
+        "description": "Get queryable properties for a Parquet collection.\n\nArgs:\n    request: FastAPI request object for URL building.\n    collection_id: The collection identifier.\n\nReturns:\n    JSON Schema describing queryable properties.",
+        "operationId": "get_queryables_parquet_collections__collection_id__queryables_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Queryables Parquet Collections  Collection Id  Queryables Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Queryables",
+        "tags": [
+          "Parquet Collections"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/vector-api"
+    }
+  ]
+}
