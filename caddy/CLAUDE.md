@@ -140,3 +140,7 @@ the `Caddyfile` needs a restart, not a rebuild.
   production file. Nothing checks that automatically.
 - The `RATE_LIMIT_*` variables the Makefile passes only tell the tests the
   limits `Caddyfile.test` sets. They configure nothing.
+- `test_dockerfile_version_consistency.py` is the one `unit` test here. It runs
+  in `make test-repo-consistency` (CI), not `make test-caddy`, and fails when
+  the two `FROM caddy:` lines pin different versions. The builder stage is the
+  Caddy that ships, and Dependabot has bumped the two lines apart (#305).

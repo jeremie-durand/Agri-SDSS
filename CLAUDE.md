@@ -98,7 +98,8 @@ afterwards. This includes containers recreated as dependencies, for example by
 make test-all             # Everything CI runs
 make test-<service>       # gis-pipeline | stac-api | vector-api | raster-api |
                           # process-api | chatbot | i18n
-make test-repo-consistency  # Guards the /cog route (4 files) and the vector-api memory defaults (compose vs code)
+make test-repo-consistency  # Guards the /cog route (4 files), the vector-api memory defaults (compose vs code)
+                            # and the Caddy builder/runtime versions (Dockerfile.caddy)
 make test-caddy           # Rate-limit integration tests (hot-reloads Caddyfile.test)
 
 # Single test file or test (inside the service container)
