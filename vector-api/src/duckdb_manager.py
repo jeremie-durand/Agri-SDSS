@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import threading
+import time
 from collections import OrderedDict
 from collections.abc import Callable
 from enum import IntEnum
@@ -165,7 +166,8 @@ class DuckDBManager:
         self._lock = threading.Lock()
         # Schema cache: collection_id -> ParquetSchemaInfo.
         # Parquet files are immutable so entries never need invalidation.
-        # Populated lazily on first access; protected by self._lock.
+        # Filled at start-up by warm_schema_cache() and on any later miss;
+        # protected by self._lock.
         self._schema_cache: Dict[str, ParquetSchemaInfo] = {}
         # Lazily-opened read-only connections to materialized, RTree-indexed
         # collections (see materialize.py), in least-recently-used order and
@@ -1072,3 +1074,36 @@ async def run_duckdb_request(func: Callable[..., T], *args: Any) -> T:
         func's result. Exceptions raised by func propagate unchanged.
     """
     return await anyio.to_thread.run_sync(func, *args, limiter=_REQUEST_GATE)
+
+
+async def warm_schema_cache() -> None:
+    """Compute every Parquet collection's schema once, right after start-up.
+
+    Each collection takes the request gate on its own, so a request arriving
+    meanwhile waits for one schema scan, not for the whole warm-up (#281).
+    Failures are logged and never raised: a broken collection is skipped, and
+    a manager that cannot start leaves the /parquet routes answering 503.
+    """
+    started = time.monotonic()
+    try:
+        manager = await run_duckdb_request(get_shared_manager)
+        parquet_files = await run_duckdb_request(manager.list_parquet_files)
+    except Exception as e:
+        logger.warning("Parquet schema warm-up skipped: %s", e)
+        return
+
+    failed = 0
+    for parquet_file in parquet_files:
+        collection_id = parquet_file["id"]
+        try:
+            await run_duckdb_request(manager.get_parquet_schema, collection_id)
+        except Exception as e:
+            failed += 1
+            logger.warning("Parquet schema warm-up failed for %s: %s", collection_id, e)
+
+    logger.info(
+        "Parquet schema warm-up: %d of %d collections scanned in %.1f s",
+        len(parquet_files) - failed,
+        len(parquet_files),
+        time.monotonic() - started,
+    )
