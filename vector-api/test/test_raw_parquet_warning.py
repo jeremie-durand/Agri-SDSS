@@ -1,57 +1,20 @@
 """A large geometry collection served without its .duckdb is logged once (#282)."""
 
 import logging
-import random
 import shutil
-import string
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import patch
 
 import duckdb
-import geopandas as gpd
-import pandas as pd
 import pytest
-from shapely.geometry import Point
 from vector_api.duckdb_manager import DuckDBManager
 from vector_api.materialize import materialize_collection
 
 pytestmark = pytest.mark.unit
 
 WARNING_TEXT: str = "from raw Parquet"
-LARGE_ROWS: int = 30_000
 ONE_MB: int = 1024 * 1024
-
-
-def _random_text(rows: int) -> list[str]:
-    rng = random.Random(282)
-    alphabet = string.ascii_letters + string.digits
-    return ["".join(rng.choices(alphabet, k=64)) for _ in range(rows)]
-
-
-@pytest.fixture(scope="module")
-def large_sources(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
-    """GeoParquet and plain Parquet files just over 1 MB, written once."""
-    base = tmp_path_factory.mktemp("large_sources")
-    text = _random_text(LARGE_ROWS)
-    gids = list(range(1, LARGE_ROWS + 1))
-
-    geo_path = base / "geo.parquet"
-    gpd.GeoDataFrame(
-        {
-            "gid": gids,
-            "text": text,
-            "geometry": [Point(-73.5 + i * 1e-6, 45.5) for i in gids],
-        },
-        crs="EPSG:4326",
-    ).to_parquet(geo_path)
-
-    plain_path = base / "plain.parquet"
-    pd.DataFrame({"gid": gids, "text": text}).to_parquet(plain_path)
-
-    for path in (geo_path, plain_path):
-        assert path.stat().st_size > ONE_MB
-    return {"geo": geo_path, "plain": plain_path}
 
 
 @pytest.fixture

@@ -32,7 +32,7 @@ DEFAULT_MEMORY_LIMIT: str = "819MB"
 DEFAULT_MAX_OPEN_DUCKDB: int = 2
 DEFAULT_MAX_DUCKDB_QUERIES: int = 1
 DEFAULT_RAW_PARQUET_WARN_MB: int = 50
-_BYTES_PER_MB: int = 1024 * 1024
+BYTES_PER_MB: int = 1024 * 1024
 
 MaterializedEntry = tuple[duckdb.DuckDBPyConnection, threading.Lock]
 T = TypeVar("T")
@@ -63,6 +63,29 @@ def _positive_int_setting(name: str, value: int | None, default: int) -> int:
     if resolved < 1:
         raise error
     return resolved
+
+
+def open_materialized(db_path: Path, memory_limit: str) -> duckdb.DuckDBPyConnection:
+    """Open a materialized .duckdb file read-only and check its table answers.
+
+    Shared by the service and the check_materialized operator check, so both
+    agree on what a usable index is.
+
+    Raises:
+        duckdb.Error: If the file cannot be opened or queried; nothing is
+            left open.
+    """
+    conn = duckdb.connect(
+        database=str(db_path), read_only=True, config={"memory_limit": memory_limit}
+    )
+    try:
+        conn.execute("INSTALL spatial")
+        conn.execute("LOAD spatial")
+        conn.execute(f"SELECT 1 FROM {MATERIALIZED_TABLE_NAME} LIMIT 1")
+    except duckdb.Error:
+        conn.close()
+        raise
+    return conn
 
 
 class DuckDBDescribeColumn(IntEnum):
@@ -505,22 +528,13 @@ class DuckDBManager:
                 return None
 
             try:
-                conn = duckdb.connect(
-                    database=str(db_path),
-                    read_only=True,
-                    config={"memory_limit": self.memory_limit},
-                )
-                conn.execute("INSTALL spatial")
-                conn.execute("LOAD spatial")
-                conn.execute(f"SELECT 1 FROM {MATERIALIZED_TABLE_NAME} LIMIT 1")
+                conn = open_materialized(db_path, self.memory_limit)
             except duckdb.Error as e:
                 logger.warning(
                     "Failed to open materialized connection for %s: %s",
                     collection_id,
                     e,
                 )
-                if "conn" in locals():
-                    conn.close()
                 self._failed_materialized.add(collection_id)
                 return None
 
@@ -598,11 +612,11 @@ class DuckDBManager:
             if collection_id in self._raw_parquet_checked:
                 return
             self._raw_parquet_checked.add(collection_id)
-        if missing and size_bytes > self.raw_parquet_warn_mb * _BYTES_PER_MB:
+        if missing and size_bytes > self.raw_parquet_warn_mb * BYTES_PER_MB:
             logger.warning(
                 "Serving %s from raw Parquet (%.1f MB, no .duckdb)",
                 collection_id,
-                size_bytes / _BYTES_PER_MB,
+                size_bytes / BYTES_PER_MB,
             )
 
     def invalidate_materialized(self, collection_id: str) -> bool:

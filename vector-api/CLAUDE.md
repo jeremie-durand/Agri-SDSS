@@ -59,6 +59,8 @@ src/                      Copied to /app/vector_api — import as the vector_api
   duckdb_manager.py       DuckDBManager singleton: discovery, schema cache,
                           materialized connections, queries
   materialize.py          RTree-indexed .duckdb build (copy — see Cross-Service)
+  check_materialized.py   make check-materialized: large collections without
+                          a usable .duckdb (exit 0/1/2)
   db_pool.py              asyncpg pool for pedo_properties_router
   pedo_properties_router.py   /pedo-properties
 test/                     Bind-mounted at /app/vector_api/test
@@ -117,6 +119,9 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 - A `<id>.duckdb` next to the Parquet file (built by gis-pipeline) is
   preferred automatically. It is opened read-only, and a file that fails to
   open is remembered and skipped. `invalidate_materialized()` clears both.
+  What counts as usable is decided by `open_materialized()`, which
+  `make check-materialized` calls too: change the probe there, never in one
+  caller only.
 - Without its `.duckdb`, a collection is served from `read_parquet()`, about
   50× slower on large ones (#282). The first raw fallback of a geometry
   collection larger than `VECTOR_API_RAW_PARQUET_WARN_MB` (default 50) logs

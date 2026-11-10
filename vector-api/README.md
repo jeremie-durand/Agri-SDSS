@@ -74,6 +74,24 @@ by horizon (`ppc_eessaq`, falling back to the 1990 inventory without depths).
 - **Warm start** — right after start-up, the Parquet collection metadata (columns, feature count, extent) is computed in the background, so the first `/parquet/collections` does not pay for it
 - **Offline start** — the image ships DuckDB's `spatial` extension, so a new container needs no network access to load it
 
+## Checking the `.duckdb` indexes
+
+A GeoParquet collection is fast only when its RTree-indexed `<id>.duckdb` file
+exists next to it; otherwise it is served from the raw Parquet file, much more
+slowly, and vector-api logs one warning per collection above
+`VECTOR_API_RAW_PARQUET_WARN_MB`. To list those collections on demand, for
+example after a pipeline run or a deploy:
+
+```bash
+make check-materialized
+```
+
+It prints one line per geometry collection above the threshold whose `.duckdb`
+is `missing` or `unreadable` (or a Parquet file it could not read, as
+`unchecked`), then a summary, and exits 1 if it listed any (2 if
+the setting or the data directory is invalid). It runs in a one-off container,
+so the running vector-api is not recreated.
+
 ## Language
 
 Error messages are returned in **French by default**:
