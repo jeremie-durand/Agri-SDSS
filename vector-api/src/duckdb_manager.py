@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import threading
+import time
 from collections import OrderedDict
 from collections.abc import Callable
 from enum import IntEnum
@@ -165,7 +166,8 @@ class DuckDBManager:
         self._lock = threading.Lock()
         # Schema cache: collection_id -> ParquetSchemaInfo.
         # Parquet files are immutable so entries never need invalidation.
-        # Populated lazily on first access; protected by self._lock.
+        # Filled at start-up by warm_schema_cache() and on any later miss;
+        # protected by self._lock.
         self._schema_cache: Dict[str, ParquetSchemaInfo] = {}
         # Lazily-opened read-only connections to materialized, RTree-indexed
         # collections (see materialize.py), in least-recently-used order and
@@ -590,8 +592,9 @@ class DuckDBManager:
     def get_parquet_schema(self, collection_id: str) -> ParquetSchemaInfo:
         """Get schema information for a Parquet file.
 
-        Results are cached per collection_id. Parquet files are immutable so
-        the cache is valid for the lifetime of the process.
+        Results are cached per collection_id for the lifetime of the process,
+        except a schema whose bbox scan failed: it is returned with bbox None
+        and computed again on the next call.
 
         Args:
             collection_id: The collection identifier.
@@ -611,7 +614,9 @@ class DuckDBManager:
         if collection_id in self._schema_cache:
             return self._schema_cache[collection_id]
 
-        schema = self._compute_parquet_schema(collection_id)
+        schema, bbox_failed = self._compute_parquet_schema(collection_id)
+        if bbox_failed:
+            return schema
 
         # Cache under the lock so concurrent first-time callers for the same
         # collection_id don't both write (harmless, but avoids redundant work).
@@ -620,8 +625,16 @@ class DuckDBManager:
 
         return schema
 
-    def _compute_parquet_schema(self, collection_id: str) -> ParquetSchemaInfo:
-        """Compute schema by introspecting the Parquet file. Called by get_parquet_schema on cache miss."""
+    def _compute_parquet_schema(
+        self, collection_id: str
+    ) -> tuple[ParquetSchemaInfo, bool]:
+        """Compute schema by introspecting the Parquet file.
+
+        Called by get_parquet_schema on cache miss.
+
+        Returns:
+            The schema, and whether its bbox query raised (bbox is then None).
+        """
         parquet_path = self._get_validated_parquet_path(collection_id)
         path_str = str(parquet_path)
 
@@ -681,7 +694,7 @@ class DuckDBManager:
             "bbox": None,
         }
 
-        # Compute bounding box if spatial
+        bbox_failed = False
         if has_geometry:
             try:
                 escaped_geom_col = self.escape_identifier(geometry_column)
@@ -698,9 +711,12 @@ class DuckDBManager:
                 if bbox_result and all(v is not None for v in bbox_result):
                     schema_info["bbox"] = list(bbox_result)
             except duckdb.Error as e:
-                logger.warning(f"Could not compute bbox for {collection_id}: {e}")
+                bbox_failed = True
+                logger.warning(
+                    "Could not compute bbox for %s, will retry: %s", collection_id, e
+                )
 
-        return schema_info
+        return schema_info, bbox_failed
 
     def _can_page_by_position(
         self, schema: ParquetSchemaInfo, position_column: str, collection_id: str
@@ -1058,3 +1074,36 @@ async def run_duckdb_request(func: Callable[..., T], *args: Any) -> T:
         func's result. Exceptions raised by func propagate unchanged.
     """
     return await anyio.to_thread.run_sync(func, *args, limiter=_REQUEST_GATE)
+
+
+async def warm_schema_cache() -> None:
+    """Compute every Parquet collection's schema once, right after start-up.
+
+    Each collection takes the request gate on its own, so a request arriving
+    meanwhile waits for one schema scan, not for the whole warm-up (#281).
+    Failures are logged and never raised: a broken collection is skipped, and
+    a manager that cannot start leaves the /parquet routes answering 503.
+    """
+    started = time.monotonic()
+    try:
+        manager = await run_duckdb_request(get_shared_manager)
+        parquet_files = await run_duckdb_request(manager.list_parquet_files)
+    except Exception as e:
+        logger.warning("Parquet schema warm-up skipped: %s", e)
+        return
+
+    failed = 0
+    for parquet_file in parquet_files:
+        collection_id = parquet_file["id"]
+        try:
+            await run_duckdb_request(manager.get_parquet_schema, collection_id)
+        except Exception as e:
+            failed += 1
+            logger.warning("Parquet schema warm-up failed for %s: %s", collection_id, e)
+
+    logger.info(
+        "Parquet schema warm-up: %d of %d collections scanned in %.1f s",
+        len(parquet_files) - failed,
+        len(parquet_files),
+        time.monotonic() - started,
+    )

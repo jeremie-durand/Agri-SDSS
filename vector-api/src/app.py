@@ -10,7 +10,7 @@ through a unified API with consistent namespace prefixes.
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -39,6 +39,7 @@ from .config import (
     POSTGIS_PREFIX,
     external_base_url,
 )
+from .duckdb_manager import warm_schema_cache
 from .parquet_router import router as parquet_router
 from .pedo_properties_router import router as pedo_properties_router
 
@@ -146,7 +147,8 @@ async def lifespan(app: FastAPI):
     """Lifespan that initialises TiPg's DB connection on the mounted sub-app.
 
     Retries on transient connection failures (e.g. database recovering from an
-    unclean shutdown at startup).
+    unclean shutdown at startup). Then starts the Parquet schema warm-up in the
+    background, without waiting for it, and cancels it on shutdown.
 
     Notes :
         Create a fresh scope dict (avoiding upstream mutation) and force both
@@ -178,8 +180,13 @@ async def lifespan(app: FastAPI):
             else:
                 raise
 
+    warmup = asyncio.create_task(warm_schema_cache())
+
     yield
 
+    warmup.cancel()
+    with suppress(asyncio.CancelledError):
+        await warmup
     await close_db_connection(tipg_app)
     logger.info("TiPg DB connection closed")
 

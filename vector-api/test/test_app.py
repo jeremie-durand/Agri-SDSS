@@ -216,6 +216,48 @@ def test_lifespan_calls_close_db_on_shutdown():
     mock_close.assert_awaited_once()
 
 
+@pytest.mark.mocked
+def test_lifespan_serves_while_warmup_runs_and_cancels_it_on_shutdown():
+    """The schema warm-up runs in the background and stops at shutdown."""
+    events: list[str] = []
+
+    async def endless_warmup() -> None:
+        events.append("started")
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            events.append("cancelled")
+            raise
+
+    with (
+        patch("vector_api.app.connect_to_db", new=AsyncMock()),
+        patch("vector_api.app.register_collection_catalog", new=AsyncMock()),
+        patch("vector_api.app.close_db_connection", new=AsyncMock()),
+        patch("vector_api.app.warm_schema_cache", new=endless_warmup),
+    ):
+        with TestClient(app) as client:
+            assert client.get("/").status_code == 200
+            assert events == ["started"]
+
+    assert events == ["started", "cancelled"]
+
+
+@pytest.mark.mocked
+def test_lifespan_shutdown_after_warmup_finished():
+    """Shutdown completes when the warm-up already returned."""
+    warmup = AsyncMock()
+    with (
+        patch("vector_api.app.connect_to_db", new=AsyncMock()),
+        patch("vector_api.app.register_collection_catalog", new=AsyncMock()),
+        patch("vector_api.app.close_db_connection", new=AsyncMock()),
+        patch("vector_api.app.warm_schema_cache", new=warmup),
+    ):
+        with TestClient(app) as client:
+            assert client.get("/").status_code == 200
+
+    warmup.assert_awaited_once()
+
+
 # --- MountRootPathMiddleware ---
 
 
