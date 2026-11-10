@@ -48,7 +48,7 @@ def check(manager: DuckDBManager) -> int:
     unchecked, so one bad file never hides the rest.
 
     Returns:
-        1 if any collection is listed, 0 otherwise.
+        1 if any collection is listed or unchecked, 0 otherwise.
     """
     threshold_bytes = manager.raw_parquet_warn_mb * BYTES_PER_MB
     collections = [
@@ -56,14 +56,14 @@ def check(manager: DuckDBManager) -> int:
         for path in sorted(manager.data_dir.glob("*.parquet"))
         if COLLECTION_ID_PATTERN.match(path.stem)
     ]
-    listed = 0
+    listed = unchecked = 0
     for path in collections:
         try:
             size_bytes = path.stat().st_size
             if size_bytes <= threshold_bytes or not _has_geometry(manager, path.stem):
                 continue
         except (duckdb.Error, OSError, ValueError) as e:
-            listed += 1
+            unchecked += 1
             print(f"{path.stem}  unchecked: {_one_line(e)}")
             continue
         problem = _index_problem(manager, path.stem)
@@ -71,11 +71,14 @@ def check(manager: DuckDBManager) -> int:
             continue
         listed += 1
         print(f"{path.stem}  {size_bytes / BYTES_PER_MB:.1f} MB  {problem}")
-    print(
+    summary = (
         f"{listed} of {len(collections)} collections are geometry collections "
         f"above {manager.raw_parquet_warn_mb} MB without a usable .duckdb"
     )
-    return 1 if listed else 0
+    if unchecked:
+        summary += f", {unchecked} could not be checked"
+    print(summary)
+    return 1 if listed or unchecked else 0
 
 
 def main() -> int:

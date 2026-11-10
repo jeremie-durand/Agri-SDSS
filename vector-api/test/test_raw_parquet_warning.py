@@ -4,6 +4,7 @@ import logging
 import shutil
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import duckdb
@@ -164,7 +165,7 @@ def test_warns_when_the_bbox_scan_keeps_failing(
     add_collection("big", "geo")
     original_fetchone = manager._fetchone
 
-    def failing_bbox(query: str, params: list | None = None):
+    def failing_bbox(query: str, params: list[Any] | None = None) -> tuple | None:
         if "ST_XMin" in query:
             raise duckdb.OutOfMemoryException("bbox scan out of memory")
         return original_fetchone(query, params)

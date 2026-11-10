@@ -528,7 +528,9 @@ Any Parquet collection with a geometry column can be served from a persistent, R
 
 **This is automatic** for every table gis-pipeline writes, regardless of format or row count: right after step 7 writes a collection's Parquet file, gis-pipeline builds its spatial index and notifies `vector-api` to pick it up — no restart required.
 
-**One-time manual catch-up** is needed for collections that already existed before this automatic trigger was added — auto-discovery only takes effect once a `.duckdb` file exists; it doesn't retroactively index anything. Run the build script once per collection:
+**One-time manual catch-up** is needed for collections that already existed before this automatic trigger was added — auto-discovery only takes effect once a `.duckdb` file exists; it doesn't retroactively index anything. `make check-materialized` lists the large
+geometry collections that still have no usable `.duckdb`; run the build script once per
+collection it lists:
 
 ```bash
 docker compose run --rm \

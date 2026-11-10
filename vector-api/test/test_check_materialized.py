@@ -85,7 +85,8 @@ def test_unreadable_parquet_does_not_stop_the_scan(
     assert lines[0].startswith("a_bad  unchecked: ")
     assert lines[1].startswith("big  ")
     assert lines[1].endswith("  missing")
-    assert lines[2].startswith("2 of 2 collections")
+    assert lines[2].startswith("1 of 2 collections")
+    assert lines[2].endswith(", 1 could not be checked")
 
 
 def test_nothing_to_report(
