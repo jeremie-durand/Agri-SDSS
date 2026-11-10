@@ -1,4 +1,5 @@
 import os
+import time
 from unittest.mock import patch
 
 import geopandas as gpd
@@ -8,6 +9,14 @@ from fastapi.testclient import TestClient
 from shapely.geometry import Point
 from vector_api.duckdb_manager import DuckDBManager
 from vector_api.parquet_router import router as parquet_router
+
+_SESSION_START: float = time.time()
+
+
+@pytest.fixture
+def session_start_time() -> float:
+    """Wall-clock time at which this conftest was imported, before any test ran."""
+    return _SESSION_START
 
 
 @pytest.fixture
