@@ -32,6 +32,7 @@ DEFAULT_MEMORY_LIMIT: str = "819MB"
 DEFAULT_MAX_OPEN_DUCKDB: int = 2
 DEFAULT_MAX_DUCKDB_QUERIES: int = 1
 DEFAULT_RAW_PARQUET_WARN_MB: int = 50
+_BYTES_PER_MB: int = 1024 * 1024
 
 MaterializedEntry = tuple[duckdb.DuckDBPyConnection, threading.Lock]
 T = TypeVar("T")
@@ -192,7 +193,12 @@ class DuckDBManager:
         # broken file. Cleared per-collection by invalidate_materialized()
         # after an external rebuild.
         self._failed_materialized: set[str] = set()
-        # Guards _materialized_conns and _failed_materialized. Separate from
+        # Collections already checked for a missing .duckdb, so each is
+        # stat()-ed and reported at most once (#282). Cleared per-collection
+        # by invalidate_materialized().
+        self._raw_parquet_checked: set[str] = set()
+        # Guards _materialized_conns, _failed_materialized and
+        # _raw_parquet_checked. Separate from
         # self._lock, which is held for whole queries on the in-memory
         # connection and would make every cache lookup wait behind them.
         self._cache_lock = threading.Lock()
@@ -573,6 +579,32 @@ class DuckDBManager:
         )
         return None
 
+    def _warn_if_large_raw_parquet(
+        self, collection_id: str, has_geometry: bool
+    ) -> None:
+        """Log once when a large geometry collection has no .duckdb file.
+
+        A collection without geometry can never be materialized, and one whose
+        .duckdb exists but failed to open is already logged when it fails.
+        """
+        if not has_geometry or collection_id in self._raw_parquet_checked:
+            return
+        try:
+            missing = not (self.data_dir / f"{collection_id}.duckdb").exists()
+            size_bytes = (self.data_dir / f"{collection_id}.parquet").stat().st_size
+        except OSError:
+            missing, size_bytes = False, 0
+        with self._cache_lock:
+            if collection_id in self._raw_parquet_checked:
+                return
+            self._raw_parquet_checked.add(collection_id)
+        if missing and size_bytes > self.raw_parquet_warn_mb * _BYTES_PER_MB:
+            logger.warning(
+                "Serving %s from raw Parquet (%.1f MB, no .duckdb)",
+                collection_id,
+                size_bytes / _BYTES_PER_MB,
+            )
+
     def invalidate_materialized(self, collection_id: str) -> bool:
         """Drop any cached materialized connection/failure state for a collection.
 
@@ -589,6 +621,7 @@ class DuckDBManager:
         """
         with self._cache_lock:
             self._failed_materialized.discard(collection_id)
+            self._raw_parquet_checked.discard(collection_id)
             entry = self._materialized_conns.pop(collection_id, None)
 
         if entry is None:
@@ -906,6 +939,7 @@ class DuckDBManager:
             else None
         )
         if page is None:
+            self._warn_if_large_raw_parquet(collection_id, has_geometry)
             count_query, select_sql = build(materialized=False)
             number_matched = self._fetchone(count_query)[0]
             result, columns = self._fetchall(select_sql)
@@ -1005,11 +1039,10 @@ class DuckDBManager:
                 collection_id,
                 lambda conn: self._fetchall_unlocked(conn, materialized_query, params),
             )
-            rows, columns = (
-                found
-                if found is not None
-                else self._fetchall(build(materialized=False), params)
-            )
+            if found is None:
+                self._warn_if_large_raw_parquet(collection_id, has_geometry)
+                found = self._fetchall(build(materialized=False), params)
+            rows, columns = found
         except duckdb.Error as e:
             logger.warning(
                 "Error querying item %s from %s: %s", item_id, collection_id, e
