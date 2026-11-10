@@ -31,6 +31,7 @@ COLLECTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 DEFAULT_MEMORY_LIMIT: str = "819MB"
 DEFAULT_MAX_OPEN_DUCKDB: int = 2
 DEFAULT_MAX_DUCKDB_QUERIES: int = 1
+DEFAULT_RAW_PARQUET_WARN_MB: int = 50
 
 MaterializedEntry = tuple[duckdb.DuckDBPyConnection, threading.Lock]
 T = TypeVar("T")
@@ -128,6 +129,7 @@ class DuckDBManager:
         memory_limit: str | None = None,
         max_open: int | None = None,
         max_queries: int | None = None,
+        raw_parquet_warn_mb: int | None = None,
     ) -> None:
         """Initialize the DuckDBManager with an in-memory connection.
 
@@ -143,10 +145,14 @@ class DuckDBManager:
             max_queries: Most queries running on materialized connections at
                 once. Defaults to VECTOR_API_MAX_DUCKDB_QUERIES, then
                 DEFAULT_MAX_DUCKDB_QUERIES.
+            raw_parquet_warn_mb: Parquet size in MB above which serving a
+                collection without its .duckdb file is logged. Defaults to
+                VECTOR_API_RAW_PARQUET_WARN_MB, then
+                DEFAULT_RAW_PARQUET_WARN_MB.
 
         Raises:
-            DuckDBConfigError: If max_open or max_queries (or their env var)
-                is not a positive integer.
+            DuckDBConfigError: If max_open, max_queries or raw_parquet_warn_mb
+                (or their env var) is not a positive integer.
         """
         self.data_dir = Path(data_dir or os.getenv("DUCKDB_DATA_DIR", "/data/duckdb"))
         self.memory_limit: str = (
@@ -157,6 +163,11 @@ class DuckDBManager:
         )
         self.max_queries: int = _positive_int_setting(
             "VECTOR_API_MAX_DUCKDB_QUERIES", max_queries, DEFAULT_MAX_DUCKDB_QUERIES
+        )
+        self.raw_parquet_warn_mb: int = _positive_int_setting(
+            "VECTOR_API_RAW_PARQUET_WARN_MB",
+            raw_parquet_warn_mb,
+            DEFAULT_RAW_PARQUET_WARN_MB,
         )
         self.conn = duckdb.connect(
             database=":memory:", config={"memory_limit": self.memory_limit}
