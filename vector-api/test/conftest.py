@@ -1,6 +1,7 @@
 import os
 import time
-from unittest.mock import patch
+from collections.abc import Iterator
+from unittest.mock import AsyncMock, patch
 
 import geopandas as gpd
 import pytest
@@ -17,6 +18,20 @@ _SESSION_START: float = time.time()
 def session_start_time() -> float:
     """Wall-clock time at which this conftest was imported, before any test ran."""
     return _SESSION_START
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _no_schema_warmup() -> Iterator[None]:
+    """Keep the app lifespan from warming the real singleton.
+
+    The test container bind-mounts the real data at DUCKDB_DATA_DIR, so a real
+    warm-up would scan every production collection while holding the request
+    gate. Session scope: a session-scoped TestClient (as in
+    test_postgis_integration.py) enters the lifespan before any function-scoped
+    patch exists, and its warm-up then stalls every later gated test.
+    """
+    with patch("vector_api.app.warm_schema_cache", new=AsyncMock()):
+        yield
 
 
 @pytest.fixture
