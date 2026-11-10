@@ -71,6 +71,7 @@ by horizon (`ppc_eessaq`, falling back to the 1990 inventory without depths).
 - **Output formats** — GeoJSON (default), CSV (`?f=csv`), GeoJSON-seq (`?f=geojsonseq`)
 - **Pagination** — `limit` + `offset` on all item endpoints
 - **Localised errors** — French by default; send `Accept-Language: en` or `?lang=en` for English
+- **Offline start** — the image ships DuckDB's `spatial` extension, so a new container needs no network access to load it
 
 ## Language
 

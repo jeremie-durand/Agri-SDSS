@@ -130,7 +130,12 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 - The schema cache (`_schema_cache`) is never cleared. The code assumes
   Parquet files are immutable, but gis-pipeline overwrites `<id>.parquet` on
   re-ingestion, so feature count, bbox and detected columns stay stale until a
-  restart. `/invalidate` does not clear it.
+  restart. `/invalidate` does not clear it. A schema whose bbox scan raised
+  (for example `OutOfMemoryException` under a low `DUCKDB_MEMORY_LIMIT`) is
+  not cached: that request serves the collection without an extent, and the
+  next one computes the schema again. This applies to any DuckDB error, so a
+  bbox scan that always fails (a `geometry` column that is not a geometry
+  type) is re-run and logged on every request for that collection.
 - DuckDB connections are not thread-safe. In-memory queries go through
   `_fetchone`/`_fetchall`, which hold `self._lock`. Materialized queries go
   only through `_run_materialized(collection_id, work)`; never use the pair
@@ -185,6 +190,14 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   `make test-repo-consistency` checks that the compose defaults match the
   `DEFAULT_*` constants. Heavy queries spill to `<id>.duckdb.tmp` next to the
   data, which needs the read-write `./data/duckdb` mount.
+- The `spatial` extension is installed at image build into
+  `/tmp/.duckdb/extensions` (`HOME=/tmp`), owned by UID 1000, so a new
+  container loads it without network access (#281). The run-time
+  `INSTALL spatial` calls stay as a no-op fallback for running outside the
+  image. Never mount a volume or `tmpfs` over `/tmp`: it would hide the
+  extension, and the manager would download it again, or fail to start
+  offline. `test_duckdb_extensions.py` fails if the extension was not baked
+  into the image.
 - SQL: escape identifiers with `escape_identifier()` and path literals with
   `_escape_sql_string()`. Bind values as `$1` parameters, never
   interpolation. `bbox` values are floats parsed and range-checked in the
@@ -245,7 +258,8 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | Marker | Where | What it needs |
 | --- | --- | --- |
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
-| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_duckdb_extensions.py` | the vector-api image, with `spatial` installed at build; fails outside it |
 | `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
 
 - Build Parquet fixtures with the `sample_geoparquet` and `temp_parquet_dir`
