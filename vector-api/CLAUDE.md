@@ -136,8 +136,9 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   one scan, not the whole catalog. Do not fold the loop into a single
   `run_duckdb_request` call, and do not run it outside the gate. Failures are
   logged and never raised: start-up and `/postgis` never depend on it. On
-  the real data the warm-up takes about as long as the first
-  `/parquet/collections` used to (13–19 s on 1 CPU).
+  the 253 real collections (1 CPU) it takes 16–17 s, as long as the cold
+  first `/parquet/collections` did (16.9 s; now about 15 ms). Stopping the
+  container mid warm-up shuts down in about 0.1 s.
 - The schema cache (`_schema_cache`) is never cleared. The code assumes
   Parquet files are immutable, but gis-pipeline overwrites `<id>.parquet` on
   re-ingestion, so feature count, bbox and detected columns stay stale until a
