@@ -284,7 +284,7 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | Marker | Where | What it needs |
 | --- | --- | --- |
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
-| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
 | `integration` | `test_duckdb_extensions.py` | the vector-api image, with `spatial` installed at build; fails outside it |
 | `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
 
