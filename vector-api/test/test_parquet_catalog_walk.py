@@ -41,14 +41,7 @@ def _blob_columns() -> dict[str, Any]:
 
 COLUMN_CASES: list[Any] = [
     pytest.param(_plain_columns, id="plain"),
-    pytest.param(
-        _timestamptz_columns,
-        id="timestamptz",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason="#287: timestamptz columns answer 500, pytz is missing",
-        ),
-    ),
+    pytest.param(_timestamptz_columns, id="timestamptz"),
     pytest.param(
         _blob_columns,
         id="blob",

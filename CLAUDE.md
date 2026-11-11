@@ -77,7 +77,7 @@ make smoke-stac-browser           # Start stac-browser and probe /stac/, its con
 make smoke-browser-pages          # API HTML pages via home: one CORS header, prefixed links, CSP
 make smoke-catalogs               # Open every listed PostGIS/Parquet/STAC collection and process via home
                                   # (Parquet: 25 spread out plus known heavy requests; ALL=1 walks all;
-                                  # exits 1 on real data until #287/#289 are fixed)
+                                  # exits 1 on real data until #289 is fixed)
 make check-materialized           # List large GeoParquet collections whose .duckdb index is missing
                                   # or unreadable (exits 1 if any; above VECTOR_API_RAW_PARQUET_WARN_MB)
 
