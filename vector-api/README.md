@@ -74,6 +74,24 @@ by horizon (`ppc_eessaq`, falling back to the 1990 inventory without depths).
 - **Warm start** — right after start-up, the Parquet collection metadata (columns, feature count, extent) is computed in the background, so the first `/parquet/collections` does not pay for it
 - **Offline start** — the image ships DuckDB's `spatial` extension, so a new container needs no network access to load it
 
+## Checking the `.duckdb` indexes
+
+A GeoParquet collection is fast only when its RTree-indexed `<id>.duckdb` file
+exists next to it; otherwise it is served from the raw Parquet file, much more
+slowly, and vector-api logs one warning per collection above
+`VECTOR_API_RAW_PARQUET_WARN_MB`. To list those collections on demand, for
+example after a pipeline run or a deploy:
+
+```bash
+make check-materialized
+```
+
+It prints one line per geometry collection above the threshold whose `.duckdb`
+is `missing` or `unreadable` (or a Parquet file it could not read, as
+`unchecked`), then a summary, and exits 1 if it listed any (2 if
+the setting or the data directory is invalid). It runs in a one-off container,
+so the running vector-api is not recreated.
+
 ## Language
 
 Error messages are returned in **French by default**:
@@ -94,6 +112,7 @@ changes. See [Internationalization](../docs/I18N.md).
 | `DUCKDB_MEMORY_LIMIT` | `819MB` | DuckDB `memory_limit` for each DuckDB instance (the in-memory one and each open `.duckdb`) |
 | `VECTOR_API_MAX_OPEN_DUCKDB` | `2` | Maximum number of materialized `.duckdb` collections kept open at once |
 | `VECTOR_API_MAX_DUCKDB_QUERIES` | `1` | Maximum number of concurrent queries on materialized collections |
+| `VECTOR_API_RAW_PARQUET_WARN_MB` | `50` | Parquet size in MB above which a geometry collection served without its `.duckdb` file is logged as a warning |
 | `VECTOR_API_CORS_ORIGINS` | _(empty)_ | Comma-separated allowed CORS origins |
 | `TIPG_DB_FUNCTIONS` | `[]` (set in `docker-compose.yml`) | SQL functions TiPg publishes as `/postgis` collections. `[]` publishes none, which keeps PostGIS's own functions (`postgis_srs`, `st_squaregrid`, …) out of the catalog. To publish a project function, list it by `schema.name`, e.g. `["public.my_function"]` |
 

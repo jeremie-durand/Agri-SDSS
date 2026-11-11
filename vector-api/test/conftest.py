@@ -1,9 +1,13 @@
 import os
+import random
+import string
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import geopandas as gpd
+import pandas as pd
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -54,6 +58,38 @@ def sample_geoparquet(temp_parquet_dir):
     output_path = temp_parquet_dir / "test_collection.parquet"
     gdf.to_parquet(output_path)
     return output_path
+
+
+@pytest.fixture(scope="session")
+def large_sources(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+    """GeoParquet ("geo") and plain Parquet ("plain") files just over 1 MiB.
+
+    Random 64-character strings keep compression from shrinking them below
+    the 1 MB threshold set by the tests that use them.
+    """
+    base = tmp_path_factory.mktemp("large_sources")
+    rows = 30_000
+    rng = random.Random(282)
+    alphabet = string.ascii_letters + string.digits
+    text = ["".join(rng.choices(alphabet, k=64)) for _ in range(rows)]
+    gids = list(range(1, rows + 1))
+
+    geo_path = base / "geo.parquet"
+    gpd.GeoDataFrame(
+        {
+            "gid": gids,
+            "text": text,
+            "geometry": [Point(-73.5 + i * 1e-6, 45.5) for i in gids],
+        },
+        crs="EPSG:4326",
+    ).to_parquet(geo_path)
+
+    plain_path = base / "plain.parquet"
+    pd.DataFrame({"gid": gids, "text": text}).to_parquet(plain_path)
+
+    for path in (geo_path, plain_path):
+        assert path.stat().st_size > 1024 * 1024
+    return {"geo": geo_path, "plain": plain_path}
 
 
 @pytest.fixture(scope="session")

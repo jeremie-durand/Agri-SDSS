@@ -92,7 +92,7 @@ test-caddy:
 	exit $$status
 
 .PHONY: build lint-dockerfiles lint-md lint-nginx scan-secrets test-caddy generate-args \
-	smoke-entrypoints smoke-stac-browser smoke-browser-pages smoke-catalogs \
+	smoke-entrypoints smoke-stac-browser smoke-browser-pages smoke-catalogs check-materialized \
 	test-i18n i18n-extract i18n-update i18n-compile i18n-check
 
 # Ignored rules, and why (hadolint exits non-zero on any warning, so each must be
@@ -205,3 +205,10 @@ smoke-catalogs:
 		status=1; \
 	fi; \
 	exit $$status
+
+# Lists GeoParquet geometry collections above VECTOR_API_RAW_PARQUET_WARN_MB whose
+# .duckdb index is missing or unreadable, on the real data (#282). Exits 1 if any.
+# A one-off container: the running vector-api is not recreated. The entrypoint is
+# bypassed because the check never uses PostgreSQL and need not wait for it.
+check-materialized:
+	$(SMOKE_RUN) --entrypoint python vector-api -m vector_api.check_materialized

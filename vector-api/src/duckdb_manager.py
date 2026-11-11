@@ -31,6 +31,8 @@ COLLECTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 DEFAULT_MEMORY_LIMIT: str = "819MB"
 DEFAULT_MAX_OPEN_DUCKDB: int = 2
 DEFAULT_MAX_DUCKDB_QUERIES: int = 1
+DEFAULT_RAW_PARQUET_WARN_MB: int = 50
+BYTES_PER_MB: int = 1024 * 1024
 
 MaterializedEntry = tuple[duckdb.DuckDBPyConnection, threading.Lock]
 T = TypeVar("T")
@@ -61,6 +63,29 @@ def _positive_int_setting(name: str, value: int | None, default: int) -> int:
     if resolved < 1:
         raise error
     return resolved
+
+
+def open_materialized(db_path: Path, memory_limit: str) -> duckdb.DuckDBPyConnection:
+    """Open a materialized .duckdb file read-only and check its table answers.
+
+    Shared by the service and the check_materialized operator check, so both
+    agree on what a usable index is.
+
+    Raises:
+        duckdb.Error: If the file cannot be opened or queried; nothing is
+            left open.
+    """
+    conn = duckdb.connect(
+        database=str(db_path), read_only=True, config={"memory_limit": memory_limit}
+    )
+    try:
+        conn.execute("INSTALL spatial")
+        conn.execute("LOAD spatial")
+        conn.execute(f"SELECT 1 FROM {MATERIALIZED_TABLE_NAME} LIMIT 1")
+    except duckdb.Error:
+        conn.close()
+        raise
+    return conn
 
 
 class DuckDBDescribeColumn(IntEnum):
@@ -128,6 +153,7 @@ class DuckDBManager:
         memory_limit: str | None = None,
         max_open: int | None = None,
         max_queries: int | None = None,
+        raw_parquet_warn_mb: int | None = None,
     ) -> None:
         """Initialize the DuckDBManager with an in-memory connection.
 
@@ -143,10 +169,14 @@ class DuckDBManager:
             max_queries: Most queries running on materialized connections at
                 once. Defaults to VECTOR_API_MAX_DUCKDB_QUERIES, then
                 DEFAULT_MAX_DUCKDB_QUERIES.
+            raw_parquet_warn_mb: Parquet size in MB above which serving a
+                collection without its .duckdb file is logged. Defaults to
+                VECTOR_API_RAW_PARQUET_WARN_MB, then
+                DEFAULT_RAW_PARQUET_WARN_MB.
 
         Raises:
-            DuckDBConfigError: If max_open or max_queries (or their env var)
-                is not a positive integer.
+            DuckDBConfigError: If max_open, max_queries or raw_parquet_warn_mb
+                (or their env var) is not a positive integer.
         """
         self.data_dir = Path(data_dir or os.getenv("DUCKDB_DATA_DIR", "/data/duckdb"))
         self.memory_limit: str = (
@@ -157,6 +187,11 @@ class DuckDBManager:
         )
         self.max_queries: int = _positive_int_setting(
             "VECTOR_API_MAX_DUCKDB_QUERIES", max_queries, DEFAULT_MAX_DUCKDB_QUERIES
+        )
+        self.raw_parquet_warn_mb: int = _positive_int_setting(
+            "VECTOR_API_RAW_PARQUET_WARN_MB",
+            raw_parquet_warn_mb,
+            DEFAULT_RAW_PARQUET_WARN_MB,
         )
         self.conn = duckdb.connect(
             database=":memory:", config={"memory_limit": self.memory_limit}
@@ -181,7 +216,12 @@ class DuckDBManager:
         # broken file. Cleared per-collection by invalidate_materialized()
         # after an external rebuild.
         self._failed_materialized: set[str] = set()
-        # Guards _materialized_conns and _failed_materialized. Separate from
+        # Collections already checked for a missing .duckdb, so each is
+        # stat()-ed and reported at most once (#282). Cleared per-collection
+        # by invalidate_materialized().
+        self._raw_parquet_checked: set[str] = set()
+        # Guards _materialized_conns, _failed_materialized and
+        # _raw_parquet_checked. Separate from
         # self._lock, which is held for whole queries on the in-memory
         # connection and would make every cache lookup wait behind them.
         self._cache_lock = threading.Lock()
@@ -488,22 +528,13 @@ class DuckDBManager:
                 return None
 
             try:
-                conn = duckdb.connect(
-                    database=str(db_path),
-                    read_only=True,
-                    config={"memory_limit": self.memory_limit},
-                )
-                conn.execute("INSTALL spatial")
-                conn.execute("LOAD spatial")
-                conn.execute(f"SELECT 1 FROM {MATERIALIZED_TABLE_NAME} LIMIT 1")
+                conn = open_materialized(db_path, self.memory_limit)
             except duckdb.Error as e:
                 logger.warning(
                     "Failed to open materialized connection for %s: %s",
                     collection_id,
                     e,
                 )
-                if "conn" in locals():
-                    conn.close()
                 self._failed_materialized.add(collection_id)
                 return None
 
@@ -562,6 +593,32 @@ class DuckDBManager:
         )
         return None
 
+    def _warn_if_large_raw_parquet(
+        self, collection_id: str, has_geometry: bool
+    ) -> None:
+        """Log once when a large geometry collection has no .duckdb file.
+
+        A collection without geometry can never be materialized, and one whose
+        .duckdb exists but failed to open is already logged when it fails.
+        """
+        if not has_geometry or collection_id in self._raw_parquet_checked:
+            return
+        try:
+            missing = not (self.data_dir / f"{collection_id}.duckdb").exists()
+            size_bytes = (self.data_dir / f"{collection_id}.parquet").stat().st_size
+        except OSError:
+            missing, size_bytes = False, 0
+        with self._cache_lock:
+            if collection_id in self._raw_parquet_checked:
+                return
+            self._raw_parquet_checked.add(collection_id)
+        if missing and size_bytes > self.raw_parquet_warn_mb * BYTES_PER_MB:
+            logger.warning(
+                "Serving %s from raw Parquet (%.1f MB, no .duckdb)",
+                collection_id,
+                size_bytes / BYTES_PER_MB,
+            )
+
     def invalidate_materialized(self, collection_id: str) -> bool:
         """Drop any cached materialized connection/failure state for a collection.
 
@@ -578,6 +635,7 @@ class DuckDBManager:
         """
         with self._cache_lock:
             self._failed_materialized.discard(collection_id)
+            self._raw_parquet_checked.discard(collection_id)
             entry = self._materialized_conns.pop(collection_id, None)
 
         if entry is None:
@@ -895,6 +953,7 @@ class DuckDBManager:
             else None
         )
         if page is None:
+            self._warn_if_large_raw_parquet(collection_id, has_geometry)
             count_query, select_sql = build(materialized=False)
             number_matched = self._fetchone(count_query)[0]
             result, columns = self._fetchall(select_sql)
@@ -994,11 +1053,10 @@ class DuckDBManager:
                 collection_id,
                 lambda conn: self._fetchall_unlocked(conn, materialized_query, params),
             )
-            rows, columns = (
-                found
-                if found is not None
-                else self._fetchall(build(materialized=False), params)
-            )
+            if found is None:
+                self._warn_if_large_raw_parquet(collection_id, has_geometry)
+                found = self._fetchall(build(materialized=False), params)
+            rows, columns = found
         except duckdb.Error as e:
             logger.warning(
                 "Error querying item %s from %s: %s", item_id, collection_id, e
