@@ -46,6 +46,12 @@ Branches and commit prefixes are in
 - **Claude never commits, pushes or opens PRs.** Leave changes uncommitted in the
   working tree and let the developer do it; create a branch only when asked in
   that turn.
+- **The issue workflow is the one exception.** `/github-issues <number or link>` syncs
+  `develop`, creates the issue branch and writes an OpenSpec proposal.
+  `/github-issues-apply` implements the accepted proposal and commits each task
+  group once `agri-reviewer` passes. Pushing and opening the PR stay with the
+  developer. Both skills live in `.claude/skills/` and need the `openspec` CLI
+  and a local `openspec/` root (`openspec init`).
 
 CI (`.github/workflows/action.yml`) runs `pre-commit run --all-files` and checks
 `ARGS.md` sync, i18n catalogs, nginx configs, image builds, the stac-browser smoke
@@ -62,6 +68,9 @@ first. The reviewer judges them but never runs them.
 - Do not loop beyond that second pass. List any finding still open in the
   handoff message, and the developer decides before committing.
 - A diff that touches only Markdown documentation is exempt.
+- `/github-issues-apply` reviews each task group separately and allows three
+  passes per group. It commits a group once a pass has no `blocking` finding and
+  nothing was changed after that pass. Markdown-only groups skip the review.
 
 ## Common Commands
 
