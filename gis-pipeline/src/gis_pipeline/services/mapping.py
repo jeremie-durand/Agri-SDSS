@@ -142,6 +142,12 @@ class QGISInternalLayers(Enum):
     QGIS_PROJECTS = "qgis_projects"
 
 
+class EsriSystemLayerPatterns(Enum):
+    """Name patterns of ESRI system tables to skip during ingestion."""
+
+    GEOMETRIC_NETWORK_TABLE = r"N_\d+_\w+"
+
+
 # ---------------------------------------------------------------
 # Pipeline processing limits
 # ---------------------------------------------------------------

@@ -24,7 +24,7 @@ from gis_pipeline.core.utils import add_process_to_logger, harmonize_name
 from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
 from gis_pipeline.modules.db.materialize_trigger import trigger_materialize_and_notify
 from gis_pipeline.modules.db.pg_utils import PostGISManager
-from gis_pipeline.modules.io_tools.input_data import read_csv_file
+from gis_pipeline.modules.io_tools.input_data import is_ingested_layer, read_csv_file
 from gis_pipeline.modules.processing.processing_stac import (
     StacApiClient,
     build_stac_collection_from_items,
@@ -35,7 +35,6 @@ from gis_pipeline.services.mapping import (
     ColumnMappings,
     CSVDataRegistryForSourceCRS,
     NamingPatterns,
-    QGISInternalLayers,
     RasterTargetCRSOverrides,
 )
 from pyproj import CRS
@@ -531,10 +530,7 @@ class GeoprocessingVector:
                     else:
                         layers = fiona.listlayers(vector_file)
                         for layer in layers:
-                            if layer.lower() in {e.value for e in QGISInternalLayers}:
-                                logger.info(
-                                    f"Skipping QGIS internal layer '{layer}' in {vector_file}"
-                                )
+                            if not is_ingested_layer(vector_file, layer):
                                 continue
                             gdf = gpd.read_file(vector_file, layer=layer)
                             if len(layers) == 1:

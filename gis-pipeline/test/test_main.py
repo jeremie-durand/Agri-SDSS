@@ -5,7 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import geopandas as gpd
 import pytest
+from gis_pipeline.main import process_vector_pipeline
+from shapely.geometry import Point
 
 # ------------------------------------------
 # parse_args
@@ -142,6 +145,52 @@ def test_process_vector_pipeline_calls_geoprocessing_vector_data():
         mock_geo.assert_called_once()
 
     assert report_data["vector_data"]["processed"] == 1
+
+
+@pytest.mark.unit
+def test_process_vector_pipeline_skips_esri_network_tables():
+    """Geometric-network tables of a .gdb are neither ingested nor counted."""
+    report_data = _make_report()
+    gdb_file = Path("/data/input/GRHQ_03AJ.gdb")
+    minimal_gdf = gpd.GeoDataFrame(
+        {"gid": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"
+    )
+
+    mock_src = MagicMock()
+    mock_src.__len__ = MagicMock(return_value=1)
+    mock_fiona_open = MagicMock()
+    mock_fiona_open.return_value.__enter__ = MagicMock(return_value=mock_src)
+    mock_fiona_open.return_value.__exit__ = MagicMock(return_value=False)
+
+    with (
+        patch(
+            "gis_pipeline.modules.io_tools.input_data.detect_non_spatial_csv",
+            return_value=[],
+        ),
+        patch(
+            "fiona.listlayers",
+            return_value=["RH_L", "N_1_Desc", "N_1_EDesc", "N_1_FloDir"],
+        ),
+        patch("fiona.open", mock_fiona_open),
+        patch("geopandas.read_file", return_value=minimal_gdf) as mock_read_file,
+        patch(
+            "gis_pipeline.modules.io_tools.input_data.read_source_dtypes",
+            return_value={},
+        ),
+        patch(
+            "gis_pipeline.modules.io_tools.input_data.pyogrio.read_info",
+            return_value={"geometry_type": None},
+        ),
+        patch(
+            "gis_pipeline.modules.processing.geoprocessing.geoprocessing_vector_data"
+        ) as mock_geo,
+    ):
+        process_vector_pipeline([gdb_file], _make_args(), report_data)
+
+    mock_geo.assert_called_once()
+    assert [call.kwargs["layer"] for call in mock_read_file.call_args_list] == ["RH_L"]
+    assert report_data["vector_data"]["processed"] == 1
+    assert report_data["vector_data"]["errors"] == 0
 
 
 @pytest.mark.unit
