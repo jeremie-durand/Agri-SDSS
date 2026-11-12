@@ -23,6 +23,7 @@ from .duckdb_manager import (
     DuckDBSpatialExtensionError,
     ParquetSchemaInfo,
     get_shared_manager,
+    property_columns,
     run_duckdb_request,
 )
 
@@ -279,20 +280,10 @@ def _collection_body(request: Request, collection_id: str) -> dict[str, Any]:
                 }
             }
 
-        # Build queryables from schema
-        queryables = []
-        col: ColumnInfo
-        for col in schema["columns"]:
-            if (
-                schema["geometry_column"] is None
-                or col["name"] != schema["geometry_column"]
-            ):
-                queryables.append(
-                    {
-                        "name": col["name"],
-                        "type": col["type"],
-                    }
-                )
+        queryables = [
+            {"name": col["name"], "type": col["type"]}
+            for col in property_columns(schema)
+        ]
 
         return {
             "id": collection_id,
@@ -563,19 +554,15 @@ def _queryables_body(request: Request, collection_id: str) -> dict[str, Any]:
 
         properties = {}
         col: ColumnInfo
-        for col in schema["columns"]:
-            if (
-                schema["geometry_column"] is None
-                or col["name"] != schema["geometry_column"]
-            ):
-                col_type = col["type"].upper()
-                json_type = "string"  # default
-                for duckdb_type, jtype in type_mapping.items():
-                    if duckdb_type in col_type:
-                        json_type = jtype
-                        break
+        for col in property_columns(schema):
+            col_type = col["type"].upper()
+            json_type = "string"  # default
+            for duckdb_type, jtype in type_mapping.items():
+                if duckdb_type in col_type:
+                    json_type = jtype
+                    break
 
-                properties[col["name"]] = {"type": json_type}
+            properties[col["name"]] = {"type": json_type}
 
         base_url = external_base_url(request)
 

@@ -116,6 +116,13 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 - ID column: first of `gid`, `id`, `fid`, `ogc_fid`, `objectid`. Geometry
   column: first of `geometry`, `geom`, `the_geom`, `shape`, `wkb_geometry`.
   Without an ID column, item ids are 1-based row numbers.
+- Binary columns are left out of every response (#289): `BLOB` columns, and
+  any `GEOMETRY` column other than the served geometry. DuckDB returns their
+  values as bytes, which the JSON rendering cannot encode (500).
+  `_compute_parquet_schema()` lists them in `binary_columns`, the item queries
+  drop them in SQL through `_star_sql()`, and `property_columns()` feeds both
+  queryables outputs. Keep `schema["columns"]` complete:
+  `_can_page_by_position()` must see every source column name.
 - A `<id>.duckdb` next to the Parquet file (built by gis-pipeline) is
   preferred automatically. It is opened read-only, and a file that fails to
   open is remembered and skipped. `invalidate_materialized()` clears both.
@@ -156,7 +163,10 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 - The schema cache (`_schema_cache`) is never cleared. The code assumes
   Parquet files are immutable, but gis-pipeline overwrites `<id>.parquet` on
   re-ingestion, so feature count, bbox and detected columns stay stale until a
-  restart. `/invalidate` does not clear it. A schema whose bbox scan raised
+  restart. `/invalidate` does not clear it. If the new file drops or renames
+  a binary column, the cached `binary_columns` still names it, DuckDB rejects
+  the `EXCLUDE` (Binder Error), and items answer 500 and single items 404
+  until a restart. A schema whose bbox scan raised
   (for example `OutOfMemoryException` under a low `DUCKDB_MEMORY_LIMIT`) is
   not cached: that request serves the collection without an extent, and the
   next one computes the schema again. This applies to any DuckDB error, so a
@@ -284,7 +294,7 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | Marker | Where | What it needs |
 | --- | --- | --- |
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
-| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py`, `test_parquet_binary_columns.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
 | `integration` | `test_duckdb_extensions.py` | the vector-api image, with `spatial` installed at build; fails outside it |
 | `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
 

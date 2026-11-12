@@ -70,6 +70,7 @@ by horizon (`ppc_eessaq`, falling back to the 1990 inventory without depths).
 - **CQL filtering** — attribute and spatial filters on PostGIS collections (`/postgis/` only)
 - **Output formats** — GeoJSON (default), CSV (`?f=csv`), GeoJSON-seq (`?f=geojsonseq`)
 - **Pagination** — `limit` + `offset` on all item endpoints
+- **Binary columns** — Parquet `BLOB` columns, and geometry columns other than the feature geometry, are left out of feature properties and queryables
 - **Localised errors** — French by default; send `Accept-Language: en` or `?lang=en` for English
 - **Warm start** — right after start-up, the Parquet collection metadata (columns, feature count, extent) is computed in the background, so the first `/parquet/collections` does not pay for it
 - **Offline start** — the image ships DuckDB's `spatial` extension, so a new container needs no network access to load it
