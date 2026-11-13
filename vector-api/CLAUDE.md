@@ -204,11 +204,21 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   they existed.
 - The `/parquet` read routes are thin `async def` handlers. Each one keeps its
   signature and docstring, which feed `/parquet/openapi.json`, and passes a
-  `_*_body` builder to `_render`. Rendering happens in the worker through
-  `_json_response`, the same Pydantic JSON-mode serialization FastAPI used, so
-  decimals stay strings and dates ISO. `response_model=dict[str, Any]` on the
-  decorator keeps the OpenAPI schema. `test_parquet_response_encoding.py` and
-  the snapshot in `test/data/parquet_openapi.json` pin both.
+  `_*_body` builder and a renderer to `_render`. Rendering happens in the
+  worker. Every value goes through `_encode_json`, the same Pydantic JSON-mode
+  serialization and `json.dumps` arguments FastAPI used, so decimals stay
+  strings and dates ISO. `response_model=dict[str, Any]` on the decorator
+  keeps the OpenAPI schema. `test_parquet_response_encoding.py` and the
+  snapshot in `test/data/parquet_openapi.json` pin both.
+- Items and single items are the exception for geometry (#292). The router
+  asks the manager for `raw_geometry=True`, so each geometry is a `RawGeoJSON`
+  holding DuckDB's `ST_AsGeoJSON` text. `_feature_collection_response` and
+  `_feature_response` splice that text into the body unparsed, encode every
+  other key through `_encode_json`, and join the parts once. Parsing it and
+  serializing it back made one 54 MiB polygon peak at 1023 MB in a 1 GiB
+  container (stage-by-stage replay). The JSON value is unchanged, but number spelling inside
+  `geometry` is DuckDB's (`0.00001` where Python writes `1e-05`). Called
+  directly, `query_items()` and `get_item_by_id()` still return parsed dicts.
 - `/invalidate` runs in the default thread pool, outside the gate. It runs no
   query, but it waits for a running query on the same collection, and
   gis-pipeline calls it with a 10 s timeout, so it must not queue behind other
@@ -294,7 +304,7 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | Marker | Where | What it needs |
 | --- | --- | --- |
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
-| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py`, `test_parquet_binary_columns.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py`, `test_parquet_binary_columns.py`, `test_parquet_geometry_passthrough.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
 | `integration` | `test_duckdb_extensions.py` | the vector-api image, with `spatial` installed at build; fails outside it |
 | `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
 

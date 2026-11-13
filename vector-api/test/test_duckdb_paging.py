@@ -10,7 +10,7 @@ import duckdb
 import geopandas as gpd
 import pytest
 from shapely.geometry import Point, Polygon
-from vector_api.duckdb_manager import DuckDBManager
+from vector_api.duckdb_manager import DuckDBManager, RawGeoJSON
 from vector_api.materialize import MATERIALIZED_TABLE_NAME, materialize_collection
 
 pytestmark = pytest.mark.unit
@@ -291,3 +291,49 @@ def test_deep_offset_on_wide_geometries_fits_small_memory_limit(
         range(offset + 1, WIDE_ROW_COUNT + 1)
     )
     assert all(f["geometry"]["type"] == "Polygon" for f in result["features"])
+
+
+def test_raw_geometry_page_parses_to_the_default_page(
+    unique_id_manager: DuckDBManager,
+) -> None:
+    parsed = unique_id_manager.query_items(COLLECTION_ID, limit=PAGE_LIMIT)
+    raw = unique_id_manager.query_items(
+        COLLECTION_ID, limit=PAGE_LIMIT, raw_geometry=True
+    )
+
+    assert all(isinstance(f["geometry"], RawGeoJSON) for f in raw["features"])
+    assert [
+        {**f, "geometry": json.loads(f["geometry"].text)} for f in raw["features"]
+    ] == parsed["features"]
+    assert raw["numberMatched"] == parsed["numberMatched"]
+
+
+def test_raw_geometry_item_parses_to_the_default_item(
+    unique_id_manager: DuckDBManager,
+) -> None:
+    parsed = unique_id_manager.get_item_by_id(COLLECTION_ID, 3)
+    raw = unique_id_manager.get_item_by_id(COLLECTION_ID, 3, raw_geometry=True)
+
+    assert parsed is not None and raw is not None
+    assert isinstance(raw["geometry"], RawGeoJSON)
+    assert {**raw, "geometry": json.loads(raw["geometry"].text)} == parsed
+
+
+@pytest.mark.parametrize("materialized", [False, True], ids=["raw", "materialized"])
+def test_raw_geometry_keeps_null_geometry_as_none(
+    tmp_path: Path, materialized: bool
+) -> None:
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [_square(-73.0, 45.0), None]}, crs="EPSG:4326"
+    )
+    _write_collection(tmp_path, gdf, materialized=materialized)
+    manager = DuckDBManager(data_dir=str(tmp_path))
+    try:
+        page = manager.query_items(COLLECTION_ID, limit=10, raw_geometry=True)
+        item = manager.get_item_by_id(COLLECTION_ID, 2, raw_geometry=True)
+    finally:
+        manager.close()
+
+    assert isinstance(page["features"][0]["geometry"], RawGeoJSON)
+    assert page["features"][1]["geometry"] is None
+    assert item is not None and item["geometry"] is None

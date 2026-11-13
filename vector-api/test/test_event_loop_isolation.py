@@ -197,8 +197,8 @@ async def test_response_rendering_leaves_event_loop_free(
     blocker = Blocker()
     with patch.object(
         parquet_router,
-        "_json_response",
-        blocker.wrap(parquet_router._json_response),
+        "_feature_collection_response",
+        blocker.wrap(parquet_router._feature_collection_response),
     ):
         response = await _landing_answers_while_blocked(
             blocker, "GET", f"/parquet/collections/{COLLECTION}/items"
@@ -290,8 +290,8 @@ async def test_two_parquet_requests_never_overlap(
         patch.object(manager, "query_items", counter.wrap(manager.query_items)),
         patch.object(
             parquet_router,
-            "_json_response",
-            counter.wrap(parquet_router._json_response),
+            "_feature_collection_response",
+            counter.wrap(parquet_router._feature_collection_response),
         ),
     ):
         async with _client() as client:

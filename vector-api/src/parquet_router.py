@@ -4,6 +4,7 @@ This module provides FastAPI routes for exposing GeoParquet files through
 an OGC-compliant API interface under the /parquet namespace.
 """
 
+import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -11,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import anyio
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import TypeAdapter
 
 from agri_i18n import _
@@ -22,6 +23,7 @@ from .duckdb_manager import (
     DuckDBManager,
     DuckDBSpatialExtensionError,
     ParquetSchemaInfo,
+    RawGeoJSON,
     get_shared_manager,
     property_columns,
     run_duckdb_request,
@@ -34,7 +36,8 @@ OGC_CRS84 = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
 router = APIRouter(prefix=PARQUET_PREFIX, tags=["Parquet Collections"])
 
-_RESPONSE_ADAPTER: TypeAdapter[dict[str, Any]] = TypeAdapter(dict[str, Any])
+_JSON_ADAPTER: TypeAdapter[Any] = TypeAdapter(Any)
+JSON_MEDIA_TYPE: str = "application/json"
 
 
 def validate_collection_exists(collection_id: str) -> Path:
@@ -159,24 +162,93 @@ def build_links(request: Request, collection_id: Optional[str] = None) -> List[D
     return links
 
 
-def _json_response(body: dict[str, Any]) -> JSONResponse:
-    """Render body exactly as FastAPI renders a dict[str, Any] response model.
+def _encode_json(value: Any) -> bytes:
+    """Encode value exactly as FastAPI renders a dict[str, Any] response model.
 
     Validates, serializes in Pydantic's JSON mode (dates as ISO strings,
-    decimals as strings), then lets JSONResponse encode the bytes, so the
-    worker thread produces the same body the event loop used to.
+    decimals as strings), then encodes with the json.dumps arguments of
+    Starlette's JSONResponse, so the worker thread produces the same bytes the
+    event loop used to.
     """
-    value = _RESPONSE_ADAPTER.validate_python(body)
-    return JSONResponse(_RESPONSE_ADAPTER.dump_python(value, mode="json"))
+    dumped = _JSON_ADAPTER.dump_python(
+        _JSON_ADAPTER.validate_python(value), mode="json"
+    )
+    return json.dumps(
+        dumped, ensure_ascii=False, allow_nan=False, indent=None, separators=(",", ":")
+    ).encode("utf-8")
 
 
-def _render(build: Callable[..., dict[str, Any]], *args: Any) -> JSONResponse:
+def _json_response(body: dict[str, Any]) -> Response:
+    """Render a whole body through _encode_json."""
+    return Response(_encode_json(body), media_type=JSON_MEDIA_TYPE)
+
+
+def _feature_parts(feature: dict[str, Any]) -> list[bytes]:
+    """Encode a feature as parts, with its geometry text passed through as is.
+
+    Pops the geometry, so the RawGeoJSON text is released once encoded rather
+    than held until the whole body is joined (#292). Every other key goes
+    through _encode_json, and the key order is the one FastAPI emitted. The
+    manager always sets "type" to "Feature", so it is written as a literal.
+    """
+    geometry = feature.pop("geometry")
+    geometry_bytes = (
+        geometry.text.encode("utf-8")
+        if isinstance(geometry, RawGeoJSON)
+        else _encode_json(geometry)
+    )
+    parts = [
+        b'{"type":"Feature","id":',
+        _encode_json(feature["id"]),
+        b',"geometry":',
+        geometry_bytes,
+        b',"properties":',
+        _encode_json(feature["properties"]),
+    ]
+    if "links" in feature:
+        parts += [b',"links":', _encode_json(feature["links"])]
+    parts.append(b"}")
+    return parts
+
+
+def _feature_response(body: dict[str, Any]) -> Response:
+    """Render a single Feature, its geometry passed through."""
+    return Response(b"".join(_feature_parts(body)), media_type=JSON_MEDIA_TYPE)
+
+
+def _feature_collection_response(body: dict[str, Any]) -> Response:
+    """Render a FeatureCollection, each geometry passed through.
+
+    All parts are joined once, so the body is never copied more than once.
+    """
+    parts = [b'{"type":', _encode_json(body["type"]), b',"features":[']
+    for index, feature in enumerate(body["features"]):
+        if index:
+            parts.append(b",")
+        parts += _feature_parts(feature)
+    parts += [
+        b'],"links":',
+        _encode_json(body["links"]),
+        b',"numberMatched":',
+        _encode_json(body["numberMatched"]),
+        b',"numberReturned":',
+        _encode_json(body["numberReturned"]),
+        b"}",
+    ]
+    return Response(b"".join(parts), media_type=JSON_MEDIA_TYPE)
+
+
+def _render(
+    renderer: Callable[[dict[str, Any]], Response],
+    build: Callable[..., dict[str, Any]],
+    *args: Any,
+) -> Response:
     """Build a response body and render it, both in the calling worker thread."""
-    return _json_response(build(*args))
+    return renderer(build(*args))
 
 
 @router.get("/collections", response_class=JSONResponse, response_model=dict[str, Any])
-async def list_collections(request: Request) -> JSONResponse:
+async def list_collections(request: Request) -> Response:
     """List all available Parquet collections.
 
     Args:
@@ -186,7 +258,7 @@ async def list_collections(request: Request) -> JSONResponse:
         OGC API Features style collection listing, auto-discovering
         all *.parquet files in the configured data directory.
     """
-    return await run_duckdb_request(_render, _collections_body, request)
+    return await run_duckdb_request(_render, _json_response, _collections_body, request)
 
 
 def _collections_body(request: Request) -> dict[str, Any]:
@@ -249,7 +321,7 @@ def _collections_body(request: Request) -> dict[str, Any]:
     response_class=JSONResponse,
     response_model=dict[str, Any],
 )
-async def get_collection(request: Request, collection_id: str) -> JSONResponse:
+async def get_collection(request: Request, collection_id: str) -> Response:
     """Get metadata for a specific Parquet collection.
 
     Args:
@@ -259,7 +331,9 @@ async def get_collection(request: Request, collection_id: str) -> JSONResponse:
     Returns:
         OGC API Features style collection metadata.
     """
-    return await run_duckdb_request(_render, _collection_body, request, collection_id)
+    return await run_duckdb_request(
+        _render, _json_response, _collection_body, request, collection_id
+    )
 
 
 def _collection_body(request: Request, collection_id: str) -> dict[str, Any]:
@@ -320,7 +394,7 @@ async def get_items(
         default=None,
         description="Bounding box filter: minx,miny,maxx,maxy",
     ),
-) -> JSONResponse:
+) -> Response:
     """Get items from a Parquet collection.
 
     Args:
@@ -334,7 +408,14 @@ async def get_items(
         GeoJSON FeatureCollection.
     """
     return await run_duckdb_request(
-        _render, _items_body, request, collection_id, limit, offset, bbox
+        _render,
+        _feature_collection_response,
+        _items_body,
+        request,
+        collection_id,
+        limit,
+        offset,
+        bbox,
     )
 
 
@@ -381,6 +462,7 @@ def _items_body(
             limit=limit,
             offset=offset,
             bbox=bbox_tuple,
+            raw_geometry=True,
         )
 
         base_url = external_base_url(request)
@@ -443,7 +525,7 @@ def _items_body(
     response_class=JSONResponse,
     response_model=dict[str, Any],
 )
-async def get_item(request: Request, collection_id: str, item_id: str) -> JSONResponse:
+async def get_item(request: Request, collection_id: str, item_id: str) -> Response:
     """Get a single item from a Parquet collection.
 
     Args:
@@ -455,7 +537,7 @@ async def get_item(request: Request, collection_id: str, item_id: str) -> JSONRe
         GeoJSON Feature.
     """
     return await run_duckdb_request(
-        _render, _item_body, request, collection_id, item_id
+        _render, _feature_response, _item_body, request, collection_id, item_id
     )
 
 
@@ -472,7 +554,7 @@ def _item_body(request: Request, collection_id: str, item_id: str) -> dict[str, 
         validate_collection_exists(collection_id)
 
         manager = get_duckdb_manager()
-        feature = manager.get_item_by_id(collection_id, parsed_id)
+        feature = manager.get_item_by_id(collection_id, parsed_id, raw_geometry=True)
         if not feature:
             raise HTTPException(
                 status_code=404,
@@ -514,7 +596,7 @@ def _item_body(request: Request, collection_id: str, item_id: str) -> dict[str, 
     response_class=JSONResponse,
     response_model=dict[str, Any],
 )
-async def get_queryables(request: Request, collection_id: str) -> JSONResponse:
+async def get_queryables(request: Request, collection_id: str) -> Response:
     """Get queryable properties for a Parquet collection.
 
     Args:
@@ -524,7 +606,9 @@ async def get_queryables(request: Request, collection_id: str) -> JSONResponse:
     Returns:
         JSON Schema describing queryable properties.
     """
-    return await run_duckdb_request(_render, _queryables_body, request, collection_id)
+    return await run_duckdb_request(
+        _render, _json_response, _queryables_body, request, collection_id
+    )
 
 
 def _queryables_body(request: Request, collection_id: str) -> dict[str, Any]:

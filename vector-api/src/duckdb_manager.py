@@ -7,6 +7,7 @@ PostGIS collections.
 Adapted from gis-pipeline/src/gis_pipeline/modules/db/duckdb_utils.py
 """
 
+import json
 import logging
 import os
 import re
@@ -14,6 +15,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, TypeVar
@@ -128,6 +130,13 @@ class ParquetSchemaInfo(TypedDict):
 
 
 BINARY_TYPE_PREFIXES: tuple[str, ...] = ("BLOB", "GEOMETRY")
+
+
+@dataclass(frozen=True, slots=True)
+class RawGeoJSON:
+    """A geometry kept as the GeoJSON text DuckDB produced, not parsed (#292)."""
+
+    text: str
 
 
 def is_binary_type(duckdb_type: str) -> bool:
@@ -393,25 +402,29 @@ class DuckDBManager:
 
     @staticmethod
     def _extract_geometry_from_row(
-        row_dict: Dict[str, Any], has_geometry: bool, geometry_column: Optional[str]
-    ) -> Optional[Dict[str, Any]]:
-        """Extract and parse geometry from a row dictionary.
+        row_dict: Dict[str, Any],
+        has_geometry: bool,
+        geometry_column: Optional[str],
+        raw_geometry: bool = False,
+    ) -> dict[str, Any] | RawGeoJSON | None:
+        """Extract the geometry from a row dictionary.
 
         Args:
             row_dict: Row dictionary (will be modified in-place).
             has_geometry: Whether the row should contain geometry.
             geometry_column: Name of the geometry column to remove from properties.
+            raw_geometry: Return the GeoJSON text unparsed, as RawGeoJSON.
 
         Returns:
-            Parsed GeoJSON geometry dict, or None if no geometry.
+            The GeoJSON geometry, parsed or raw, or None if no geometry.
         """
-        geometry = None
+        geometry: dict[str, Any] | RawGeoJSON | None = None
         if has_geometry and "__geojson__" in row_dict:
-            import json
-
             geojson_str = row_dict.pop("__geojson__")
             if geojson_str:
-                geometry = json.loads(geojson_str)
+                geometry = (
+                    RawGeoJSON(geojson_str) if raw_geometry else json.loads(geojson_str)
+                )
             # Remove original geometry column from properties
             row_dict.pop(geometry_column, None)
         return geometry
@@ -888,6 +901,7 @@ class DuckDBManager:
         limit: int = 10,
         offset: int = 0,
         bbox: Optional[Tuple[float, float, float, float]] = None,
+        raw_geometry: bool = False,
     ) -> Dict[str, Any]:
         """Query items from a Parquet file.
 
@@ -896,6 +910,7 @@ class DuckDBManager:
             limit: Maximum number of items to return.
             offset: Number of items to skip.
             bbox: Optional bounding box filter [minx, miny, maxx, maxy].
+            raw_geometry: Return each geometry as RawGeoJSON instead of a dict.
 
         Returns:
             Dictionary containing:
@@ -1015,7 +1030,7 @@ class DuckDBManager:
 
             # Extract geometry
             geometry = self._extract_geometry_from_row(
-                row_dict, has_geometry, geometry_column
+                row_dict, has_geometry, geometry_column, raw_geometry
             )
 
             # Determine feature ID
@@ -1039,13 +1054,14 @@ class DuckDBManager:
         }
 
     def get_item_by_id(
-        self, collection_id: str, item_id: Any
+        self, collection_id: str, item_id: Any, raw_geometry: bool = False
     ) -> Optional[Dict[str, Any]]:
         """Get a single item by ID from a Parquet file.
 
         Args:
             collection_id: The collection identifier.
             item_id: The item ID to retrieve.
+            raw_geometry: Return the geometry as RawGeoJSON instead of a dict.
 
         Returns:
             Feature dictionary, or None if not found.
@@ -1119,7 +1135,7 @@ class DuckDBManager:
 
         # Extract geometry
         geometry = self._extract_geometry_from_row(
-            row_dict, has_geometry, geometry_column
+            row_dict, has_geometry, geometry_column, raw_geometry
         )
 
         return {
