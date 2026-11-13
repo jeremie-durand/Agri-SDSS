@@ -2,8 +2,8 @@
 
 Each case writes one GeoParquet file with a given column type into its own
 data dir, then walks /parquet/collections and opens items?limit=1 for every
-listed id. The xfail cases are known bugs; strict=True turns the run red once
-a fix lands and the marker has to go.
+listed id. Add a known bug as a case marked xfail(strict=True): the run turns
+red once its fix lands and the marker has to go.
 """
 
 from collections.abc import Callable, Iterator
@@ -42,14 +42,7 @@ def _blob_columns() -> dict[str, Any]:
 COLUMN_CASES: list[Any] = [
     pytest.param(_plain_columns, id="plain"),
     pytest.param(_timestamptz_columns, id="timestamptz"),
-    pytest.param(
-        _blob_columns,
-        id="blob",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason="#289: BLOB columns answer 500 (UnicodeDecodeError)",
-        ),
-    ),
+    pytest.param(_blob_columns, id="blob"),
 ]
 
 

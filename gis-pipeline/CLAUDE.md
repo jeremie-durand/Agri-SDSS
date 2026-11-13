@@ -106,8 +106,14 @@ Keep these invariants when changing processing code.
 - Per-table steps, in order: `validate_vector_data` → `harmonize_gdf` →
   `clean_geometries_gdf` → `harmonize_crs_gdf` → PostGIS → GeoParquet →
   `trigger_materialize_and_notify`.
-- QGIS internal layers (`QGISInternalLayers`) are skipped. GPKG foreign keys
-  are re-applied after all layers of the file are loaded.
+- `is_ingested_layer()` (`io_tools/input_data.py`) decides which layers are
+  skipped, for `main.py` and `convert_vector_files_to_gdf()` alike. It leaves
+  out QGIS internal layers (`QGISInternalLayers`) and ESRI geometric-network
+  system tables: non-spatial `N_<number>_<name>` layers of a `.gdb`
+  (`EsriSystemLayerPatterns`). They carry no geometry, and their `BLOB`
+  pages broke vector-api (#289). A skipped layer is logged as `layer_skipped`
+  and changes no report counter. Add a new rule there, not at a call site.
+- GPKG foreign keys are re-applied after all layers of the file are loaded.
 - After all vectors, `stamp_gee_flags_on_field_boundaries()` sets `gee_field_id`
   and `has_gee_data` on `som_field_boundaries` and rewrites its GeoParquet so
   both stores agree. GEE `FIELD_ID` is **not** the platform `gid`: the two are

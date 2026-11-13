@@ -1340,6 +1340,30 @@ def test_convert_vector_files_to_gdf_geopandas_exception(
     assert result == []
 
 
+@pytest.mark.unit
+@patch(
+    "gis_pipeline.modules.io_tools.input_data.pyogrio.read_info",
+    return_value={"geometry_type": None},
+)
+@patch("gis_pipeline.modules.processing.geoprocessing.fiona.listlayers")
+@patch("gis_pipeline.modules.processing.geoprocessing.gpd.read_file")
+def test_convert_vector_files_to_gdf_skips_esri_network_tables(
+    mock_read_file, mock_listlayers, mock_read_info, tmp_path
+):
+    """Geometric-network tables of a .gdb are not read."""
+    gdb_file = tmp_path / "network.gdb"
+    gdb_file.mkdir()
+    mock_listlayers.return_value = ["RH_L", "N_1_EDesc"]
+    mock_read_file.return_value = gpd.GeoDataFrame(
+        {"gid": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"
+    )
+
+    result = GeoprocessingVector.convert_vector_files_to_gdf(vector_files=[gdb_file])
+
+    assert [name for name, _ in result] == ["network_rh_l"]
+    mock_read_file.assert_called_once_with(gdb_file, layer="RH_L")
+
+
 def test_convert_vector_files_to_gdf_name_harmonization(tmp_path):
     """Test that file names are properly harmonized."""
     # Create file with name that needs harmonization

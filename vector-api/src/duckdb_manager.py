@@ -124,6 +124,29 @@ class ParquetSchemaInfo(TypedDict):
     has_geometry: bool
     feature_count: int
     bbox: Optional[List[float]]  # [minx, miny, maxx, maxy]
+    binary_columns: list[str]
+
+
+BINARY_TYPE_PREFIXES: tuple[str, ...] = ("BLOB", "GEOMETRY")
+
+
+def is_binary_type(duckdb_type: str) -> bool:
+    """Return True for a DuckDB column type whose values DuckDB returns as bytes.
+
+    GEOMETRY carries its CRS as a parameter (``GEOMETRY('EPSG:4326')``), hence
+    a prefix test.
+    """
+    return duckdb_type.upper().startswith(BINARY_TYPE_PREFIXES)
+
+
+def property_columns(schema: ParquetSchemaInfo) -> list[ColumnInfo]:
+    """Return the columns a feature serves as properties.
+
+    Leaves out the geometry column, served as the feature geometry, and the
+    binary columns, which have no JSON form (#289).
+    """
+    hidden = {schema["geometry_column"], *schema["binary_columns"]}
+    return [column for column in schema["columns"] if column["name"] not in hidden]
 
 
 class DuckDBSpatialExtensionError(duckdb.Error):
@@ -662,6 +685,8 @@ class DuckDBManager:
             - columns: List of column info (name, type)
             - id_column: Detected ID column name
             - geometry_column: Detected geometry column name
+            - binary_columns: BLOB and non-served GEOMETRY columns, left out
+              of feature properties and queryables
             - has_geometry: Whether file has geometry column
             - feature_count: Total number of features
             - bbox: Bounding box [minx, miny, maxx, maxy] if spatial
@@ -738,6 +763,11 @@ class DuckDBManager:
                 )
 
         has_geometry = geometry_column is not None
+        binary_columns = [
+            col["name"]
+            for col in columns
+            if col["name"] != geometry_column and is_binary_type(col["type"])
+        ]
 
         # Get feature count
         count_query = f"SELECT COUNT(*) FROM read_parquet('{escaped_path}')"
@@ -750,6 +780,7 @@ class DuckDBManager:
             "has_geometry": has_geometry,
             "feature_count": feature_count,
             "bbox": None,
+            "binary_columns": binary_columns,
         }
 
         bbox_failed = False
@@ -800,11 +831,22 @@ class DuckDBManager:
         return False
 
     @staticmethod
+    def _star_sql(excluded_columns: list[str], alias: str = "") -> str:
+        """Return ``<alias>*``, with an EXCLUDE clause naming excluded_columns."""
+        star = f"{alias}*"
+        if not excluded_columns:
+            return star
+        escaped = ", ".join(
+            DuckDBManager.escape_identifier(name) for name in excluded_columns
+        )
+        return f"{star} EXCLUDE ({escaped})"
+
+    @staticmethod
     def _position_paged_select_sql(
         *,
         from_sql: str,
         position_column: str,
-        exclude_position: bool,
+        excluded_columns: list[str],
         escaped_id_col: str,
         escaped_geom_col: str | None,
         where_sql: str,
@@ -820,7 +862,7 @@ class DuckDBManager:
         the position tie-break gives duplicate ids a fixed order, so every page
         holds exactly ``limit`` rows and pages never overlap.
         """
-        exclude_sql = f" EXCLUDE ({position_column})" if exclude_position else ""
+        star_sql = DuckDBManager._star_sql(excluded_columns, alias="t.")
         geojson_sql = (
             f", ST_AsGeoJSON(t.{escaped_geom_col}) AS __geojson__"
             if escaped_geom_col
@@ -834,7 +876,7 @@ class DuckDBManager:
                 ORDER BY {escaped_id_col}, {position_column}
                 LIMIT {limit} OFFSET {offset}
             )
-            SELECT t.*{exclude_sql}{geojson_sql}
+            SELECT {star_sql}{geojson_sql}
             FROM {from_sql} t
             JOIN page p ON t.{position_column} = p.__pos__
             ORDER BY p.__id__, p.__pos__
@@ -887,6 +929,8 @@ class DuckDBManager:
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         order_sql = f"ORDER BY {self.escape_identifier(id_column)}" if id_column else ""
+        binary_columns = schema["binary_columns"]
+        star_sql = self._star_sql(binary_columns)
 
         def build(materialized: bool) -> tuple[str, str]:
             from_sql = (
@@ -907,7 +951,11 @@ class DuckDBManager:
                         else f"read_parquet('{escaped_path}', file_row_number = true)"
                     ),
                     position_column=position_column,
-                    exclude_position=not materialized,
+                    excluded_columns=(
+                        binary_columns
+                        if materialized
+                        else [*binary_columns, position_column]
+                    ),
                     escaped_id_col=self.escape_identifier(id_column),
                     escaped_geom_col=escaped_geom_col if has_geometry else None,
                     where_sql=where_sql,
@@ -916,7 +964,7 @@ class DuckDBManager:
                 )
             elif has_geometry:
                 select_sql = f"""
-                    SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
+                    SELECT {star_sql}, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
                     FROM {from_sql}
                     {where_sql}
                     {order_sql}
@@ -924,7 +972,7 @@ class DuckDBManager:
                 """
             else:
                 select_sql = f"""
-                    SELECT *
+                    SELECT {star_sql}
                     FROM {from_sql}
                     {where_sql}
                     {order_sql}
@@ -1033,6 +1081,7 @@ class DuckDBManager:
         geojson_sql = (
             f", ST_AsGeoJSON({escaped_geom_col}) as __geojson__" if has_geometry else ""
         )
+        star_sql = self._star_sql(schema["binary_columns"])
 
         def build(materialized: bool) -> str:
             from_sql = (
@@ -1041,7 +1090,7 @@ class DuckDBManager:
                 else f"read_parquet('{escaped_path}')"
             )
             return f"""
-                SELECT *{geojson_sql}
+                SELECT {star_sql}{geojson_sql}
                 FROM {from_sql}
                 {where_sql}
                 LIMIT 1 {offset_sql}

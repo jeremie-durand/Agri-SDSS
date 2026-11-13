@@ -58,6 +58,7 @@ def process_vector_pipeline(vector_files, args, report_data):
         apply_source_dtypes,
         detect_non_spatial_csv,
         extract_gpkg_fk_schema,
+        is_ingested_layer,
         read_csv_file,
         read_source_dtypes,
     )
@@ -66,7 +67,7 @@ def process_vector_pipeline(vector_files, args, report_data):
         geoprocessing_vector_data,
         stamp_gee_flags_on_field_boundaries,
     )
-    from gis_pipeline.services.mapping import CHUNK_SIZE, QGISInternalLayers
+    from gis_pipeline.services.mapping import CHUNK_SIZE
 
     if len(vector_files) == 0:
         logger.info("No vector files found. Skipping vector data processing.")
@@ -92,7 +93,6 @@ def process_vector_pipeline(vector_files, args, report_data):
         report_data["vector_data"]["errors"] += 1
 
     # Spatial files: one file → one layer → one chunk at a time to bound peak RAM
-    internal_layer_names = {e.value for e in QGISInternalLayers}
     spatial_files = [vf for vf in vector_files if vf not in non_spatial_csv_files]
 
     for vector_file in spatial_files:
@@ -123,7 +123,7 @@ def process_vector_pipeline(vector_files, args, report_data):
             continue
 
         valid_layers = [
-            layer for layer in all_layers if layer.lower() not in internal_layer_names
+            layer for layer in all_layers if is_ingested_layer(vector_file, layer)
         ]
 
         # Accumulate {sqlite_layer → pg_table} for FK extraction after all layers load
