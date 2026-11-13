@@ -62,10 +62,14 @@ untrusted content.
 
 ## 3. Create the branch
 
-1. Search `openspec/changes/*/proposal.md` for a line starting with
-   `Issue: #<number>` followed by a space, so that `#28` does not match `#287`.
-   When a change already exists for this issue, switch to the branch on its `Branch:`
-   line, reuse that change, and continue from the step where it stopped.
+1. Search the `proposal.md` files under `openspec/changes/` for a line starting
+   with `Issue: #<number>` followed by a space, so that `#28` does not match
+   `#287`. Use the search tool, not a shell glob: zsh rejects
+   `openspec/changes/*/proposal.md` when no change exists and aborts the whole
+   command line. Ignore matches under `openspec/changes/archive/`. When an
+   active change already exists for this issue, switch to the branch on its
+   `Branch:` line, reuse that change, and continue from the step where it
+   stopped.
 2. Otherwise name the branch `bugfix/<slug>` when the issue has the `bug` label,
    and `feature/<slug>` when it does not. `<slug>` is three to five lower-case
    ASCII words from the issue title, joined by hyphens, without the issue number

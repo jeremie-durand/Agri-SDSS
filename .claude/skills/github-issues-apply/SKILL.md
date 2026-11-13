@@ -4,7 +4,7 @@ description: Implement the accepted OpenSpec proposal of a GitHub issue one task
 argument-hint: "[change-name]"
 disable-model-invocation: true
 model: opus
-effort: high
+effort: medium
 allowed-tools: Bash(openspec *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git branch --show-current) Bash(git add *) Bash(git commit -m *) Bash(make test-*) Bash(pre-commit run *)
 ---
 
@@ -22,9 +22,14 @@ Workflow). The limits stay strict:
 - Never push, open a pull request, rebase, reset or force anything.
 - Never use `git commit --amend`, `git commit -a` or `--no-verify`.
 
-The `model` and `effort` set above last for this turn only. Run every task group
-in this one turn. When a decision belongs to the developer, ask with
-`AskUserQuestion` so the turn continues. If the turn ends anyway, the developer
+The `model` and `effort` set above apply only to the turn that starts the
+command. Subagents run in the background, so waiting for a review or a delegated
+group ends that turn. The run continues by itself when the subagent reports, but
+on the session's model and effort. To keep the whole run on Opus, the developer
+switches the session to it (`/model opus`) before running the command.
+
+Do not end the turn for any other reason. When a decision belongs to the
+developer, ask with `AskUserQuestion`. If the run is interrupted, the developer
 runs `/github-issues-apply` again and the work resumes as described in step 1.
 
 Record what you find on the way in `openspec/changes/<name>/findings.md`, as soon
@@ -64,8 +69,8 @@ Do every unchecked task of the group and tick each checkbox as the
 `openspec-apply-change` skill describes.
 
 A group that only touches the UI (`frontend/`, HTML, CSS, browser JavaScript) or
-only Markdown documentation runs at medium effort: delegate it to a
-`general-purpose` subagent with `model: "opus"` and `effort: "medium"`. Give it
+only Markdown documentation runs at low effort: delegate it to a
+`general-purpose` subagent with `model: "opus"` and `effort: "low"`. Give it
 the change name, the group number, the paths of the OpenSpec context files and
 the service `CLAUDE.md` to read, and tell it to implement and tick only that
 group, to run the group's verification command, and not to commit or review.
@@ -83,19 +88,22 @@ Every other group is implemented in this conversation.
 ### 2.3 Review
 
 Run the `agri-reviewer` subagent on the uncommitted changes with
-`model: "opus"`. Tell it which task group the diff implements and give it the
-paths of `proposal.md` and `tasks.md`, which are gitignored and so absent from
-the diff.
+`model: "opus"` and `effort: "high"`. Tell it which task group the diff
+implements and give it the paths of `proposal.md` and `tasks.md`, which are
+gitignored and so absent from the diff.
 
 - Fix every `blocking` finding, and every `should-fix` finding about the code of
   this group. After any fix, repeat 2.2 and run the reviewer again.
 - The group passes when a review has no `blocking` finding and you changed
-  nothing after it.
+  nothing but Markdown documentation after it.
 - Three reviews per group at most. If the third still has a `blocking` finding,
   stop and ask the developer. If it has none, the group passes.
-- Do not fix a `nit`. Record it, and anything left after the third review, under
-  **Open review findings**. Record a finding about code outside the change under
-  **Out of scope**.
+- A `nit` never causes another review. Fix it in two cases only: together with
+  a `blocking` or `should-fix` fix when another review follows, which then
+  covers it, or when it corrects a wrong statement in Markdown documentation,
+  which needs no review. Record every other `nit`, and anything left after the
+  third review, under **Open review findings**. Record a finding about code
+  outside the change under **Out of scope**.
 - A diff that touches only Markdown documentation skips the review.
 
 ### 2.4 Commit
