@@ -17,7 +17,7 @@ import pytest
 import sqlalchemy
 from gis_pipeline.core.config import Config
 from gis_pipeline.modules.db.pg_utils import PostGISManager
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 
 pytestmark = pytest.mark.integration
 
@@ -143,3 +143,44 @@ def test_insert_into_existing_table_with_fail_raises(
 
     with pytest.raises(RuntimeError, match="Error inserting"):
         postgis.insert_table_data(_points(1), table_name, override_method="fail")
+
+
+def test_split_layer_keeps_integer_split_columns(
+    postgis: PostGISManager, table_name: str
+) -> None:
+    """A split layer stores split_source_gid and split_part as integers (#292).
+
+    to_postgis keeps int64 columns as bigint, as the GeoParquet keeps BIGINT,
+    so the two stores agree without a type mapping of their own.
+    """
+    pieces = gpd.GeoDataFrame(
+        {
+            "name": ["small", "large", "large", "large"],
+            "split_source_gid": [1, 2, 2, 2],
+            "split_part": [1, 1, 2, 3],
+        },
+        geometry=[box(i, 0, i + 1, 1) for i in range(4)],
+        crs="EPSG:4326",
+    )
+
+    postgis.insert_table_data(pieces, table_name, override_method="replace")
+
+    with postgis.engine.connect() as conn:
+        types = dict(
+            conn.execute(
+                sqlalchemy.text(
+                    "SELECT column_name, data_type FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name = :name"
+                ),
+                {"name": table_name},
+            ).all()
+        )
+    back = pd.read_sql(
+        f'SELECT gid, split_source_gid, split_part FROM public."{table_name}" '
+        "ORDER BY split_source_gid, split_part",
+        postgis.engine,
+    )
+    assert types["split_source_gid"] == "bigint"
+    assert types["split_part"] == "bigint"
+    assert back["gid"].tolist() == [1, 2, 3, 4]
+    assert back["split_part"].tolist() == [1, 1, 2, 3]

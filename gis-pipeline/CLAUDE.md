@@ -104,8 +104,29 @@ Keep these invariants when changing processing code.
 - `insert_table_data()` mutates `gid` in place to apply the offset. The
   GeoParquet export relies on that, so do not add a defensive `.copy()`.
 - Per-table steps, in order: `validate_vector_data` → `harmonize_gdf` →
-  `clean_geometries_gdf` → `harmonize_crs_gdf` → PostGIS → GeoParquet →
+  `clean_geometries_gdf` → `harmonize_crs_gdf` →
+  `split_large_geometries_gdf` → PostGIS → GeoParquet →
   `trigger_materialize_and_notify`.
+- `split_large_geometries_gdf` cuts each Polygon or MultiPolygon above
+  `SPLIT_MAX_VERTICES` (100 000, `services/mapping.py`) into pieces of at most
+  that many vertices (#292). It halves the bounds with `clip_by_rect`, so
+  every source vertex and the source area are kept, and only the cut lines
+  add vertices. A layer with at least one split gets `split_source_gid` (the
+  gid the feature would have had) and `split_part` (1 for an unsplit
+  feature), its attributes are copied to every piece, and `gid` is dropped so
+  `insert_table_data()` numbers the rows again. Layers read in chunks are
+  never split, only logged (`feature_not_split`, reason `chunked`): generated
+  gids are offset by the source row (`gid_offset`), so pieces would collide
+  with the next chunk's gids. A layer that already has one of the two column
+  names is left unsplit too (reason `column_conflict`). For both reasons the
+  logged `feature` is the gid stored for it, `gid_offset` included. Lines and
+  points are never split. Pieces copy every attribute, so a GPKG parent layer
+  that gets split loses its unique key. A foreign key that targets one of its
+  attribute columns is then skipped (`gpkg_fk_unique_skipped_duplicate_data`).
+  One that targets `gid` is still applied, but against the renumbered gids,
+  so child rows that point at a split parent reach the wrong rows; clients
+  must use `split_source_gid`. Recursion stops at `MAX_SPLIT_DEPTH`; a piece still above
+  the threshold then is kept and logged as `feature_split_incomplete`.
 - `is_ingested_layer()` (`io_tools/input_data.py`) decides which layers are
   skipped, for `main.py` and `convert_vector_files_to_gdf()` alike. It leaves
   out QGIS internal layers (`QGISInternalLayers`) and ESRI geometric-network

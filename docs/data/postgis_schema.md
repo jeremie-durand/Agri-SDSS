@@ -40,6 +40,8 @@ INFO - Renamed column 'station_id' to 'gid' during Parquet export
 - Original input data remains unmodified; renaming applies only to processed copies
 - Parquet files transparently normalize ID columns on export, ensuring all archived data uses `gid`
 
+**Split layers (#292):** in a layer where at least one Polygon or MultiPolygon holds more than 100 000 vertices, that feature is stored as several pieces. The source id then moves to `split_source_gid`, and `gid` is numbered 1..N again over every row of the layer, split or not. Join on `split_source_gid`, not `gid`, to reach the source feature. Layers read in chunks (more than 50 000 rows) are never split.
+
 ## Vector Data Tables
 
 Created by `PostGISManager.insert_table_data()` with base columns from `VectorPostGISColumns` and inferred attributes from the input `GeoDataFrame`.
@@ -50,6 +52,12 @@ Base columns:
 - geometry: geometry(Geometry, 4326)
 - datetime: TIMESTAMP WITH TIME ZONE
 - metadata: JSONB
+
+Columns of a split layer only (see Split layers above), both integers in
+PostGIS and in the GeoParquet:
+
+- split_source_gid: the gid the source feature would have had
+- split_part: the piece number, 1 to n (1 for a feature that was not split)
 
 Type inference for additional attributes:
 

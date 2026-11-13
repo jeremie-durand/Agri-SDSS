@@ -70,6 +70,7 @@ by horizon (`ppc_eessaq`, falling back to the 1990 inventory without depths).
 - **CQL filtering** — attribute and spatial filters on PostGIS collections (`/postgis/` only)
 - **Output formats** — GeoJSON (default), CSV (`?f=csv`), GeoJSON-seq (`?f=geojsonseq`)
 - **Pagination** — `limit` + `offset` on all item endpoints. A Parquet page can hold fewer than `limit` features when their geometries together exceed `VECTOR_API_MAX_PAGE_VERTICES`; follow its `next` link rather than adding `limit` to `offset`. A single feature above that budget answers 413
+- **Split features** — in layers of at most 50 000 rows, gis-pipeline stores a polygon of more than 100 000 vertices as several pieces that share `split_source_gid` and are numbered by `split_part`. Group by `split_source_gid` to rebuild the source feature, and do not sum its attributes (such as an area) over the pieces
 - **Binary columns** — Parquet `BLOB` columns, and geometry columns other than the feature geometry, are left out of feature properties and queryables
 - **Localised errors** — French by default; send `Accept-Language: en` or `?lang=en` for English
 - **Warm start** — right after start-up, the Parquet collection metadata (columns, feature count, extent) is computed in the background, so the first `/parquet/collections` does not pay for it
