@@ -90,7 +90,10 @@ Parameters:
 collectionId (string): The identifier of the collection
 
 Query Parameters:
-limit (integer): Maximum number of features to return (default: 10)
+limit (integer): Maximum number of features to return (default: 10). On
+`parquet/` a page can hold fewer when its geometries exceed
+`VECTOR_API_MAX_PAGE_VERTICES`; follow the `next` link to continue. A single
+feature above that budget answers 413
 offset (integer): Number of features to skip
 bbox (array): Bounding box filter [minx,miny,maxx,maxy]
 

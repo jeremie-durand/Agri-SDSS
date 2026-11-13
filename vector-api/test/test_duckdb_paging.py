@@ -10,7 +10,11 @@ import duckdb
 import geopandas as gpd
 import pytest
 from shapely.geometry import Point, Polygon
-from vector_api.duckdb_manager import DuckDBManager, RawGeoJSON
+from vector_api.duckdb_manager import (
+    DuckDBManager,
+    FeatureTooLargeError,
+    RawGeoJSON,
+)
 from vector_api.materialize import MATERIALIZED_TABLE_NAME, materialize_collection
 
 pytestmark = pytest.mark.unit
@@ -337,3 +341,36 @@ def test_raw_geometry_keeps_null_geometry_as_none(
     assert isinstance(page["features"][0]["geometry"], RawGeoJSON)
     assert page["features"][1]["geometry"] is None
     assert item is not None and item["geometry"] is None
+
+
+@pytest.mark.parametrize(
+    ("vertex_counts", "kept"),
+    [
+        ([], 0),
+        ([40, 60], 2),
+        ([40, 61], 1),
+        ([0, 100, 0], 3),
+        ([10, 10, 10], 3),
+    ],
+    ids=["empty-page", "exact-fit", "one-vertex-over", "null-geometries", "fewer-rows"],
+)
+def test_rows_within_budget_keeps_the_leading_rows_that_fit(
+    vertex_counts: list[int], kept: int
+) -> None:
+    assert DuckDBManager._rows_within_budget(vertex_counts, 100) == kept
+
+
+def test_first_row_over_the_budget_is_refused(tmp_path: Path) -> None:
+    manager = DuckDBManager(data_dir=str(tmp_path), max_page_vertices=100)
+    try:
+        with pytest.raises(FeatureTooLargeError) as raised:
+            manager._page_size_within_budget(COLLECTION_ID, [101, 1])
+        assert manager._page_size_within_budget(COLLECTION_ID, []) == 0
+    finally:
+        manager.close()
+
+    assert (raised.value.collection_id, raised.value.vertices, raised.value.budget) == (
+        COLLECTION_ID,
+        101,
+        100,
+    )

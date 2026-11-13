@@ -219,6 +219,19 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   container (stage-by-stage replay). The JSON value is unchanged, but number spelling inside
   `geometry` is DuckDB's (`0.00001` where Python writes `1e-05`). Called
   directly, `query_items()` and `get_item_by_id()` still return parsed dicts.
+- A page's geometry is bounded by `VECTOR_API_MAX_PAGE_VERTICES` (default
+  1500000, just above the largest real feature, `grhq_hr_06aa_udh`, 1 442 728
+  vertices) (#292). Before rendering, `query_items()` runs a sizing query over
+  the same page selection (same source, filter, order, `LIMIT` and `OFFSET`,
+  built beside both page shapes) that returns `ST_NPoints` per row, keeps the
+  longest leading run within the budget (`_rows_within_budget`), then runs the
+  page query with that `LIMIT`. Count, sizing and page run in one `work` on a
+  materialized collection. A first row above the budget raises
+  `FeatureTooLargeError`, which the router maps to a translated 413, on
+  `items` and `items/{item_id}` alike. Vertices, not GeoJSON bytes, because
+  the size is known only after `ST_AsGeoJSON`, the step that costs memory.
+  The `next` link's offset is `offset + numberReturned`, so a shortened page
+  continues where it stopped; `prev` keeps `offset - limit`.
 - `/invalidate` runs in the default thread pool, outside the gate. It runs no
   query, but it waits for a running query on the same collection, and
   gis-pipeline calls it with a 10 s timeout, so it must not queue behind other
@@ -304,7 +317,7 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | Marker | Where | What it needs |
 | --- | --- | --- |
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
-| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py`, `test_parquet_binary_columns.py`, `test_parquet_geometry_passthrough.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py`, `test_parquet_binary_columns.py`, `test_parquet_geometry_passthrough.py`, `test_parquet_page_budget.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
 | `integration` | `test_duckdb_extensions.py` | the vector-api image, with `spatial` installed at build; fails outside it |
 | `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
 

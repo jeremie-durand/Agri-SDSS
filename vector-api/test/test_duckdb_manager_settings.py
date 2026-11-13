@@ -1,4 +1,4 @@
-"""Unit tests for DuckDBManager's cache, query-slot and raw-Parquet warning settings."""
+"""Unit tests for DuckDBManager's cache, query-slot, warning and page-budget settings."""
 
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from vector_api.duckdb_manager import (
     DEFAULT_MAX_DUCKDB_QUERIES,
     DEFAULT_MAX_OPEN_DUCKDB,
+    DEFAULT_MAX_PAGE_VERTICES,
     DEFAULT_RAW_PARQUET_WARN_MB,
     DuckDBConfigError,
     DuckDBManager,
@@ -21,6 +22,7 @@ SETTINGS: list[tuple[str, str]] = [
     ("max_open", "VECTOR_API_MAX_OPEN_DUCKDB"),
     ("max_queries", "VECTOR_API_MAX_DUCKDB_QUERIES"),
     ("raw_parquet_warn_mb", "VECTOR_API_RAW_PARQUET_WARN_MB"),
+    ("max_page_vertices", "VECTOR_API_MAX_PAGE_VERTICES"),
 ]
 
 
@@ -36,6 +38,7 @@ def test_settings_default_without_argument_or_env(tmp_path: Path) -> None:
         assert manager.max_open == DEFAULT_MAX_OPEN_DUCKDB == 2
         assert manager.max_queries == DEFAULT_MAX_DUCKDB_QUERIES == 1
         assert manager.raw_parquet_warn_mb == DEFAULT_RAW_PARQUET_WARN_MB == 50
+        assert manager.max_page_vertices == DEFAULT_MAX_PAGE_VERTICES == 1500000
     finally:
         manager.close()
 
@@ -65,6 +68,7 @@ def test_empty_env_setting_falls_back_to_default(
                 "max_open": DEFAULT_MAX_OPEN_DUCKDB,
                 "max_queries": DEFAULT_MAX_DUCKDB_QUERIES,
                 "raw_parquet_warn_mb": DEFAULT_RAW_PARQUET_WARN_MB,
+                "max_page_vertices": DEFAULT_MAX_PAGE_VERTICES,
             }[attribute]
         )
     finally:

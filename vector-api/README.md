@@ -69,7 +69,7 @@ by horizon (`ppc_eessaq`, falling back to the 1990 inventory without depths).
 - **Spatial filtering** — all collections support `bbox` query parameter
 - **CQL filtering** — attribute and spatial filters on PostGIS collections (`/postgis/` only)
 - **Output formats** — GeoJSON (default), CSV (`?f=csv`), GeoJSON-seq (`?f=geojsonseq`)
-- **Pagination** — `limit` + `offset` on all item endpoints
+- **Pagination** — `limit` + `offset` on all item endpoints. A Parquet page can hold fewer than `limit` features when their geometries together exceed `VECTOR_API_MAX_PAGE_VERTICES`; follow its `next` link rather than adding `limit` to `offset`. A single feature above that budget answers 413
 - **Binary columns** — Parquet `BLOB` columns, and geometry columns other than the feature geometry, are left out of feature properties and queryables
 - **Localised errors** — French by default; send `Accept-Language: en` or `?lang=en` for English
 - **Warm start** — right after start-up, the Parquet collection metadata (columns, feature count, extent) is computed in the background, so the first `/parquet/collections` does not pay for it
@@ -113,6 +113,7 @@ changes. See [Internationalization](../docs/I18N.md).
 | `DUCKDB_MEMORY_LIMIT` | `819MB` | DuckDB `memory_limit` for each DuckDB instance (the in-memory one and each open `.duckdb`) |
 | `VECTOR_API_MAX_OPEN_DUCKDB` | `2` | Maximum number of materialized `.duckdb` collections kept open at once |
 | `VECTOR_API_MAX_DUCKDB_QUERIES` | `1` | Maximum number of concurrent queries on materialized collections |
+| `VECTOR_API_MAX_PAGE_VERTICES` | `1500000` | Most geometry vertices one Parquet items page or item may hold, about 56 MiB of GeoJSON. The default sits just above the largest real feature; raise it only together with the container memory |
 | `VECTOR_API_RAW_PARQUET_WARN_MB` | `50` | Parquet size in MB above which a geometry collection served without its `.duckdb` file is logged as a warning |
 | `VECTOR_API_CORS_ORIGINS` | _(empty)_ | Comma-separated allowed CORS origins |
 | `TIPG_DB_FUNCTIONS` | `[]` (set in `docker-compose.yml`) | SQL functions TiPg publishes as `/postgis` collections. `[]` publishes none, which keeps PostGIS's own functions (`postgis_srs`, `st_squaregrid`, …) out of the catalog. To publish a project function, list it by `schema.name`, e.g. `["public.my_function"]` |

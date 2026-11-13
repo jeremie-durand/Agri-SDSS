@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Agri-SDSS\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-23 21:09+0000\n"
+"POT-Creation-Date: 2026-11-13 22:55+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: fr\n"
@@ -631,7 +631,7 @@ msgstr ""
 " ERA5-Land, les données sont disponibles jusqu'à environ 90 jours avant "
 "aujourd'hui."
 
-#: vector-api/src/parquet_router.py:57
+#: vector-api/src/parquet_router.py:68
 msgid ""
 "Invalid collection ID. Only alphanumeric characters, underscores, and "
 "hyphens are allowed."
@@ -639,7 +639,7 @@ msgstr ""
 "Identifiant de collection invalide. Seuls les caractères alphanumériques,"
 " les traits de soulignement et les traits d’union sont autorisés."
 
-#: vector-api/src/parquet_router.py:66 vector-api/src/parquet_router.py:100
+#: vector-api/src/parquet_router.py:77 vector-api/src/parquet_router.py:132
 msgid ""
 "Parquet service unavailable: DuckDB spatial extension could not be "
 "loaded. Please check server configuration."
@@ -647,42 +647,51 @@ msgstr ""
 "Service Parquet indisponible : l’extension spatiale DuckDB n’a pas pu "
 "être chargée. Veuillez vérifier la configuration du serveur."
 
-#: vector-api/src/parquet_router.py:74
+#: vector-api/src/parquet_router.py:85
 #, python-brace-format
 msgid "Collection not found: {collection}"
 msgstr "Collection introuvable : {collection}"
 
-#: vector-api/src/parquet_router.py:216 vector-api/src/parquet_router.py:277
-#: vector-api/src/parquet_router.py:394 vector-api/src/parquet_router.py:452
-#: vector-api/src/parquet_router.py:520
+#: vector-api/src/parquet_router.py:104
+#, python-brace-format
+msgid ""
+"Feature too large to be served in collection {collection}: {vertices} "
+"vertices, the limit is {limit}."
+msgstr ""
+"Entité trop volumineuse pour être servie dans la collection {collection} : "
+"{vertices} sommets, la limite est de {limit}."
+
+#: vector-api/src/parquet_router.py:338 vector-api/src/parquet_router.py:400
+#: vector-api/src/parquet_router.py:544 vector-api/src/parquet_router.py:617
+#: vector-api/src/parquet_router.py:692
 msgid "Internal server error"
 msgstr "Erreur interne du serveur"
 
-#: vector-api/src/parquet_router.py:327
+#: vector-api/src/parquet_router.py:474
 #, python-brace-format
 msgid "Invalid bbox format. Expected minx,miny,maxx,maxy: {error}"
 msgstr "Format bbox invalide. Attendu minx,miny,maxx,maxy : {error}"
 
-#: vector-api/src/parquet_router.py:426
+#: vector-api/src/parquet_router.py:585
 #, python-brace-format
 msgid "Item not found: {item} in collection {collection}"
 msgstr "Entité introuvable : {item} dans la collection {collection}"
 
-#: vector-api/src/pedo_properties_router.py:92
-#: vector-api/src/pedo_properties_router.py:133
+#: vector-api/src/pedo_properties_router.py:107
+#: vector-api/src/pedo_properties_router.py:148
 msgid "Pedological property tables are unavailable."
 msgstr "Les tables de propriétés pédologiques sont indisponibles."
 
-#: vector-api/src/pedo_properties_router.py:101
+#: vector-api/src/pedo_properties_router.py:116
 msgid "'geometry' field is required"
 msgstr "Le champ « geometry » est requis"
 
-#: vector-api/src/pedo_properties_router.py:107
+#: vector-api/src/pedo_properties_router.py:122
 #, python-brace-format
 msgid "Invalid geometry: {error}"
 msgstr "Géométrie invalide : {error}"
 
-#: vector-api/src/pedo_properties_router.py:120
+#: vector-api/src/pedo_properties_router.py:135
 msgid "Internal database error"
 msgstr "Erreur interne de la base de données"
 

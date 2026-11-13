@@ -22,6 +22,7 @@ from .duckdb_manager import (
     ColumnInfo,
     DuckDBManager,
     DuckDBSpatialExtensionError,
+    FeatureTooLargeError,
     ParquetSchemaInfo,
     RawGeoJSON,
     get_shared_manager,
@@ -87,6 +88,27 @@ def validate_collection_exists(collection_id: str) -> Path:
         )
 
     return parquet_path
+
+
+def _feature_too_large(error: FeatureTooLargeError) -> HTTPException:
+    """Map a feature above the page vertex budget to a translated 413."""
+    logger.warning(
+        "Refused feature in %s: %s vertices, page budget %s",
+        error.collection_id,
+        error.vertices,
+        error.budget,
+    )
+    return HTTPException(
+        status_code=413,
+        detail=_(
+            "Feature too large to be served in collection {collection}: "
+            "{vertices} vertices, the limit is {limit}."
+        ).format(
+            collection=error.collection_id,
+            vertices=error.vertices,
+            limit=error.budget,
+        ),
+    )
 
 
 def get_duckdb_manager() -> DuckDBManager:
@@ -497,7 +519,7 @@ def _items_body(
             )
 
         if offset + result["numberReturned"] < result["numberMatched"]:
-            next_offset = offset + limit
+            next_offset = offset + result["numberReturned"]
             links.append(
                 {
                     "href": f"{base_url}{PARQUET_COLLECTIONS}/{collection_id}/items?{query_params}&offset={next_offset}",
@@ -515,6 +537,8 @@ def _items_body(
         }
     except HTTPException:
         raise
+    except FeatureTooLargeError as e:
+        raise _feature_too_large(e)
     except Exception as e:
         logger.error("Error getting items from %s: %s", collection_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_("Internal server error"))
@@ -580,6 +604,8 @@ def _item_body(request: Request, collection_id: str, item_id: str) -> dict[str, 
         return feature
     except HTTPException:
         raise
+    except FeatureTooLargeError as e:
+        raise _feature_too_large(e)
     except Exception as e:
         logger.error(
             "Error getting item %s from %s: %s",
