@@ -110,7 +110,7 @@ Keep these invariants when changing processing code.
   skipped, for `main.py` and `convert_vector_files_to_gdf()` alike. It leaves
   out QGIS internal layers (`QGISInternalLayers`) and ESRI geometric-network
   system tables: non-spatial `N_<number>_<name>` layers of a `.gdb`
-  (`EsriSystemLayerPatterns`). They carry no features, and their `BLOB`
+  (`EsriSystemLayerPatterns`). They carry no geometry, and their `BLOB`
   pages broke vector-api (#289). A skipped layer is logged as `layer_skipped`
   and changes no report counter. Add a new rule there, not at a call site.
 - GPKG foreign keys are re-applied after all layers of the file are loaded.

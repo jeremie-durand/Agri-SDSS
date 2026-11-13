@@ -685,6 +685,8 @@ class DuckDBManager:
             - columns: List of column info (name, type)
             - id_column: Detected ID column name
             - geometry_column: Detected geometry column name
+            - binary_columns: BLOB and non-served GEOMETRY columns, left out
+              of feature properties and queryables
             - has_geometry: Whether file has geometry column
             - feature_count: Total number of features
             - bbox: Bounding box [minx, miny, maxx, maxy] if spatial
