@@ -70,7 +70,8 @@ first. The reviewer judges them but never runs them.
 - A diff that touches only Markdown documentation is exempt.
 - `/github-issues-apply` reviews each task group separately and allows three
   passes per group. It commits a group once a pass has no `blocking` finding and
-  nothing was changed after that pass. Markdown-only groups skip the review.
+  nothing but Markdown was changed after that pass. Markdown-only groups skip
+  the review.
 
 ## Common Commands
 
