@@ -55,7 +55,12 @@ PARQUET_COLLECTIONS: str = COLLECTION_CATALOGS["parquet"]
 HEAVY_PARQUET_CHECKS: list[tuple[str, str, str]] = [
     ("grhq_hr_06aa_udh", "limit=1", "one 54 MiB polygon; 500 at 512MB (#288)"),
     ("grhq_hr_06ac_udh", "limit=1", "one 53 MiB polygon; 500 at 512MB (#288)"),
-    ("grhq_hr_04ac_udh", "limit=1", "46 MiB feature; peaks near the 1 GiB limit"),
+    ("grhq_hr_04ac_udh", "limit=1", "46 MiB feature; peaked near 1 GiB (#292)"),
+    (
+        "grhq_hr_04ac_s_udh",
+        "limit=10000",
+        "7.2M vertices; page shortened by the 1.5M-vertex budget (#292)",
+    ),
     (
         "couverture_pedo_2022",
         "offset=200000&limit=100",

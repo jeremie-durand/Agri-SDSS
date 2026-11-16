@@ -1,7 +1,8 @@
 """Guards the vector-api memory defaults against drifting between two files.
 
-``DUCKDB_MEMORY_LIMIT``, ``VECTOR_API_MAX_OPEN_DUCKDB`` and
-``VECTOR_API_MAX_DUCKDB_QUERIES`` each have a default in two places:
+``DUCKDB_MEMORY_LIMIT``, ``VECTOR_API_MAX_OPEN_DUCKDB``,
+``VECTOR_API_MAX_DUCKDB_QUERIES`` and ``VECTOR_API_MAX_PAGE_VERTICES`` each
+have a default in two places:
 
 - ``docker-compose.yml``: the ``${VAR:-default}`` used by every deployment;
 - ``vector-api/src/duckdb_manager.py``: the ``DEFAULT_*`` constants used when
@@ -10,7 +11,14 @@
 The three values were measured together against the real data in a 1 GiB
 container (#288): cap 2 at 819MB walks every collection, while cap 4 at 819MB
 is OOM-killed, and 512MB makes the largest single polygon answer 500 (#279).
-Changing one of them in one file only is the regression this test catches.
+The page vertex budget bounds what one request can ask DuckDB to render, and
+its default sits just above the largest real feature (#292). Changing one of
+them in one file only is the regression this test catches.
+
+vector-api's ``memswap_limit`` must equal its memory limit, so the container
+never swaps and runs out of memory the same way on every host (#292). Without
+it Docker allows as much swap again as the limit, and a request that does not
+fit answers 200 slowly on a host with swap but is killed on one without.
 
 Both files are read as literal text. ``docker-compose.yml`` is not in the
 vector-api image, so the test skips under ``make test-vector-api``. It runs
@@ -39,6 +47,7 @@ DEFAULTS: list[tuple[str, str]] = [
     ("DUCKDB_MEMORY_LIMIT", "DEFAULT_MEMORY_LIMIT"),
     ("VECTOR_API_MAX_OPEN_DUCKDB", "DEFAULT_MAX_OPEN_DUCKDB"),
     ("VECTOR_API_MAX_DUCKDB_QUERIES", "DEFAULT_MAX_DUCKDB_QUERIES"),
+    ("VECTOR_API_MAX_PAGE_VERTICES", "DEFAULT_MAX_PAGE_VERTICES"),
 ]
 
 
@@ -63,3 +72,20 @@ def _module_constant(constant: str) -> str:
 @pytest.mark.parametrize(("env_name", "constant"), DEFAULTS)
 def test_compose_default_matches_module_constant(env_name: str, constant: str) -> None:
     assert _compose_default(env_name) == _module_constant(constant)
+
+
+def _vector_api_block() -> str:
+    """Return the vector-api service block of docker-compose.yml."""
+    text = DOCKER_COMPOSE_YML.read_text()
+    start = text.index("\n  vector-api:\n")
+    end = re.search(r"\n  [a-z][a-z0-9_-]*:\n", text[start + 1 :])
+    assert end, "vector-api is the last service"
+    return text[start : start + 1 + end.start()]
+
+
+def test_vector_api_never_swaps() -> None:
+    block = _vector_api_block()
+    memory = re.findall(r"^\s+memory:\s*(\S+)\s*$", block, re.MULTILINE)
+    memswap = re.findall(r"^\s+memswap_limit:\s*(\S+)\s*$", block, re.MULTILINE)
+    assert len(memory) == 1, f"expected one memory limit, found {memory}"
+    assert memswap == memory

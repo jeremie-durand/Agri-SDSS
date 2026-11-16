@@ -10,7 +10,11 @@ import duckdb
 import geopandas as gpd
 import pytest
 from shapely.geometry import Point, Polygon
-from vector_api.duckdb_manager import DuckDBManager
+from vector_api.duckdb_manager import (
+    DuckDBManager,
+    FeatureTooLargeError,
+    RawGeoJSON,
+)
 from vector_api.materialize import MATERIALIZED_TABLE_NAME, materialize_collection
 
 pytestmark = pytest.mark.unit
@@ -291,3 +295,116 @@ def test_deep_offset_on_wide_geometries_fits_small_memory_limit(
         range(offset + 1, WIDE_ROW_COUNT + 1)
     )
     assert all(f["geometry"]["type"] == "Polygon" for f in result["features"])
+
+
+def test_raw_geometry_page_parses_to_the_default_page(
+    unique_id_manager: DuckDBManager,
+) -> None:
+    parsed = unique_id_manager.query_items(COLLECTION_ID, limit=PAGE_LIMIT)
+    raw = unique_id_manager.query_items(
+        COLLECTION_ID, limit=PAGE_LIMIT, raw_geometry=True
+    )
+
+    assert all(isinstance(f["geometry"], RawGeoJSON) for f in raw["features"])
+    assert [
+        {**f, "geometry": json.loads(f["geometry"].text)} for f in raw["features"]
+    ] == parsed["features"]
+    assert raw["numberMatched"] == parsed["numberMatched"]
+
+
+def test_raw_geometry_item_parses_to_the_default_item(
+    unique_id_manager: DuckDBManager,
+) -> None:
+    parsed = unique_id_manager.get_item_by_id(COLLECTION_ID, 3)
+    raw = unique_id_manager.get_item_by_id(COLLECTION_ID, 3, raw_geometry=True)
+
+    assert parsed is not None and raw is not None
+    assert isinstance(raw["geometry"], RawGeoJSON)
+    assert {**raw, "geometry": json.loads(raw["geometry"].text)} == parsed
+
+
+@pytest.mark.parametrize("materialized", [False, True], ids=["raw", "materialized"])
+def test_raw_geometry_keeps_null_geometry_as_none(
+    tmp_path: Path, materialized: bool
+) -> None:
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "geometry": [_square(-73.0, 45.0), None]}, crs="EPSG:4326"
+    )
+    _write_collection(tmp_path, gdf, materialized=materialized)
+    manager = DuckDBManager(data_dir=str(tmp_path))
+    try:
+        page = manager.query_items(COLLECTION_ID, limit=10, raw_geometry=True)
+        item = manager.get_item_by_id(COLLECTION_ID, 2, raw_geometry=True)
+    finally:
+        manager.close()
+
+    assert isinstance(page["features"][0]["geometry"], RawGeoJSON)
+    assert page["features"][1]["geometry"] is None
+    assert item is not None and item["geometry"] is None
+
+
+@pytest.mark.parametrize(
+    ("vertex_counts", "kept"),
+    [
+        ([], 0),
+        ([40, 60], 2),
+        ([40, 61], 1),
+        ([0, 100, 0], 3),
+        ([10, 10, 10], 3),
+    ],
+    ids=["empty-page", "exact-fit", "one-vertex-over", "null-geometries", "fewer-rows"],
+)
+def test_rows_within_budget_keeps_the_leading_rows_that_fit(
+    vertex_counts: list[int], kept: int
+) -> None:
+    assert DuckDBManager._rows_within_budget(vertex_counts, 100) == kept
+
+
+def test_first_row_over_the_budget_is_refused(tmp_path: Path) -> None:
+    manager = DuckDBManager(data_dir=str(tmp_path), max_page_vertices=100)
+    try:
+        with pytest.raises(FeatureTooLargeError) as raised:
+            manager._page_size_within_budget(COLLECTION_ID, [101, 1])
+        assert manager._page_size_within_budget(COLLECTION_ID, []) == 0
+    finally:
+        manager.close()
+
+    assert (raised.value.collection_id, raised.value.vertices, raised.value.budget) == (
+        COLLECTION_ID,
+        101,
+        100,
+    )
+
+
+@pytest.mark.parametrize("by_id", [False, True], ids=["page", "item"])
+def test_item_queries_do_not_fetch_the_served_geometry_as_wkb(
+    unique_id_manager: DuckDBManager, by_id: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The geometry comes back once, as GeoJSON text, never also as WKB (#292)."""
+    fetched_columns: list[list[str]] = []
+    original = DuckDBManager._fetchall_unlocked
+
+    def spy(conn: duckdb.DuckDBPyConnection, query: str, params: Any = None) -> Any:
+        rows, columns = original(conn, query, params)
+        fetched_columns.append(columns)
+        return rows, columns
+
+    monkeypatch.setattr(DuckDBManager, "_fetchall_unlocked", staticmethod(spy))
+    original_locked = DuckDBManager._fetchall
+
+    def spy_locked(self: DuckDBManager, query: str, params: Any = None) -> Any:
+        rows, columns = original_locked(self, query, params)
+        fetched_columns.append(columns)
+        return rows, columns
+
+    monkeypatch.setattr(DuckDBManager, "_fetchall", spy_locked)
+
+    if by_id:
+        unique_id_manager.get_item_by_id(COLLECTION_ID, 3)
+    else:
+        unique_id_manager.query_items(COLLECTION_ID, limit=PAGE_LIMIT)
+
+    page_columns = fetched_columns[-1]
+    assert "__geojson__" in page_columns
+    assert "geometry" not in page_columns
+    assert {"gid", "name", "value"} <= set(page_columns)

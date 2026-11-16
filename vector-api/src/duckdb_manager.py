@@ -7,6 +7,7 @@ PostGIS collections.
 Adapted from gis-pipeline/src/gis_pipeline/modules/db/duckdb_utils.py
 """
 
+import json
 import logging
 import os
 import re
@@ -14,6 +15,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, TypeVar
@@ -32,10 +34,28 @@ DEFAULT_MEMORY_LIMIT: str = "819MB"
 DEFAULT_MAX_OPEN_DUCKDB: int = 2
 DEFAULT_MAX_DUCKDB_QUERIES: int = 1
 DEFAULT_RAW_PARQUET_WARN_MB: int = 50
+DEFAULT_MAX_PAGE_VERTICES: int = 1500000
 BYTES_PER_MB: int = 1024 * 1024
 
 MaterializedEntry = tuple[duckdb.DuckDBPyConnection, threading.Lock]
 T = TypeVar("T")
+
+
+class FeatureTooLargeError(RuntimeError):
+    """Raised when one feature alone holds more vertices than a page may (#292).
+
+    Deliberately not a ValueError (mapped to 400) nor a duckdb.Error (which
+    get_item_by_id() turns into "not found"): the router maps it to 413.
+    """
+
+    def __init__(self, collection_id: str, vertices: int, budget: int) -> None:
+        super().__init__(
+            f"Feature in {collection_id} holds {vertices} vertices, "
+            f"above the page budget of {budget}"
+        )
+        self.collection_id = collection_id
+        self.vertices = vertices
+        self.budget = budget
 
 
 class DuckDBConfigError(RuntimeError):
@@ -130,6 +150,13 @@ class ParquetSchemaInfo(TypedDict):
 BINARY_TYPE_PREFIXES: tuple[str, ...] = ("BLOB", "GEOMETRY")
 
 
+@dataclass(frozen=True, slots=True)
+class RawGeoJSON:
+    """A geometry kept as the GeoJSON text DuckDB produced, not parsed (#292)."""
+
+    text: str
+
+
 def is_binary_type(duckdb_type: str) -> bool:
     """Return True for a DuckDB column type whose values DuckDB returns as bytes.
 
@@ -177,6 +204,7 @@ class DuckDBManager:
         max_open: int | None = None,
         max_queries: int | None = None,
         raw_parquet_warn_mb: int | None = None,
+        max_page_vertices: int | None = None,
     ) -> None:
         """Initialize the DuckDBManager with an in-memory connection.
 
@@ -196,10 +224,14 @@ class DuckDBManager:
                 collection without its .duckdb file is logged. Defaults to
                 VECTOR_API_RAW_PARQUET_WARN_MB, then
                 DEFAULT_RAW_PARQUET_WARN_MB.
+            max_page_vertices: Most geometry vertices one items page or item
+                may hold. Defaults to VECTOR_API_MAX_PAGE_VERTICES, then
+                DEFAULT_MAX_PAGE_VERTICES.
 
         Raises:
-            DuckDBConfigError: If max_open, max_queries or raw_parquet_warn_mb
-                (or their env var) is not a positive integer.
+            DuckDBConfigError: If max_open, max_queries, raw_parquet_warn_mb
+                or max_page_vertices (or their env var) is not a positive
+                integer.
         """
         self.data_dir = Path(data_dir or os.getenv("DUCKDB_DATA_DIR", "/data/duckdb"))
         self.memory_limit: str = (
@@ -215,6 +247,11 @@ class DuckDBManager:
             "VECTOR_API_RAW_PARQUET_WARN_MB",
             raw_parquet_warn_mb,
             DEFAULT_RAW_PARQUET_WARN_MB,
+        )
+        self.max_page_vertices: int = _positive_int_setting(
+            "VECTOR_API_MAX_PAGE_VERTICES",
+            max_page_vertices,
+            DEFAULT_MAX_PAGE_VERTICES,
         )
         self.conn = duckdb.connect(
             database=":memory:", config={"memory_limit": self.memory_limit}
@@ -393,25 +430,29 @@ class DuckDBManager:
 
     @staticmethod
     def _extract_geometry_from_row(
-        row_dict: Dict[str, Any], has_geometry: bool, geometry_column: Optional[str]
-    ) -> Optional[Dict[str, Any]]:
-        """Extract and parse geometry from a row dictionary.
+        row_dict: Dict[str, Any],
+        has_geometry: bool,
+        geometry_column: Optional[str],
+        raw_geometry: bool = False,
+    ) -> dict[str, Any] | RawGeoJSON | None:
+        """Extract the geometry from a row dictionary.
 
         Args:
             row_dict: Row dictionary (will be modified in-place).
             has_geometry: Whether the row should contain geometry.
             geometry_column: Name of the geometry column to remove from properties.
+            raw_geometry: Return the GeoJSON text unparsed, as RawGeoJSON.
 
         Returns:
-            Parsed GeoJSON geometry dict, or None if no geometry.
+            The GeoJSON geometry, parsed or raw, or None if no geometry.
         """
-        geometry = None
+        geometry: dict[str, Any] | RawGeoJSON | None = None
         if has_geometry and "__geojson__" in row_dict:
-            import json
-
             geojson_str = row_dict.pop("__geojson__")
             if geojson_str:
-                geometry = json.loads(geojson_str)
+                geometry = (
+                    RawGeoJSON(geojson_str) if raw_geometry else json.loads(geojson_str)
+                )
             # Remove original geometry column from properties
             row_dict.pop(geometry_column, None)
         return geometry
@@ -831,6 +872,47 @@ class DuckDBManager:
         return False
 
     @staticmethod
+    def _vertices_sql(geometry_sql: str) -> str:
+        """Return the vertex count of a geometry expression, 0 for a null geometry."""
+        return f"COALESCE(ST_NPoints({geometry_sql}), 0) AS __vertices__"
+
+    @staticmethod
+    def _rows_within_budget(vertex_counts: list[int], budget: int) -> int:
+        """Return how many leading rows fit together within budget vertices."""
+        total = 0
+        for kept, vertices in enumerate(vertex_counts):
+            total += vertices
+            if total > budget:
+                return kept
+        return len(vertex_counts)
+
+    def _page_size_within_budget(
+        self, collection_id: str, vertex_counts: list[int]
+    ) -> int:
+        """Return the page size the budget allows for these rows.
+
+        Raises:
+            FeatureTooLargeError: If the first row alone exceeds the budget.
+        """
+        kept = self._rows_within_budget(vertex_counts, self.max_page_vertices)
+        if kept == 0 and vertex_counts:
+            raise FeatureTooLargeError(
+                collection_id, vertex_counts[0], self.max_page_vertices
+            )
+        return kept
+
+    @staticmethod
+    def _columns_left_out(schema: ParquetSchemaInfo) -> list[str]:
+        """Return the columns an item query leaves out of ``*``.
+
+        The binary columns, and the served geometry, which the query already
+        returns as GeoJSON text: selecting it too sent a second, unused copy
+        of every geometry to Python as WKB bytes (#292).
+        """
+        served = [schema["geometry_column"]] if schema["has_geometry"] else []
+        return [*schema["binary_columns"], *served]
+
+    @staticmethod
     def _star_sql(excluded_columns: list[str], alias: str = "") -> str:
         """Return ``<alias>*``, with an EXCLUDE clause naming excluded_columns."""
         star = f"{alias}*"
@@ -852,6 +934,7 @@ class DuckDBManager:
         where_sql: str,
         limit: int,
         offset: int,
+        vertices_only: bool = False,
     ) -> str:
         """Build a page query that sorts only (id, row position), then joins full rows.
 
@@ -861,13 +944,20 @@ class DuckDBManager:
         (id, position) pair keeps memory proportional to the key width, and
         the position tie-break gives duplicate ids a fixed order, so every page
         holds exactly ``limit`` rows and pages never overlap.
+
+        With vertices_only, the same rows are selected in the same order, but
+        each one returns only its geometry's vertex count (the sizing query).
         """
-        star_sql = DuckDBManager._star_sql(excluded_columns, alias="t.")
-        geojson_sql = (
-            f", ST_AsGeoJSON(t.{escaped_geom_col}) AS __geojson__"
-            if escaped_geom_col
-            else ""
-        )
+        if vertices_only:
+            select_sql = DuckDBManager._vertices_sql(f"t.{escaped_geom_col}")
+        else:
+            star_sql = DuckDBManager._star_sql(excluded_columns, alias="t.")
+            geojson_sql = (
+                f", ST_AsGeoJSON(t.{escaped_geom_col}) AS __geojson__"
+                if escaped_geom_col
+                else ""
+            )
+            select_sql = f"{star_sql}{geojson_sql}"
         return f"""
             WITH page AS (
                 SELECT {position_column} AS __pos__, {escaped_id_col} AS __id__
@@ -876,7 +966,7 @@ class DuckDBManager:
                 ORDER BY {escaped_id_col}, {position_column}
                 LIMIT {limit} OFFSET {offset}
             )
-            SELECT {star_sql}{geojson_sql}
+            SELECT {select_sql}
             FROM {from_sql} t
             JOIN page p ON t.{position_column} = p.__pos__
             ORDER BY p.__id__, p.__pos__
@@ -888,6 +978,7 @@ class DuckDBManager:
         limit: int = 10,
         offset: int = 0,
         bbox: Optional[Tuple[float, float, float, float]] = None,
+        raw_geometry: bool = False,
     ) -> Dict[str, Any]:
         """Query items from a Parquet file.
 
@@ -896,12 +987,18 @@ class DuckDBManager:
             limit: Maximum number of items to return.
             offset: Number of items to skip.
             bbox: Optional bounding box filter [minx, miny, maxx, maxy].
+            raw_geometry: Return each geometry as RawGeoJSON instead of a dict.
 
         Returns:
             Dictionary containing:
             - features: List of feature dictionaries
             - numberMatched: Total count matching filter
-            - numberReturned: Number returned in this response
+            - numberReturned: Number returned in this response, fewer than
+              limit when the page's geometry exceeds max_page_vertices
+
+        Raises:
+            FeatureTooLargeError: If the first feature of the page alone holds
+                more than max_page_vertices vertices.
         """
         parquet_path = self._get_validated_parquet_path(collection_id)
         path_str = str(parquet_path)
@@ -929,16 +1026,25 @@ class DuckDBManager:
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         order_sql = f"ORDER BY {self.escape_identifier(id_column)}" if id_column else ""
-        binary_columns = schema["binary_columns"]
+        binary_columns = self._columns_left_out(schema)
         star_sql = self._star_sql(binary_columns)
 
-        def build(materialized: bool) -> tuple[str, str]:
+        def count_query(materialized: bool) -> str:
             from_sql = (
                 self.escape_identifier(MATERIALIZED_TABLE_NAME)
                 if materialized
                 else f"read_parquet('{escaped_path}')"
             )
-            count_query = f"SELECT COUNT(*) FROM {from_sql} {where_sql}"
+            return f"SELECT COUNT(*) FROM {from_sql} {where_sql}"
+
+        def build(
+            materialized: bool, page_limit: int, vertices_only: bool = False
+        ) -> str:
+            from_sql = (
+                self.escape_identifier(MATERIALIZED_TABLE_NAME)
+                if materialized
+                else f"read_parquet('{escaped_path}')"
+            )
             position_column = "rowid" if materialized else "file_row_number"
             page_by_position = id_column is not None and self._can_page_by_position(
                 schema, position_column, collection_id
@@ -959,16 +1065,25 @@ class DuckDBManager:
                     escaped_id_col=self.escape_identifier(id_column),
                     escaped_geom_col=escaped_geom_col if has_geometry else None,
                     where_sql=where_sql,
-                    limit=limit,
+                    limit=page_limit,
                     offset=offset,
+                    vertices_only=vertices_only,
                 )
+            elif vertices_only:
+                select_sql = f"""
+                    SELECT {self._vertices_sql(escaped_geom_col)}
+                    FROM {from_sql}
+                    {where_sql}
+                    {order_sql}
+                    LIMIT {page_limit} OFFSET {offset}
+                """
             elif has_geometry:
                 select_sql = f"""
                     SELECT {star_sql}, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
                     FROM {from_sql}
                     {where_sql}
                     {order_sql}
-                    LIMIT {limit} OFFSET {offset}
+                    LIMIT {page_limit} OFFSET {offset}
                 """
             else:
                 select_sql = f"""
@@ -976,35 +1091,45 @@ class DuckDBManager:
                     FROM {from_sql}
                     {where_sql}
                     {order_sql}
-                    LIMIT {limit} OFFSET {offset}
+                    LIMIT {page_limit} OFFSET {offset}
                 """
-            return count_query, select_sql
-
-        materialized_queries = (
-            build(materialized=True)
-            if (self.data_dir / f"{collection_id}.duckdb").exists()
-            else None
-        )
+            return select_sql
 
         def run_page(
-            conn: duckdb.DuckDBPyConnection,
+            materialized: bool,
+            fetchone: Callable[[str], tuple | None],
+            fetchall: Callable[[str], tuple[list[tuple], list[str]]],
         ) -> tuple[int, list[tuple], list[str]]:
-            assert materialized_queries is not None
-            count_query, select_sql = materialized_queries
-            matched = self._fetchone_unlocked(conn, count_query)[0]
-            rows, row_columns = self._fetchall_unlocked(conn, select_sql)
+            """Count, size the page within the vertex budget, then fetch it."""
+            matched = fetchone(count_query(materialized))[0]
+            page_limit = limit
+            if has_geometry:
+                sizes, _ = fetchall(build(materialized, limit, vertices_only=True))
+                if not sizes:
+                    return matched, [], []
+                page_limit = self._page_size_within_budget(
+                    collection_id, [row[0] for row in sizes]
+                )
+            rows, row_columns = fetchall(build(materialized, page_limit))
             return matched, rows, row_columns
 
         page = (
-            self._run_materialized(collection_id, run_page)
-            if materialized_queries is not None
+            self._run_materialized(
+                collection_id,
+                lambda conn: run_page(
+                    True,
+                    lambda query: self._fetchone_unlocked(conn, query),
+                    lambda query: self._fetchall_unlocked(conn, query),
+                ),
+            )
+            if (self.data_dir / f"{collection_id}.duckdb").exists()
             else None
         )
         if page is None:
             self._warn_if_large_raw_parquet(collection_id, has_geometry)
-            count_query, select_sql = build(materialized=False)
-            number_matched = self._fetchone(count_query)[0]
-            result, columns = self._fetchall(select_sql)
+            number_matched, result, columns = run_page(
+                False, self._fetchone, self._fetchall
+            )
         else:
             number_matched, result, columns = page
 
@@ -1015,7 +1140,7 @@ class DuckDBManager:
 
             # Extract geometry
             geometry = self._extract_geometry_from_row(
-                row_dict, has_geometry, geometry_column
+                row_dict, has_geometry, geometry_column, raw_geometry
             )
 
             # Determine feature ID
@@ -1039,16 +1164,21 @@ class DuckDBManager:
         }
 
     def get_item_by_id(
-        self, collection_id: str, item_id: Any
+        self, collection_id: str, item_id: Any, raw_geometry: bool = False
     ) -> Optional[Dict[str, Any]]:
         """Get a single item by ID from a Parquet file.
 
         Args:
             collection_id: The collection identifier.
             item_id: The item ID to retrieve.
+            raw_geometry: Return the geometry as RawGeoJSON instead of a dict.
 
         Returns:
             Feature dictionary, or None if not found.
+
+        Raises:
+            FeatureTooLargeError: If the feature holds more than
+                max_page_vertices vertices.
         """
         if item_id is None:
             return None
@@ -1081,30 +1211,49 @@ class DuckDBManager:
         geojson_sql = (
             f", ST_AsGeoJSON({escaped_geom_col}) as __geojson__" if has_geometry else ""
         )
-        star_sql = self._star_sql(schema["binary_columns"])
+        star_sql = self._star_sql(self._columns_left_out(schema))
 
-        def build(materialized: bool) -> str:
+        def build(materialized: bool, vertices_only: bool = False) -> str:
             from_sql = (
                 self.escape_identifier(MATERIALIZED_TABLE_NAME)
                 if materialized
                 else f"read_parquet('{escaped_path}')"
             )
+            select_sql = (
+                self._vertices_sql(escaped_geom_col)
+                if vertices_only
+                else f"{star_sql}{geojson_sql}"
+            )
             return f"""
-                SELECT {star_sql}{geojson_sql}
+                SELECT {select_sql}
                 FROM {from_sql}
                 {where_sql}
                 LIMIT 1 {offset_sql}
             """
 
-        materialized_query = build(materialized=True)
+        def run_item(
+            materialized: bool,
+            fetchall: Callable[[str, list | None], tuple[list[tuple], list[str]]],
+        ) -> tuple[list[tuple], list[str]]:
+            """Size the item within the vertex budget, then fetch it."""
+            if has_geometry:
+                sizes, _ = fetchall(build(materialized, vertices_only=True), params)
+                self._page_size_within_budget(collection_id, [row[0] for row in sizes])
+            return fetchall(build(materialized), params)
+
         try:
             found = self._run_materialized(
                 collection_id,
-                lambda conn: self._fetchall_unlocked(conn, materialized_query, params),
+                lambda conn: run_item(
+                    True,
+                    lambda query, query_params: self._fetchall_unlocked(
+                        conn, query, query_params
+                    ),
+                ),
             )
             if found is None:
                 self._warn_if_large_raw_parquet(collection_id, has_geometry)
-                found = self._fetchall(build(materialized=False), params)
+                found = run_item(False, self._fetchall)
             rows, columns = found
         except duckdb.Error as e:
             logger.warning(
@@ -1119,7 +1268,7 @@ class DuckDBManager:
 
         # Extract geometry
         geometry = self._extract_geometry_from_row(
-            row_dict, has_geometry, geometry_column
+            row_dict, has_geometry, geometry_column, raw_geometry
         )
 
         return {

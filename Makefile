@@ -93,7 +93,7 @@ test-caddy:
 
 .PHONY: build lint-dockerfiles lint-md lint-nginx scan-secrets test-caddy generate-args \
 	smoke-entrypoints smoke-stac-browser smoke-browser-pages smoke-catalogs check-materialized \
-	test-i18n i18n-extract i18n-update i18n-compile i18n-check
+	check-parquet-memory test-i18n i18n-extract i18n-update i18n-compile i18n-check
 
 # Ignored rules, and why (hadolint exits non-zero on any warning, so each must be
 # listed explicitly rather than blanket-suppressed
@@ -212,3 +212,11 @@ smoke-catalogs:
 # bypassed because the check never uses PostgreSQL and need not wait for it.
 check-materialized:
 	$(SMOKE_RUN) --entrypoint python vector-api -m vector_api.check_materialized
+
+# Peak RSS of each known heavy request, measured inside the running vector-api
+# (#292). Exits 1 if a peak passes 950 MB (VECTOR_API_PEAK_RSS_MAX_MB), a request
+# fails, or the process swapped. It must run in that container: it reads PID 1.
+check-parquet-memory:
+	@[ -n "$$(docker compose ps -q vector-api)" ] || { echo "✗ vector-api is not running"; exit 1; }
+	docker compose exec -T $${VECTOR_API_PEAK_RSS_MAX_MB:+-e VECTOR_API_PEAK_RSS_MAX_MB=$$VECTOR_API_PEAK_RSS_MAX_MB} \
+		vector-api python -m vector_api.check_peak_memory

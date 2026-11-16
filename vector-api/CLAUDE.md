@@ -61,6 +61,8 @@ src/                      Copied to /app/vector_api — import as the vector_api
   materialize.py          RTree-indexed .duckdb build (copy — see Cross-Service)
   check_materialized.py   make check-materialized: large collections without
                           a usable .duckdb (exit 0/1/2)
+  check_peak_memory.py    make check-parquet-memory: peak RSS of each known heavy
+                          request, read from PID 1 (exit 0/1/2)
   db_pool.py              asyncpg pool for pedo_properties_router
   pedo_properties_router.py   /pedo-properties
 test/                     Bind-mounted at /app/vector_api/test
@@ -204,11 +206,34 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   they existed.
 - The `/parquet` read routes are thin `async def` handlers. Each one keeps its
   signature and docstring, which feed `/parquet/openapi.json`, and passes a
-  `_*_body` builder to `_render`. Rendering happens in the worker through
-  `_json_response`, the same Pydantic JSON-mode serialization FastAPI used, so
-  decimals stay strings and dates ISO. `response_model=dict[str, Any]` on the
-  decorator keeps the OpenAPI schema. `test_parquet_response_encoding.py` and
-  the snapshot in `test/data/parquet_openapi.json` pin both.
+  `_*_body` builder and a renderer to `_render`. Rendering happens in the
+  worker. Every value goes through `_encode_json`, the same Pydantic JSON-mode
+  serialization and `json.dumps` arguments FastAPI used, so decimals stay
+  strings and dates ISO. `response_model=dict[str, Any]` on the decorator
+  keeps the OpenAPI schema. `test_parquet_response_encoding.py` and the
+  snapshot in `test/data/parquet_openapi.json` pin both.
+- Items and single items are the exception for geometry (#292). The router
+  asks the manager for `raw_geometry=True`, so each geometry is a `RawGeoJSON`
+  holding DuckDB's `ST_AsGeoJSON` text. `_feature_collection_response` and
+  `_feature_response` splice that text into the body unparsed, encode every
+  other key through `_encode_json`, and join the parts once. Parsing it and
+  serializing it back made one 54 MiB polygon peak at 1023 MB in a 1 GiB
+  container (stage-by-stage replay). The JSON value is unchanged, but number spelling inside
+  `geometry` is DuckDB's (`0.00001` where Python writes `1e-05`). Called
+  directly, `query_items()` and `get_item_by_id()` still return parsed dicts.
+- A page's geometry is bounded by `VECTOR_API_MAX_PAGE_VERTICES` (default
+  1500000, just above the largest real feature, `grhq_hr_06aa_udh`, 1 442 728
+  vertices) (#292). Before rendering, `query_items()` runs a sizing query over
+  the same page selection (same source, filter, order, `LIMIT` and `OFFSET`,
+  built beside both page shapes) that returns `ST_NPoints` per row, keeps the
+  longest leading run within the budget (`_rows_within_budget`), then runs the
+  page query with that `LIMIT`. Count, sizing and page run in one `work` on a
+  materialized collection. A first row above the budget raises
+  `FeatureTooLargeError`, which the router maps to a translated 413, on
+  `items` and `items/{item_id}` alike. Vertices, not GeoJSON bytes, because
+  the size is known only after `ST_AsGeoJSON`, the step that costs memory.
+  The `next` link's offset is `offset + numberReturned`, so a shortened page
+  continues where it stopped; `prev` keeps `offset - limit`.
 - `/invalidate` runs in the default thread pool, outside the gate. It runs no
   query, but it waits for a running query on the same collection, and
   gis-pipeline calls it with a 10 s timeout, so it must not queue behind other
@@ -220,12 +245,29 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   defaults to 80% of the container memory, and a heavy query then gets the
   process OOM-killed instead of raising (#279).
 - 819MB is sized for the largest single feature. `grhq_hr_06aa_udh` and
-  `grhq_hr_06ac_udh` are each one polygon of about 56 MB of GeoJSON. They
-  answer 500 at 512MB, and 200 at 819MB, with an HTTP peak of about 800 MB in
-  1 GiB. The default memory settings and the cap were measured as a set:
-  `make test-repo-consistency` checks that the compose defaults match the
-  `DEFAULT_*` constants. Heavy queries spill to `<id>.duckdb.tmp` next to the
-  data, which needs the read-write `./data/duckdb` mount.
+  `grhq_hr_06ac_udh` are each one polygon of about 54 MiB of GeoJSON (1.44M
+  vertices). They answer 500 at 512MB and 200 at 819MB. The default memory
+  settings, the cap, the page vertex budget and the container's
+  `memswap_limit` were measured as a set (#292): `make check-parquet-memory`
+  (`check_peak_memory.py`, run inside the container) gave peaks up to 833 MB
+  on the known heavy requests, with no swap, except the shortened 1.5M-vertex
+  page below. Before the WKB fix below, multi-feature pages peaked at
+  818-920 MB on a live container and 931 MB in a fresh process, so the probe
+  threshold is 950 MB until the GRHQ data is re-ingested with the split and the
+  budget can be lowered. After it, `grhq_hr_04ac_s_udh/items?limit=10000` (a
+  page shortened to the 1.5M budget) still peaks at 774-960 MB depending on
+  what DuckDB has cached from earlier requests (`DUCKDB_MEMORY_LIMIT=640MB`
+  does not help), so that one request can fail the probe until the follow-up
+  lowers the budget. A failure there is that known edge, not a regression.
+  Profiling put that excess in DuckDB reading every candidate geometry, not
+  in Python. `memswap_limit` equals the memory limit, so the container never
+  swaps: without it a request that does not fit answers 200 slowly on a host
+  with swap and is killed on one without. `make test-repo-consistency` checks
+  that the compose defaults match the `DEFAULT_*` constants and that
+  `memswap_limit` equals the memory limit. The item queries leave the served
+  geometry out of `*` (`_columns_left_out`): it is returned once, as GeoJSON
+  text. Heavy queries spill to `<id>.duckdb.tmp` next to the data, which needs
+  the read-write `./data/duckdb` mount.
 - The `spatial` extension is installed at image build into
   `/tmp/.duckdb/extensions` (`HOME=/tmp`), owned by UID 1000, so a new
   container loads it without network access (#281). The run-time
@@ -294,7 +336,7 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | Marker | Where | What it needs |
 | --- | --- | --- |
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
-| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py`, `test_parquet_binary_columns.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py`, `test_parquet_binary_columns.py`, `test_parquet_geometry_passthrough.py`, `test_parquet_page_budget.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
 | `integration` | `test_duckdb_extensions.py` | the vector-api image, with `spatial` installed at build; fails outside it |
 | `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
 

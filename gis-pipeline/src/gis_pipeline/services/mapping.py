@@ -153,6 +153,13 @@ class EsriSystemLayerPatterns(Enum):
 # ---------------------------------------------------------------
 CHUNK_SIZE = 50_000
 
+# Largest polygonal feature stored whole. A larger one is cut into pieces of at
+# most this many vertices, so no single feature is too heavy to serve (#292).
+SPLIT_MAX_VERTICES: int = 100_000
+# Columns a layer gains when at least one of its features is split.
+SPLIT_SOURCE_GID_COLUMN: str = "split_source_gid"
+SPLIT_PART_COLUMN: str = "split_part"
+
 
 # ---------------------------------------------------------------
 # Database and data storage harmonization
