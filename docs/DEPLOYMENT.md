@@ -462,7 +462,7 @@ END \$\$;
 
 ### Step 4 — ensure the app role can create tables
 
-PostgreSQL 15 does not grant `CREATE` on the `public` schema by default. `scripts/create_app_role.sh` now includes this grant, so a fresh database init is self-contained. On a database that was initialised before this change, apply it manually once:
+PostgreSQL 15 and later do not grant `CREATE` on the `public` schema by default. `scripts/create_app_role.sh` now includes this grant, so a fresh database init is self-contained. On a database that was initialised before this change, apply it manually once:
 
 ```bash
 docker compose exec database psql -U postgres -d agri_sdss \
