@@ -8,9 +8,8 @@ unless overridden here.
 
 Stock `stac-fastapi.pgstac` (STAC API 1.0.0) served from the pgSTAC schema in
 the shared PostgreSQL. It runs on Python 3.13, port 8081 (`expose:` only), with
-public prefix `/stac-api`. The only custom code is `src/app.py`, a thin wrapper
-that silences a FastAPI deprecation before importing
-`stac_fastapi.pgstac.app`.
+public prefix `/stac-api`. The only custom code is `src/app.py`, which re-exports
+the upstream `create_app` factory that uvicorn starts with `--factory`.
 
 - Endpoints and search examples: [README.md](README.md). Where it disagrees
   with the code or the live OpenAPI at `/stac-api/api`, trust those, and fix
@@ -27,7 +26,7 @@ Run from the repo root.
 make test-stac-api        # Rebuilds the image, runs the suite with coverage
 
 # Single test — test/ is bind-mounted, so no rebuild needed for test edits
-docker compose run --rm stac-api pytest stac_api/test/test_app.py -v
+docker compose run --rm stac-api pytest stac_api/test/test_stac_app_routes.py -v
 
 # Apply a src/ or requirements change, then restart home
 docker compose up -d --build stac-api
@@ -37,8 +36,8 @@ docker compose restart home
 ## Structure
 
 ```text
-src/app.py               Warning filter + ORJSONResponse swap, then re-exports
-                         stac_fastapi.pgstac.app:app
+src/app.py               Re-exports the upstream create_app factory
+                         (uvicorn stac_api.app:create_app --factory)
 scripts/entrypoint.sh    Waits for the DB, applies pgstac GRANTs as admin, then runs
                          uvicorn with up to 5 restart attempts
 test/                    Bind-mounted at /app/stac_api/test
@@ -54,11 +53,10 @@ test/                    Bind-mounted at /app/stac_api/test
   `requirements-stac-api.txt`. Configuration is through that library's env
   vars (`PG*`, `CORS_*`, `ENABLE_TRANSACTIONS_EXTENSIONS`); there is no config
   module of ours.
-- `app.py` must stay import-order sensitive: `configure_warnings()` runs
-  before any `stac_fastapi` import, and `_OrjsonResponse` replaces
-  `stac_fastapi.api.models.JSONResponse` before `stac_fastapi.pgstac.app` builds
-  its routes. Keep new patches in the same place, before that final import.
-  Remove the swap once stac-fastapi drops `ORJSONResponse`.
+- stac-fastapi 7 has no module-level `app`: each `create_app()` call builds
+  a new app from the environment. `stac_api.app:create_app` is the one entry
+  point for uvicorn, the tests and `make smoke-entrypoints`, so a future patch
+  goes there, as a `create_app` that wraps the upstream one.
 - uvicorn runs with `--root-path ${APP_ROOT_PATH}` (`/stac-api`), which is how
   self-links carry the public prefix. `STAC_API_URL` is set in compose but is
   **not read** by stac-fastapi. It is the URL other services use to reach this
@@ -109,7 +107,7 @@ Keep it that way:
 
 | Marker | File | What it needs |
 | --- | --- | --- |
-| `unit` | `test_app.py`, `test_stac_app_routes.py`, `test_conftest_behaviour.py` | nothing live |
+| `unit` | `test_stac_app_routes.py`, `test_conftest_behaviour.py` | nothing live |
 | `integration` | `test_stac_integration.py` | the **real** pgstac database |
 
 - Integration tests run against the same database the stack serves. They

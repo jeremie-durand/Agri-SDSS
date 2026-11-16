@@ -26,7 +26,7 @@ MAX_RETRIES=5
 RETRY_DELAY=5
 _TERMINATED=0
 for i in $(seq 1 $MAX_RETRIES); do
-    uvicorn stac_api.app:app \
+    uvicorn stac_api.app:create_app --factory \
         --host ${HOST} \
         --port ${STAC_API_PORT} \
         --workers ${WEB_CONCURRENCY:-1} \

@@ -135,8 +135,8 @@ SMOKE_RUN = docker compose run --rm --no-deps -T
 smoke-entrypoints:
 	@echo "→ gis-pipeline   python -m gis_pipeline.main"
 	$(SMOKE_RUN) gis-pipeline python -m gis_pipeline.main --help > /dev/null
-	@echo "→ stac-api       uvicorn stac_api.app:app"
-	$(SMOKE_RUN) stac-api python -c "import stac_api.app; stac_api.app.app"
+	@echo "→ stac-api       uvicorn stac_api.app:create_app --factory"
+	$(SMOKE_RUN) stac-api python -c "import stac_api.app; stac_api.app.create_app()"
 	@echo "→ vector-api     uvicorn vector_api.app:app"
 	$(SMOKE_RUN) vector-api python -c "import vector_api.app; vector_api.app.app"
 	@echo "→ raster-api     uvicorn raster_api.main:app"
