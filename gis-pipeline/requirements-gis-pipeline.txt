@@ -28,7 +28,7 @@ pystac==1.14.3
 python-dateutil==3.0.0
 pytz==2026.6
 PyYAML==6.0.3
-rasterio==1.4.4
+rasterio==1.5.2
 requests==2.33.1
 shapely==2.2.0
 six==1.17.0
