@@ -1,7 +1,7 @@
 FROM python:3.13-slim AS runtime
 
 # Set build arguments for versions of key dependencies
-ARG NUMPY_VERSION=2.4.2  # Must match the version specified in requirements-gis-pipeline.txt
+ARG NUMPY_VERSION=2.5.4  # Must match the version specified in requirements-gis-pipeline.txt
 ARG CYTHON_VERSION=3.2.4
 ARG USER_GID=1000
 ARG USER_UID=1000
