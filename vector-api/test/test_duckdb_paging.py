@@ -374,3 +374,37 @@ def test_first_row_over_the_budget_is_refused(tmp_path: Path) -> None:
         101,
         100,
     )
+
+
+@pytest.mark.parametrize("by_id", [False, True], ids=["page", "item"])
+def test_item_queries_do_not_fetch_the_served_geometry_as_wkb(
+    unique_id_manager: DuckDBManager, by_id: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The geometry comes back once, as GeoJSON text, never also as WKB (#292)."""
+    fetched_columns: list[list[str]] = []
+    original = DuckDBManager._fetchall_unlocked
+
+    def spy(conn: duckdb.DuckDBPyConnection, query: str, params: Any = None) -> Any:
+        rows, columns = original(conn, query, params)
+        fetched_columns.append(columns)
+        return rows, columns
+
+    monkeypatch.setattr(DuckDBManager, "_fetchall_unlocked", staticmethod(spy))
+    original_locked = DuckDBManager._fetchall
+
+    def spy_locked(self: DuckDBManager, query: str, params: Any = None) -> Any:
+        rows, columns = original_locked(self, query, params)
+        fetched_columns.append(columns)
+        return rows, columns
+
+    monkeypatch.setattr(DuckDBManager, "_fetchall", spy_locked)
+
+    if by_id:
+        unique_id_manager.get_item_by_id(COLLECTION_ID, 3)
+    else:
+        unique_id_manager.query_items(COLLECTION_ID, limit=PAGE_LIMIT)
+
+    page_columns = fetched_columns[-1]
+    assert "__geojson__" in page_columns
+    assert "geometry" not in page_columns
+    assert {"gid", "name", "value"} <= set(page_columns)

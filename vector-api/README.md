@@ -94,6 +94,34 @@ is `missing` or `unreadable` (or a Parquet file it could not read, as
 the setting or the data directory is invalid). It runs in a one-off container,
 so the running vector-api is not recreated.
 
+## Checking peak memory
+
+The heaviest requests (one 54 MiB polygon, a page shortened to the vertex
+budget) must stay clear of the container's 1 GiB limit. To measure them on the
+real data, after a deploy or a change to the memory settings, once
+`docker compose logs vector-api` shows the
+`Parquet schema warm-up: N of M collections scanned` line (the warm-up's own
+scans would otherwise land inside the measurements):
+
+```bash
+make check-parquet-memory
+```
+
+It runs inside the running vector-api, sends each known heavy request one at a
+time, and prints its status, body size, peak RSS, swap and time. It exits 1 if
+a peak passes `VECTOR_API_PEAK_RSS_MAX_MB` (default 950; set it on the `make`
+command line to override), a request fails, or the process swapped, and 2 if
+it cannot measure (for example when PID 1 is not the uvicorn server). A
+collection missing from the stack, on `/parquet` or `/postgis`, is skipped. If
+the container restarts during the run, the command ends without its summary
+line: count that as a failure, it is the out-of-memory kill the probe exists
+to catch.
+
+One failure is known and accepted until the page budget is lowered (#292
+follow-up): `grhq_hr_04ac_s_udh/items?limit=10000`, a page shortened to the
+1.5M-vertex budget, peaks at 774-960 MB depending on what DuckDB has cached,
+so it can fail at 950 MB. A FAIL on any other request is real.
+
 ## Language
 
 Error messages are returned in **French by default**:

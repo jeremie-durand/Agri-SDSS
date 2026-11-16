@@ -902,6 +902,17 @@ class DuckDBManager:
         return kept
 
     @staticmethod
+    def _columns_left_out(schema: ParquetSchemaInfo) -> list[str]:
+        """Return the columns an item query leaves out of ``*``.
+
+        The binary columns, and the served geometry, which the query already
+        returns as GeoJSON text: selecting it too sent a second, unused copy
+        of every geometry to Python as WKB bytes (#292).
+        """
+        served = [schema["geometry_column"]] if schema["has_geometry"] else []
+        return [*schema["binary_columns"], *served]
+
+    @staticmethod
     def _star_sql(excluded_columns: list[str], alias: str = "") -> str:
         """Return ``<alias>*``, with an EXCLUDE clause naming excluded_columns."""
         star = f"{alias}*"
@@ -1015,7 +1026,7 @@ class DuckDBManager:
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         order_sql = f"ORDER BY {self.escape_identifier(id_column)}" if id_column else ""
-        binary_columns = schema["binary_columns"]
+        binary_columns = self._columns_left_out(schema)
         star_sql = self._star_sql(binary_columns)
 
         def count_query(materialized: bool) -> str:
@@ -1200,7 +1211,7 @@ class DuckDBManager:
         geojson_sql = (
             f", ST_AsGeoJSON({escaped_geom_col}) as __geojson__" if has_geometry else ""
         )
-        star_sql = self._star_sql(schema["binary_columns"])
+        star_sql = self._star_sql(self._columns_left_out(schema))
 
         def build(materialized: bool, vertices_only: bool = False) -> str:
             from_sql = (

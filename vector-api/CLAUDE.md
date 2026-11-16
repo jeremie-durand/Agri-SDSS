@@ -61,6 +61,8 @@ src/                      Copied to /app/vector_api — import as the vector_api
   materialize.py          RTree-indexed .duckdb build (copy — see Cross-Service)
   check_materialized.py   make check-materialized: large collections without
                           a usable .duckdb (exit 0/1/2)
+  check_peak_memory.py    make check-parquet-memory: peak RSS of each known heavy
+                          request, read from PID 1 (exit 0/1/2)
   db_pool.py              asyncpg pool for pedo_properties_router
   pedo_properties_router.py   /pedo-properties
 test/                     Bind-mounted at /app/vector_api/test
@@ -243,12 +245,29 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   defaults to 80% of the container memory, and a heavy query then gets the
   process OOM-killed instead of raising (#279).
 - 819MB is sized for the largest single feature. `grhq_hr_06aa_udh` and
-  `grhq_hr_06ac_udh` are each one polygon of about 56 MB of GeoJSON. They
-  answer 500 at 512MB, and 200 at 819MB, with an HTTP peak of about 800 MB in
-  1 GiB. The default memory settings and the cap were measured as a set:
-  `make test-repo-consistency` checks that the compose defaults match the
-  `DEFAULT_*` constants. Heavy queries spill to `<id>.duckdb.tmp` next to the
-  data, which needs the read-write `./data/duckdb` mount.
+  `grhq_hr_06ac_udh` are each one polygon of about 54 MiB of GeoJSON (1.44M
+  vertices). They answer 500 at 512MB and 200 at 819MB. The default memory
+  settings, the cap, the page vertex budget and the container's
+  `memswap_limit` were measured as a set (#292): `make check-parquet-memory`
+  (`check_peak_memory.py`, run inside the container) gave peaks up to 833 MB
+  on the known heavy requests, with no swap, except the shortened 1.5M-vertex
+  page below. Before the WKB fix below, multi-feature pages peaked at
+  818-920 MB on a live container and 931 MB in a fresh process, so the probe
+  threshold is 950 MB until the GRHQ data is re-ingested with the split and the
+  budget can be lowered. After it, `grhq_hr_04ac_s_udh/items?limit=10000` (a
+  page shortened to the 1.5M budget) still peaks at 774-960 MB depending on
+  what DuckDB has cached from earlier requests (`DUCKDB_MEMORY_LIMIT=640MB`
+  does not help), so that one request can fail the probe until the follow-up
+  lowers the budget. A failure there is that known edge, not a regression.
+  Profiling put that excess in DuckDB reading every candidate geometry, not
+  in Python. `memswap_limit` equals the memory limit, so the container never
+  swaps: without it a request that does not fit answers 200 slowly on a host
+  with swap and is killed on one without. `make test-repo-consistency` checks
+  that the compose defaults match the `DEFAULT_*` constants and that
+  `memswap_limit` equals the memory limit. The item queries leave the served
+  geometry out of `*` (`_columns_left_out`): it is returned once, as GeoJSON
+  text. Heavy queries spill to `<id>.duckdb.tmp` next to the data, which needs
+  the read-write `./data/duckdb` mount.
 - The `spatial` extension is installed at image build into
   `/tmp/.duckdb/extensions` (`HOME=/tmp`), owned by UID 1000, so a new
   container loads it without network access (#281). The run-time

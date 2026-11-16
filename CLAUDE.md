@@ -89,6 +89,8 @@ make smoke-catalogs               # Open every listed PostGIS/Parquet/STAC colle
                                   # (Parquet: 25 spread out plus known heavy requests; ALL=1 walks all)
 make check-materialized           # List large GeoParquet collections whose .duckdb index is missing
                                   # or unreadable (exits 1 if any; above VECTOR_API_RAW_PARQUET_WARN_MB)
+make check-parquet-memory         # Peak RSS of each known heavy Parquet/PostGIS request, inside the
+                                  # running vector-api (exits 1 above 950 MB, on a failure or on swap)
 
 # home has no published port — reach it from inside the Docker network
 docker run --rm --network eoapi-network curlimages/curl:latest -sI http://home:8080/

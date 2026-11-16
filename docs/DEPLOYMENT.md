@@ -253,6 +253,20 @@ git pull
 docker compose up -d --build
 ```
 
+After the release that splits large polygons at ingestion (#292):
+
+1. Re-ingest the GRHQ source with gis-pipeline. Features above 100 000
+   vertices are stored as pieces (`split_source_gid`, `split_part`); the
+   materialize trigger rebuilds each `.duckdb`.
+2. Rebuild `grhq_water_union` (section 8, Step 6): `grhq_hr_06ae_rh_s` is one
+   of the split tables.
+3. Once `docker compose logs vector-api` shows the
+   `Parquet schema warm-up: N of M collections scanned` line, run
+   `make check-parquet-memory` and `make smoke-catalogs`. The `/postgis`
+   entries of the probe are measured wherever the GRHQ tables exist. A FAIL on
+   `grhq_hr_04ac_s_udh/items?limit=10000` alone is the known edge described in
+   `vector-api/README.md` (Checking peak memory); any other FAIL is real.
+
 ### Logs
 
 ```bash
