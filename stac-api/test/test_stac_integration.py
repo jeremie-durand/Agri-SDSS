@@ -72,6 +72,7 @@ def test_stac_root_returns_catalog(stac_integration_client):
     """GET / returns a valid STAC catalog landing page."""
     resp = stac_integration_client.get("/")
     assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/json"
     data = resp.json()
     assert "links" in data
     assert "stac_version" in data
