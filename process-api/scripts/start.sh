@@ -63,4 +63,5 @@ exec gunicorn processes.wsgi:APP \
     --timeout ${GUNICORN_TIMEOUT:-600} \
     --access-logfile - \
     --access-logformat 'INFO:     %(h)s - "%(r)s" %(s)s' \
-    --log-level info
+    --log-level info \
+    --no-control-socket
