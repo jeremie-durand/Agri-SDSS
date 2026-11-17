@@ -22,6 +22,10 @@ updates:
       timezone: "America/Montreal"
     allow:
       - dependency-type: "all"
+    groups:
+      stac-fastapi:
+        patterns:
+          - "stac-fastapi*"
     commit-message:
       prefix: "chore"
 
@@ -172,6 +176,11 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "America/Montreal"
+    ignore:
+      - dependency-name: "*stac-utils/pgstac"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
     commit-message:
       prefix: "chore"
 

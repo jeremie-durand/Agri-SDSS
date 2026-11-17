@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from stac_api.app import app as stac_app
+from stac_api.app import create_app
 
 
 @pytest.fixture(scope="session")
@@ -20,8 +20,9 @@ def stac_integration_client():
     migration, a bad credential, an app-startup bug — propagates, because a
     reachable-but-failing stack is a bug rather than an absent environment.
     """
+    app = create_app()
     try:
-        with TestClient(stac_app, raise_server_exceptions=False) as client:
+        with TestClient(app, raise_server_exceptions=False) as client:
             yield client
     except OSError as exc:
         pytest.skip(

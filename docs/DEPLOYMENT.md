@@ -116,12 +116,12 @@ Two PostgreSQL credentials exist to follow least-privilege:
 
 | Variable | Role | Used by |
 | --- | --- | --- |
-| `POSTGRES_USER=postgres` | Superuser | Docker image init, `pg_dump` backups, healthcheck |
+| `POSTGRES_USER=postgres` | Superuser | Docker image init, backups, healthcheck, stac-api grant step, pgSTAC tools (sections 8 and 9) |
 | `POSTGRES_PASS` | Superuser password | Same |
-| `DB_USER=agri_sdss` | App role (SELECT/INSERT/UPDATE/DELETE only) | All backend services |
+| `DB_USER=agri_sdss` | App role: DML and `CREATE` on `public`; pgSTAC through `pgstac_ingest`, without `CREATE` on `pgstac` | All backend services |
 | `DB_PASS` | App role password | Same |
 
-The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on first DB initialisation.
+The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on first DB initialisation. stac-api re-applies its pgSTAC access at every start (`stac-api/scripts/apply_pgstac_grants.sql`), which also clears the direct `pgstac` grants a restored dump brings back.
 
 ### CORS
 
@@ -253,12 +253,38 @@ git pull
 docker compose up -d --build
 ```
 
+**The release that moves the database to PostgreSQL 17 (#90) is deployed with
+[section 9](#9-upgrading-postgresql-15-to-17), not with these commands.**
+
+**A new `database` image tag on the same PostgreSQL major** (a pgSTAC patch
+release, such as `v0.10.1` to `v0.10.2`) changes the image only: the schema of
+an existing database stays at its old version until it is migrated. Take a
+[backup](#backup) first, then, after `git pull`:
+
+```bash
+docker compose up -d --wait database
+TOOL=ghcr.io/stac-utils/pgstac-pypgstac:$(docker compose config --images \
+  | sed -n 's#^ghcr.io/stac-utils/pgstac:##p')
+export PGUSER=$(docker compose exec -T database printenv PGUSER)
+export PGPASSWORD=$(docker compose exec -T database printenv PGPASSWORD)
+export PGDATABASE=$(docker compose exec -T database printenv PGDATABASE)
+docker run --rm --network eoapi-network \
+  -e PGHOST=database -e PGUSER -e PGPASSWORD -e PGDATABASE "$TOOL" pypgstac migrate
+docker compose up -d --build
+docker compose restart stac-api home
+```
+
+`pypgstac migrate` prints the new version. Restarting stac-api re-applies the
+app role's pgSTAC access, since a migration can grant `CREATE` back to
+`pgstac_ingest`. A tag on another PostgreSQL major never goes this way: it needs
+an upgrade like section 9.
+
 After the release that splits large polygons at ingestion (#292):
 
 1. Re-ingest the GRHQ source with gis-pipeline. Features above 100 000
    vertices are stored as pieces (`split_source_gid`, `split_part`); the
    materialize trigger rebuilds each `.duckdb`.
-2. Rebuild `grhq_water_union` (section 8, Step 6): `grhq_hr_06ae_rh_s` is one
+2. Rebuild `grhq_water_union` (section 8, Step 5): `grhq_hr_06ae_rh_s` is one
    of the split tables.
 3. Once `docker compose logs vector-api` shows the
    `Parquet schema warm-up: N of M collections scanned` line, run
@@ -280,13 +306,37 @@ docker compose logs -f caddy
 
 ### Backup
 
+A backup is a custom-format dump of the whole database, the cluster roles
+(which a database dump does not contain) and an inventory of the counts to
+compare against after a restore. Keep backups outside the repository: the roles
+file holds password hashes and must never be committed.
+
 ```bash
-# PostgreSQL dump (run as admin superuser so all schemas are captured)
-docker compose exec database pg_dump -U postgres agri_sdss > backup_$(date +%Y%m%d).sql
+BACKUP_DIR=/srv/backups/agri-sdss   # any directory outside the repository
+STAMP=$(date +%Y%m%d)
+mkdir -p "$BACKUP_DIR"
+
+# Whole database, custom format (what pgstac_restore reads). -T keeps the
+# binary output intact; the container's PGUSER and PGDATABASE pick the superuser.
+docker compose exec -T database pg_dump -Fc > "$BACKUP_DIR/agri_sdss_$STAMP.dump"
+
+# Cluster roles, with password hashes: readable by the owner only
+(umask 077; docker compose exec -T database pg_dumpall --roles-only \
+  > "$BACKUP_DIR/roles_$STAMP.sql")
+
+# Counts to diff after a restore (section 8)
+docker compose exec -T database psql -X -f - < scripts/db_inventory.sql \
+  > "$BACKUP_DIR/inventory_$STAMP.txt"
 
 # DuckDB (file copy is safe when pipeline is not writing)
-cp data/duckdb/eoapi.duckdb backup_duckdb_$(date +%Y%m%d).duckdb
+cp data/duckdb/eoapi.duckdb "$BACKUP_DIR/duckdb_$STAMP.duckdb"
 ```
+
+**Dumps taken on pgSTAC 0.8.5 (release v2.0.1 and earlier) cannot be
+restored.** Any restore of them loses `pgstac.searches`, and STAC search then
+fails (#90). Keep them as archives only: the restore point of those releases is
+a copy of the stopped data directory, as in
+[section 9](#9-upgrading-postgresql-15-to-17).
 
 ### Changing the application role password
 
@@ -350,147 +400,106 @@ to correct them.
 
 ## 8. Restoring a production database dump
 
-Use this procedure when seeding a fresh database from a `pg_dump` backup of a previous deployment. Place your compressed dump in `data/demo/` (create the directory if needed) — the restore command below mounts it into the container.
+This procedure restores a [backup](#backup) into a fresh database started from
+the `database` image of `docker-compose.yml`: on a new server, after losing the
+data directory, or during the [PostgreSQL upgrade](#9-upgrading-postgresql-15-to-17).
+The dump must come from the pgSTAC version of that image: compare the
+`pgstac_version` line of the backup's inventory with the `database` image tag.
+A dump taken on pgSTAC 0.8.5 cannot be restored (see [Backup](#backup)); a
+v.2.0.1 data directory is upgraded with section 9.
 
 For a continuous connection to an existing PostgreSQL database (logical replication, foreign data wrapper) instead of one-off dumps, see [Database integration](data/guides/database_integration.md).
 
-### Why a filtered restore
-
-A full plain-SQL dump contains both the `pgstac` schema DDL and the `public` schema data. The pgstac version in the dump may differ from the one initialised by the current Docker image. Restoring mismatched pgstac DDL corrupts the schema and causes `invalid command \N` loops in psql as data rows get interpreted as commands.
-
-The solution is `scripts/filter_public_copy.py`: it reads the dump from stdin and writes only the `COPY public.*` data blocks to stdout, skipping every `COPY pgstac.*` block. The pgstac schema is left exactly as Docker initialised it.
-
-### Step 1 — restore only the public schema
+### Step 1 — start an empty database
 
 ```bash
-# Stream the compressed dump through the filter and straight into psql.
-# Uses the pgstac image because it ships both python3 and psql —
-# use the same image tag as the database service in docker-compose.yml.
-docker run --rm -i \
-  --network eoapi-network \
-  -v "$(pwd)/scripts/filter_public_copy.py:/filter.py:ro" \
-  -v "$(pwd)/data/demo:/dump:ro" \
-  ghcr.io/stac-utils/pgstac:<same-tag-as-docker-compose> \
-  bash -c "
-    gunzip -c /dump/pgstac_prod_<DATE>.sql.gz \
-      | python3 /filter.py \
-      | psql -h database -U postgres -d agri_sdss
-  "
+docker compose down
+# The data directory (PGDATA_PATH in .env, default ./data/pg/.pgdata) must be
+# empty or absent. Move an existing one aside rather than deleting it.
+docker compose up -d database
+docker compose ps database   # wait for "healthy"
 ```
 
-Replace `<DATE>` with the actual filename suffix (e.g. `20260615`). Each `COPY <n>` line in the output confirms a table block was loaded. The command exits 0 on success.
+The first start creates the superuser, the `pgstac_*` roles and the app role
+(`DB_USER`) from `.env`, the extensions and an empty pgSTAC schema. The restore
+keeps object owners, so these role names must be the ones of the source. If the
+source used other names, create the missing roles first from the `CREATE ROLE`
+lines of `roles_<DATE>.sql`. Do not run the whole file: its `ALTER ROLE` lines
+would overwrite the passwords set from `.env`.
 
-### Step 2 — repair the pgstac schema
+### Step 2 — restore the dump
 
-A dump created from an older pgstac version includes DDL that overwrites the pgstac schema the Docker image set up, typically leaving `pgstac.collections` and `pgstac.collections_asitems` missing. Without these objects the stac-api returns `HTTP 500` on every `/collections` request. Partial overlaps between the dump's schema and the current one also cause `pgstac_settings` to accumulate duplicate rows, which produces `CardinalityViolationError` on startup.
-
-Run this block to create any missing objects and remove duplicates — it is safe to run even when nothing is broken:
+Run Steps 2 and 3 in one shell.
 
 ```bash
-docker compose exec database psql -U postgres -d agri_sdss -c "
-SET search_path TO pgstac, public;
+BACKUP_DIR=/srv/backups/agri-sdss                 # where the backup files are
+TOOL=ghcr.io/stac-utils/pgstac-pypgstac:$(docker compose config --images \
+  | sed -n 's#^ghcr.io/stac-utils/pgstac:##p')   # same tag as the database image
+export PGUSER=$(docker compose exec -T database printenv PGUSER)
+export PGPASSWORD=$(docker compose exec -T database printenv PGPASSWORD)
+export PGDATABASE=$(docker compose exec -T database printenv PGDATABASE)
 
--- Create collections table if missing (added in pgstac 0.7+)
-CREATE TABLE IF NOT EXISTS collections (
-    key bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id text GENERATED ALWAYS AS (content->>'id') STORED UNIQUE NOT NULL,
-    content JSONB NOT NULL,
-    base_item jsonb GENERATED ALWAYS AS (pgstac.collection_base_item(content)) STORED,
-    geometry geometry GENERATED ALWAYS AS (pgstac.collection_geom(content)) STORED,
-    datetime timestamptz GENERATED ALWAYS AS (pgstac.collection_datetime(content)) STORED,
-    end_datetime timestamptz GENERATED ALWAYS AS (pgstac.collection_enddatetime(content)) STORED,
-    private jsonb,
-    partition_trunc text CHECK (partition_trunc IN ('year', 'month'))
-);
+# The dump brings its own pgSTAC schema
+docker compose exec -T database psql -X -v ON_ERROR_STOP=1 -c 'DROP SCHEMA pgstac CASCADE'
 
--- Create collections_asitems view if missing
-CREATE OR REPLACE VIEW collections_asitems AS
-SELECT
-    id, geometry, 'collections' AS collection, datetime, end_datetime,
-    jsonb_build_object(
-        'properties', content - '{links,assets,stac_version,stac_extensions}',
-        'links', content->'links',
-        'assets', content->'assets',
-        'stac_version', content->'stac_version',
-        'stac_extensions', content->'stac_extensions'
-    ) AS content,
-    content AS collectionjson
-FROM collections;
-
--- Remove duplicate settings rows (accumulate when dump DDL overlaps current schema)
-DELETE FROM pgstac_settings a
-USING pgstac_settings b
-WHERE a.ctid < b.ctid AND a.name = b.name;
-
--- Remove duplicate migration version rows
-DELETE FROM migrations a
-USING migrations b
-WHERE a.ctid < b.ctid AND a.version = b.version;
-
--- Record the current schema version if not already present
--- (replace <PGSTAC_VERSION> with the version of your pgstac Docker image)
-INSERT INTO migrations (version) SELECT '<PGSTAC_VERSION>' WHERE NOT EXISTS (
-    SELECT 1 FROM migrations WHERE version = '<PGSTAC_VERSION>'
-);
-"
+docker run --rm --network eoapi-network \
+  -e PGHOST=database -e PGUSER -e PGPASSWORD -e PGDATABASE \
+  -v "$BACKUP_DIR:/backup:ro" "$TOOL" \
+  pgstac_restore /backup/agri_sdss_<DATE>.dump 2>&1 | tee "$BACKUP_DIR/restore_<DATE>.log"
+grep -A1 'pg_restore: error' "$BACKUP_DIR/restore_<DATE>.log"
 ```
 
-Then restart the stac-api to pick up the repaired schema:
+`pgstac_restore` runs `pg_restore` with the `search_path` pgSTAC's functions
+need and keeps owners and privileges, so `public` tables stay owned by the app
+role and ingestion can still replace them. The tool image runs as uid 1000: the
+dump must be readable by it, which the default file mode is.
+
+`pgstac_restore` always ends with `Restore complete.` and exit code 0, even
+when `pg_restore` failed, so read the errors. Exactly one is expected:
+
+- `function "pgstac_admin_owns" already exists with same argument types`: a
+  `public` function the first start created, outside the dropped schema.
+
+Any other error means a failed restore: keep the backup, empty the data
+directory and start again from Step 1.
+
+### Step 3 — analyze and compare
 
 ```bash
-docker compose restart stac-api
+docker run --rm --network eoapi-network \
+  -e PGHOST=database -e PGUSER -e PGPASSWORD -e PGDATABASE \
+  "$TOOL" vacuumdb --analyze-in-stages
+docker compose exec -T database psql -X -f - < scripts/db_inventory.sql \
+  > "$BACKUP_DIR/inventory_<DATE>-restored.txt"
+diff "$BACKUP_DIR/inventory_<DATE>.txt" "$BACKUP_DIR/inventory_<DATE>-restored.txt"
 ```
 
-### Step 3 — transfer table ownership to the app role
+The diff is empty when nothing was written between the dump and its inventory.
+Any other difference means a lost table, item, index or search result: do not
+start the stack.
 
-Tables restored from a dump are owned by `postgres`. The `agri_sdss` app role needs ownership to `DROP` and `ALTER` them during pipeline ingestion:
+### Step 4 — start the stack
 
 ```bash
-docker compose exec database psql -U postgres -d agri_sdss -c "
-DO \$\$
-DECLARE r RECORD;
-BEGIN
-    FOR r IN
-        SELECT tablename FROM pg_tables
-        WHERE schemaname = 'public' AND tableowner = 'postgres'
-    LOOP
-        EXECUTE format('ALTER TABLE public.%I OWNER TO agri_sdss', r.tablename);
-    END LOOP;
-END \$\$;
-"
+docker compose up -d
+docker compose restart home
+make smoke-catalogs
+make smoke-browser-pages
 ```
 
-### Step 4 — ensure the app role can create tables
+The stac-api start re-applies the app role's pgSTAC access
+(`stac-api/scripts/apply_pgstac_grants.sql`), which removes the direct grants
+the dump brought back from the source.
 
-PostgreSQL 15 does not grant `CREATE` on the `public` schema by default. `scripts/create_app_role.sh` now includes this grant, so a fresh database init is self-contained. On a database that was initialised before this change, apply it manually once:
+### After a restore on a new server
 
-```bash
-docker compose exec database psql -U postgres -d agri_sdss \
-  -c "GRANT CREATE ON SCHEMA public TO agri_sdss;"
-```
+The dump holds the database only. The files under `data/` (Parquet, COGs,
+DuckDB indexes) come from a copy of the old server's `data/`, or are rebuilt
+with the steps below.
 
-### Step 5 — create GIST spatial indexes
+### Step 5 — rebuild the GRHQ water union table
 
-A `pg_dump` does not always preserve spatial indexes. Without GIST indexes on geometry columns, TiPg (vector-api) performs sequential scans and returns empty tile responses. Create indexes on all public geometry tables in one pass:
-
-```bash
-docker compose exec database psql -U postgres -d agri_sdss -t -A -c "
-SELECT format(
-    'CREATE INDEX IF NOT EXISTS %I ON public.%I USING GIST (%I);',
-    f_table_name || '_' || f_geometry_column || '_gist',
-    f_table_name,
-    f_geometry_column
-)
-FROM geometry_columns
-WHERE f_table_schema = 'public';
-" | docker compose exec -T database psql -U postgres -d agri_sdss
-```
-
-This generates and immediately executes one `CREATE INDEX IF NOT EXISTS` per geometry column. Empty tables are indexed without error. On a database with ~240 geometry tables the pass takes a few minutes.
-
-### Step 6 — rebuild the GRHQ water union table
-
-`scripts/build_grhq_water_union.py` merges all eligible GRHQ hydrological line and polygon tables into a single `public.grhq_water_union` table. This union is the data source for "distance from water" spatial queries in the SOM Calculator. Run it after loading GRHQ data from the dump (step 1).
+`scripts/build_grhq_water_union.py` merges all eligible GRHQ hydrological line and polygon tables into a single `public.grhq_water_union` table. This union is the data source for "distance from water" spatial queries in the SOM Calculator. The dump already holds it; rebuild it after re-ingesting GRHQ tables.
 
 ```bash
 docker compose run --rm \
@@ -523,7 +532,7 @@ docker compose exec database psql -U agri_sdss -d agri_sdss -c "
 
 `CREATE INDEX CONCURRENTLY` must run outside a transaction block, so it is issued as a separate command.
 
-### Step 7 — run the gis-pipeline
+### Step 6 — run the gis-pipeline
 
 Ingest all input files from `/data/input`:
 
@@ -536,11 +545,11 @@ docker compose run --rm gis-pipeline python3 -m gis_pipeline.main \
 
 The final log lines report `Processed`, `Errors`, and `Non_spatial_csv` counts. `Errors: 0` is the target. After a successful run, vector layers, COGs, and STAC items are all up to date. The pipeline automatically stamps `has_gee_data` on `som_field_boundaries` at the end of every run — no manual post-step needed.
 
-### Step 8 — spatial index materialization (automatic + manual catch-up)
+### Step 7 — spatial index materialization (automatic + manual catch-up)
 
 Any Parquet collection with a geometry column can be served from a persistent, RTree-indexed on-disk DuckDB table instead of a per-request `read_parquet()` scan, as soon as a `<collection>.duckdb` file exists for it next to its `.parquet` file — `vector-api` auto-discovers it, no config needed.
 
-**This is automatic** for every table gis-pipeline writes, regardless of format or row count: right after step 7 writes a collection's Parquet file, gis-pipeline builds its spatial index and notifies `vector-api` to pick it up — no restart required.
+**This is automatic** for every table gis-pipeline writes, regardless of format or row count: right after step 6 writes a collection's Parquet file, gis-pipeline builds its spatial index and notifies `vector-api` to pick it up — no restart required.
 
 **One-time manual catch-up** is needed for collections that already existed before this automatic trigger was added — auto-discovery only takes effect once a `.duckdb` file exists; it doesn't retroactively index anything. `make check-materialized` lists the large
 geometry collections that still have no usable `.duckdb`; run the build script once per
@@ -571,26 +580,292 @@ docker compose run --rm \
 
 ---
 
-## First-time deploy on a server with existing data
+## 9. Upgrading PostgreSQL 15 to 17
 
-If you are migrating from a previous install that used `POSTGRES_DBNAME=postgres` and `POSTGRES_USER=postgres`:
+The release after v.2.0.1 moves the `database` image from pgSTAC 0.8.5 on
+PostgreSQL 15 to pgSTAC 0.10.1 on PostgreSQL 17 (#90). PostgreSQL 17 cannot
+open a PostgreSQL 15 data directory: once that release is checked out,
+`database` refuses the existing directory and stays down until this procedure
+has run. Never deploy that release with a plain `git pull` and `up`.
+
+A dump taken on pgSTAC 0.8.5 cannot be restored (see [Backup](#backup)), so the
+upgrade migrates pgSTAC to 0.10.1 on PostgreSQL 15 first, dumps that, and
+restores it into a fresh PostgreSQL 17 database. The rollback is an untouched
+copy of the stopped PostgreSQL 15 data directory, never a dump.
+
+### Prerequisites
+
+- **Disk:** free space for two more copies of the data directory (the rollback
+  copy and the migrated directory) plus the dump. Check with
+  `docker run --rm -v "$PWD/data/pg:/pg:ro" alpine du -sh /pg` and `df -h .`.
+- **Images,** pulled before the window:
+  `docker pull ghcr.io/stac-utils/pgstac:v0.10.1` and
+  `docker pull ghcr.io/stac-utils/pgstac-pypgstac:v0.10.1`.
+- **Host backup jobs:** a cron job that runs `pg_dump` with a client installed
+  on the host fails against PostgreSQL 17 when that client is older. Look in
+  `crontab -l` and `/etc/cron.d`, and move such a job to the
+  [Backup](#backup) commands, which run `pg_dump` inside the container.
+- **Rehearsal** done on a copy of production (below), with its step durations
+  to size the maintenance window.
+
+### Rehearsal on a copy of production
+
+Rehearse the whole procedure before the window, on another machine:
+
+1. On production, take a physical copy of the data directory during a short
+   stop. The archive holds every row and the password hashes, so only its owner
+   can read it:
+
+   ```bash
+   PGDIR=./data/pg/.pgdata                # PGDATA_PATH in .env, if set
+   BACKUP_DIR=/srv/backups/agri-sdss
+   mkdir -p "$BACKUP_DIR"
+   docker compose stop
+   (umask 077; docker run --rm -v "$(cd "$(dirname "$PGDIR")" && pwd):/pg:ro" alpine \
+     tar -C /pg -czf - "$(basename "$PGDIR")" \
+     > "$BACKUP_DIR/pgdata-pg15-$(date +%Y%m%d).tar.gz")
+   docker compose start && docker compose restart home
+   ```
+
+2. On the rehearsal machine, extract it into a folder of its own, so the local
+   data directory stays untouched, and point the stack at it:
+
+   ```bash
+   mkdir -p data/pg/rehearsal
+   docker run --rm -i -v "$PWD/data/pg/rehearsal:/pg" alpine tar -C /pg -xzf - \
+     < pgdata-pg15-<DATE>.tar.gz
+   ```
+
+   Set `PGDATA_PATH=./data/pg/rehearsal/.pgdata` in `.env` for the rehearsal
+   (and use it as `PGDIR` in Step 1). `POSTGRES_USER` and `DB_USER` must have
+   the production names, since the restore keeps owners. Check out the commit
+   production runs and start `database`. The copy carries production's
+   passwords, so set them to the local `.env` ones (the socket connection needs
+   none), and confirm pgSTAC 0.8.5:
+
+   ```bash
+   docker compose up -d database
+   docker compose exec -T database sh -c \
+     'psql -X -q -v ON_ERROR_STOP=1 -v su="$PGUSER" -v su_pass="$PGPASSWORD" -v app="$DB_USER" -v app_pass="$DB_PASS"' <<'SQL'
+   ALTER ROLE :"su" PASSWORD :'su_pass';
+   ALTER ROLE :"app" PASSWORD :'app_pass';
+   SQL
+   docker compose exec -T database psql -X -qAt -c 'SELECT pgstac.get_version()'
+   ```
+
+3. Run the cutover steps below exactly as written, recording the duration of
+   each step and every error printed. Restore `PGDATA_PATH` afterwards.
+
+Proceed to production only when the restore printed nothing but the five
+expected errors and the inventory diff shows only the two version lines.
+
+### Cutover
+
+Run every step from the repository root, in one shell. Step 1 extracts the
+helper file `scripts/db_inventory.sql` from the release, because the older
+checkout does not have it.
+
+**Step 1: variables, helpers and the "before" inventory.**
 
 ```bash
-# 1. Dump the old database from the running container
-docker compose exec database pg_dump -U postgres postgres > migration_backup.sql
+NEW_TAG=<release tag>                  # the release with pgstac:v0.10.1
+PGDIR=./data/pg/.pgdata                # PGDATA_PATH in .env, if set
+BACKUP_DIR=/srv/backups/agri-sdss      # outside the repository
+TOOL=ghcr.io/stac-utils/pgstac-pypgstac:v0.10.1
+STAMP=$(date +%Y%m%d)
+PARENT=$(cd "$(dirname "$PGDIR")" && pwd); NAME=$(basename "$PGDIR")
+mkdir -p "$BACKUP_DIR"
+git fetch --tags
+git rev-parse HEAD > "$BACKUP_DIR/previous-commit-$STAMP.txt"   # rollback target
+git show "$NEW_TAG:scripts/db_inventory.sql" > "$BACKUP_DIR/db_inventory.sql"
 
-# 2. Stop services and wipe the data volume (this destroys existing data)
-docker compose down
-rm -rf data/pg/.pgdata
-
-# 3. Update .env with new credentials (POSTGRES_DBNAME=agri_sdss, DB_USER, DB_PASS, etc.)
-
-# 4. Start fresh — Docker creates the agri_sdss database and runs init scripts
-docker compose up -d database
-docker compose exec database psql -U postgres -d agri_sdss < migration_backup.sql
-
-# 5. Start remaining services
-docker compose up -d
+docker compose config --services | grep -vx database | xargs docker compose stop
+docker compose exec -T database psql -X -f - < "$BACKUP_DIR/db_inventory.sql" \
+  > "$BACKUP_DIR/inventory-before-$STAMP.txt"
+cat "$BACKUP_DIR/inventory-before-$STAMP.txt"   # pgstac_version | 0.8.5
 ```
+
+Both `search_*` counts must be below `search_limit`. If one equals it, raise
+`search_limit` in `$BACKUP_DIR/db_inventory.sql`, the copy every step of this
+section uses, and take the inventory again.
+
+**Step 2: stop the database and take the rollback copy.**
+
+```bash
+docker compose down
+docker run --rm -v "$PARENT:/pg" alpine cp -a "/pg/$NAME" /pg/.pgdata-v201-pg15
+docker run --rm -v "$PARENT:/pg:ro" alpine sh -c \
+  "find /pg/$NAME | wc -l; find /pg/.pgdata-v201-pg15 | wc -l"   # equal counts
+```
+
+Nothing touches `.pgdata-v201-pg15` from here on.
+
+**Step 3: migrate pgSTAC to 0.10.1, still on PostgreSQL 15.**
+
+```bash
+docker compose up -d database
+docker compose ps database   # wait for "healthy"
+export PGUSER=$(docker compose exec -T database printenv PGUSER)
+export PGPASSWORD=$(docker compose exec -T database printenv PGPASSWORD)
+export PGDATABASE=$(docker compose exec -T database printenv PGDATABASE)
+docker run --rm --network eoapi-network \
+  -e PGHOST=database -e PGUSER -e PGPASSWORD -e PGDATABASE "$TOOL" pypgstac migrate
+docker compose exec -T database psql -X -qAt \
+  -c 'SELECT pgstac.get_version()' -c 'SELECT count(*) FROM pgstac.query_queue'
+```
+
+The migration prints `0.10.1` and the check prints `0.10.1` then `0`. If the
+queue count is not 0, run
+`docker compose exec -T database psql -X -c 'CALL pgstac.run_queued_queries()'`
+and check again before the dump.
+
+**Step 4: dump the migrated database.**
+
+```bash
+DUMP=agri_sdss-pgstac-0.10.1-pg15-$STAMP.dump
+docker compose exec -T database pg_dump -Fc > "$BACKUP_DIR/$DUMP"
+(umask 077; docker compose exec -T database pg_dumpall --roles-only \
+  > "$BACKUP_DIR/roles-$STAMP.sql")
+```
+
+**Step 5: set the migrated directory aside and check out the release.**
+
+```bash
+docker compose down
+docker run --rm -v "$PARENT:/pg" alpine mv "/pg/$NAME" /pg/.pgdata-pg15-migrated
+git checkout "$NEW_TAG"
+```
+
+**Step 6: start a fresh PostgreSQL 17 database.**
+
+```bash
+docker compose up -d database
+docker compose ps database   # wait for "healthy"
+docker compose exec -T database psql -X -qAt \
+  -c "SELECT pgstac.get_version(), current_setting('server_version')"   # 0.10.1|17.x
+```
+
+**Step 7: restore.**
+
+```bash
+docker compose exec -T database psql -X -v ON_ERROR_STOP=1 -c 'DROP SCHEMA pgstac CASCADE'
+docker run --rm --network eoapi-network \
+  -e PGHOST=database -e PGUSER -e PGPASSWORD -e PGDATABASE \
+  -v "$BACKUP_DIR:/backup:ro" "$TOOL" \
+  pgstac_restore "/backup/$DUMP" 2>&1 | tee "$BACKUP_DIR/restore-$STAMP.log"
+grep -A1 'pg_restore: error' "$BACKUP_DIR/restore-$STAMP.log"
+```
+
+`pgstac_restore` exits 0 whatever happens, so read the errors. Exactly these
+five are expected:
+
+- `function "pgstac_admin_owns" already exists with same argument types`: a
+  `public` function the fresh database created, outside the dropped schema.
+- Four `GRANT ALL ON FUNCTION pgstac.unaccent... TO pgstac_ingest` failures
+  (`unaccent(text)`, `unaccent(regdictionary, text)`, `unaccent_init(internal)`,
+  `unaccent_lexize(internal, internal, internal, internal)`): the migration
+  installed `unaccent` in `pgstac` on PostgreSQL 15, while the fresh database
+  has it in `public`. Accent-insensitive search still works.
+
+Any other error: go to [Rollback](#rollback).
+
+**Step 8: analyze and compare.**
+
+```bash
+docker run --rm --network eoapi-network \
+  -e PGHOST=database -e PGUSER -e PGPASSWORD -e PGDATABASE \
+  "$TOOL" vacuumdb --analyze-in-stages
+docker compose exec -T database psql -X -f - < "$BACKUP_DIR/db_inventory.sql" \
+  > "$BACKUP_DIR/inventory-after-$STAMP.txt"
+diff "$BACKUP_DIR/inventory-before-$STAMP.txt" "$BACKUP_DIR/inventory-after-$STAMP.txt"
+```
+
+The diff shows only `pgstac_version` (0.8.5 to 0.10.1) and `server_version`
+(15 to 17): the counts, owners, indexes and the item ids of the two searches
+are unchanged. Any other line: go to [Rollback](#rollback).
+
+**Step 9: start the stack.**
+
+```bash
+docker compose up -d --build
+docker compose restart home
+```
+
+The stac-api start gives the app role its pgSTAC access through
+`pgstac_ingest` and removes the direct grants the dump restored.
+
+### Checks after the cutover
+
+```bash
+docker compose ps                                       # every service healthy
+docker compose logs stac-api | grep 'pgstac grants applied'
+make smoke-catalogs
+make smoke-browser-pages
+
+# A vector tile from PostGIS and a raster tile from a COG
+# (<file>: a COG listed by /raster-api/collections)
+docker run --rm --network eoapi-network curlimages/curl:latest -s -o /dev/null \
+  -w '%{http_code} %{size_download}\n' \
+  'http://home:8080/vector-api/postgis/collections/public.som_field_boundaries/tiles/WebMercatorQuad/0/0/0'
+docker run --rm --network eoapi-network curlimages/curl:latest -s -o /dev/null \
+  -w '%{http_code} %{size_download}\n' \
+  'http://home:8080/raster-api/cog/tiles/WebMercatorQuad/0/0/0.png?url=/data/<file>.tif'
+```
+
+Both tiles answer 200 with a non-zero size. The next publication by
+gis-pipeline or process-api confirms that new items can be written.
+
+### Rollback
+
+```bash
+docker compose down
+docker run --rm -v "$PARENT:/pg" alpine sh -c \
+  "if [ -e /pg/$NAME ]; then mv /pg/$NAME /pg/.pgdata-pg17-failed; fi; cp -a /pg/.pgdata-v201-pg15 /pg/$NAME"
+git checkout "$(cat "$BACKUP_DIR/previous-commit-$STAMP.txt")"
+docker compose up -d --build
+docker compose restart home
+docker compose exec -T database psql -X -f - < "$BACKUP_DIR/db_inventory.sql" \
+  | diff "$BACKUP_DIR/inventory-before-$STAMP.txt" -   # empty
+```
+
+The rollback copies `.pgdata-v201-pg15` instead of moving it, so a second
+attempt starts from the same untouched copy.
+
+### Cleanup
+
+A few days after a cutover without problems, delete `.pgdata-v201-pg15`,
+`.pgdata-pg15-migrated` and `.pgdata-pg17-failed` if present (through the same
+`alpine` container, since they belong to the database user), and the dump.
+
+---
+
+## First-time deploy on a server with existing data
+
+An install from before the `agri_sdss` rename keeps its data in a database named
+`postgres` (`POSTGRES_DBNAME=postgres`). Move it to the new layout with the
+[backup](#backup) and [restore](#8-restoring-a-production-database-dump)
+procedures, not with a plain-SQL dump loaded by `psql`, which breaks the pgSTAC
+schema:
+
+1. Bring the install to the pgSTAC version of the current `database` image
+   first: a dump taken on an older pgSTAC cannot be restored. An install on
+   pgSTAC 0.8.5 is upgraded with section 9.
+2. Take a backup with the old `.env`: the dump comes from the `postgres`
+   database.
+3. Stop the stack, move the data directory aside, and update `.env` with the
+   new credentials (`POSTGRES_DBNAME=agri_sdss`, `DB_USER`, `DB_PASS`, …).
+4. Restore with section 8. `pg_restore` loads the dump into `agri_sdss` whatever
+   the source database was called.
+5. Such an install had no app role, so its `public` tables belong to the
+   superuser and ingestion could not replace them. Hand them to `DB_USER`:
+
+   ```bash
+   docker compose exec -T database sh -c 'psql -X -v ON_ERROR_STOP=1 -v app="$DB_USER"' <<'SQL'
+   SELECT format('ALTER TABLE public.%I OWNER TO %I', tablename, :'app')
+   FROM pg_tables
+   WHERE schemaname = 'public' AND tableowner <> :'app' AND tablename <> 'spatial_ref_sys'
+   \gexec
+   SQL
+   ```
 
 Then: `docker compose restart caddy`. CORS and all internal service URLs update automatically.

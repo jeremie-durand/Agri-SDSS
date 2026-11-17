@@ -59,7 +59,7 @@ docker compose restart vector-api
 Data is now available across all APIs and frontends. See **[https://localhost/data](https://localhost/data)**.
 
 - **GRHQ:** `water-distance` also needs the
-  [water union table](docs/DEPLOYMENT.md#step-6--rebuild-the-grhq-water-union-table)
+  [water union table](docs/DEPLOYMENT.md#step-5--rebuild-the-grhq-water-union-table)
   to be rebuilt after loading.
 - **BDPPAD:** if you load a year the demo extract covers, drop its table first; see
   the [data catalog](docs/data/CATALOG.md).

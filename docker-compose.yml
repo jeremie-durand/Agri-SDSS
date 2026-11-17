@@ -437,8 +437,9 @@ services:
           cpus: "0.25"
 
   database:
-    image: ghcr.io/stac-utils/pgstac:v0.8.5
+    image: ghcr.io/stac-utils/pgstac:v0.10.1
     environment:
+      - PGDATA=/var/lib/postgresql/data
       # Admin superuser — used only for Docker init, healthcheck, and pg_dump backups
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASS}
@@ -455,6 +456,8 @@ services:
       - ${PGDATA_PATH:-./data/pg/.pgdata}:/var/lib/postgresql/data
       - ./scripts/create_app_role.sh:/docker-entrypoint-initdb.d/create_app_role.sh
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD-SHELL", "psql -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DBNAME} -c 'SELECT 1 FROM pgstac.migrations LIMIT 1' -q 2>/dev/null"]
       interval: 5s

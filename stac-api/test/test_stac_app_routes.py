@@ -1,14 +1,17 @@
 """Route-contract tests against the real stac-fastapi app.
 
-These import the actual application rather than mocking HTTP, so a renamed
-route, a dropped extension, or a broken import fails the run. No database is
-needed: only the generated OpenAPI document is inspected.
+These build the actual application with ``create_app()`` rather than mocking
+HTTP, so a renamed route, a dropped extension, or a broken import fails the
+run. No database is needed: the database pool opens in the app's lifespan,
+which these tests never enter.
 """
 
 import os
 
 import pytest
-from stac_api.app import app
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from stac_api.app import create_app
 
 CORE_PATHS = {
     "/",
@@ -23,7 +26,12 @@ CORE_PATHS = {
 
 
 @pytest.fixture(scope="module")
-def spec() -> dict:
+def app() -> FastAPI:
+    return create_app()
+
+
+@pytest.fixture(scope="module")
+def spec(app: FastAPI) -> dict:
     return app.openapi()
 
 
@@ -61,12 +69,18 @@ def test_openapi_document_builds(spec):
 
 
 @pytest.mark.unit
-def test_orjson_response_class_is_patched():
-    """stac_api.app swaps in _OrjsonResponse to avoid the deprecated one.
+def test_create_app_returns_a_fastapi_app(app: FastAPI) -> None:
+    """uvicorn --factory serves whatever create_app() returns."""
+    assert isinstance(app, FastAPI)
 
-    The patch sits in a try/except ImportError, so losing orjson would
-    revert it silently.
+
+@pytest.mark.unit
+def test_conformance_is_served_as_json(app: FastAPI) -> None:
+    """Responses keep the application/json media type clients parse.
+
+    The landing page needs the database, so it is covered by the integration
+    suite; /conformance answers without it.
     """
-    import stac_fastapi.api.models as models
-
-    assert models.JSONResponse.__name__ == "_OrjsonResponse"
+    response = TestClient(app).get("/conformance")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
