@@ -25,16 +25,24 @@ SELECT 'item_partitions', count(*)
 FROM pg_partition_tree('pgstac.items')
 WHERE isleaf AND level > 0;
 
--- The same bbox and datetime searches must return the same item ids.
+-- The same bbox and datetime searches must return the same item ids. A count
+-- equal to search_limit means the catalog outgrew it: raise the limit.
+\set search_limit 1000000
+SELECT 'search_limit', :search_limit;
+
 SELECT 'search_bbox', count(*), md5(string_agg(f ->> 'id', ',' ORDER BY f ->> 'id'))
-FROM jsonb_array_elements(pgstac.search(
-    '{"bbox": [-80, 44, -56, 63], "limit": 100000, "fields": {"include": ["id"]}}'
-) -> 'features') AS f;
+FROM jsonb_array_elements(pgstac.search(jsonb_build_object(
+    'bbox', '[-80, 44, -56, 63]'::jsonb,
+    'limit', :search_limit,
+    'fields', '{"include": ["id"]}'::jsonb
+)) -> 'features') AS f;
 
 SELECT 'search_datetime', count(*), md5(string_agg(f ->> 'id', ',' ORDER BY f ->> 'id'))
-FROM jsonb_array_elements(pgstac.search(
-    '{"datetime": "2015-01-01T00:00:00Z/2100-01-01T00:00:00Z", "limit": 100000, "fields": {"include": ["id"]}}'
-) -> 'features') AS f;
+FROM jsonb_array_elements(pgstac.search(jsonb_build_object(
+    'datetime', '2015-01-01T00:00:00Z/2100-01-01T00:00:00Z',
+    'limit', :search_limit,
+    'fields', '{"include": ["id"]}'::jsonb
+)) -> 'features') AS f;
 
 SELECT
     'public_table',
