@@ -9,6 +9,7 @@ served, so the wait times out and the test fails without hanging.
 import threading
 import time
 from collections.abc import Callable, Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,11 +17,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import anyio
 import httpx
 import pytest
+from tipg.main import app as tipg_app
 from vector_api import parquet_router
 from vector_api.app import app
 from vector_api.duckdb_manager import DuckDBManager, run_duckdb_request
+from vector_api.test.concurrency import RELEASE_TIMEOUT_S, Blocker
 
-RELEASE_TIMEOUT_S: float = 5.0
 COLLECTION: str = "test_collection"
 PARCEL: dict[str, Any] = {
     "type": "Polygon",
@@ -36,32 +38,6 @@ READ_ROUTES: list[tuple[str, str]] = [
     (f"/parquet/collections/{COLLECTION}/items/1", "get_item_by_id"),
     (f"/parquet/collections/{COLLECTION}/queryables", "get_parquet_schema"),
 ]
-
-
-class Blocker:
-    """Wraps manager calls so the first one blocks until the test releases it."""
-
-    def __init__(self) -> None:
-        self.entered = threading.Event()
-        self.release = threading.Event()
-        self.timed_out: list[bool] = []
-        self._calls = 0
-        self._lock = threading.Lock()
-
-    def wrap(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        def blocked(*args: Any, **kwargs: Any) -> Any:
-            with self._lock:
-                self._calls += 1
-                first = self._calls == 1
-            if first:
-                self.entered.set()
-                self.timed_out.append(not self.release.wait(RELEASE_TIMEOUT_S))
-            return func(*args, **kwargs)
-
-        return blocked
-
-    async def wait_entered(self) -> None:
-        assert await anyio.to_thread.run_sync(self.entered.wait, RELEASE_TIMEOUT_S)
 
 
 class PeakCounter:
@@ -134,9 +110,9 @@ def _client() -> httpx.AsyncClient:
 
 
 async def _landing_answers_while_blocked(
-    blocker: Blocker, method: str, path: str, **kwargs: Any
+    blocker: Blocker, method: str, path: str, probe: str = "/", **kwargs: Any
 ) -> httpx.Response:
-    """Start the slow request, fetch GET / while it is blocked, then release it."""
+    """Start the slow request, fetch ``probe`` while it is blocked, then release."""
     slow: dict[str, httpx.Response] = {}
     async with _client() as client:
 
@@ -146,11 +122,11 @@ async def _landing_answers_while_blocked(
         async with anyio.create_task_group() as tg:
             tg.start_soon(run_slow)
             await blocker.wait_entered()
-            landing = await client.get("/")
+            landing = await client.get(probe)
             blocker.release.set()
 
     assert landing.status_code == 200
-    assert blocker.timed_out == [False], "GET / waited for the DuckDB call"
+    assert blocker.timed_out == [False], f"GET {probe} waited for the DuckDB call"
     return slow["response"]
 
 
@@ -186,6 +162,33 @@ async def test_read_route_leaves_event_loop_free(
         response = await _landing_answers_while_blocked(blocker, "GET", path)
 
     assert response.status_code == 200
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_postgis_landing_answers_during_slow_items(
+    manager: DuckDBManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The TiPg landing under /postgis answers while an items query waits.
+
+    TiPg's catalog middleware refuses every request until the lifespan has
+    loaded a catalog. A fresh empty one stands in for it, so no database is
+    needed.
+    """
+    monkeypatch.setattr(
+        tipg_app.state,
+        "collection_catalog",
+        {"collections": {}, "last_updated": datetime.now()},
+        raising=False,
+    )
+    blocker = Blocker()
+    with patch.object(manager, "query_items", blocker.wrap(manager.query_items)):
+        response = await _landing_answers_while_blocked(
+            blocker, "GET", f"/parquet/collections/{COLLECTION}/items", "/postgis/"
+        )
+
+    assert response.status_code == 200
+    assert response.json()["numberReturned"] == 3
 
 
 @pytest.mark.anyio

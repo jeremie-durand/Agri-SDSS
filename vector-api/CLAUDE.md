@@ -349,8 +349,17 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
 | `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py`, `test_parquet_binary_columns.py`, `test_parquet_geometry_passthrough.py`, `test_parquet_page_budget.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
 | `integration` | `test_duckdb_extensions.py` | the vector-api image, with `spatial` installed at build; fails outside it |
-| `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
+| `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable, and the tile test also skips when no collection serves a feature with a geometry |
 
+- Concurrency tests hold a DuckDB call with `Blocker` from
+  `test/concurrency.py` (no `test_` prefix, so it is not collected) and probe
+  another route while it waits (#280, #348). `test_event_loop_isolation.py`
+  probes `/` and the `/postgis/` landing through `httpx.ASGITransport`, which
+  runs no lifespan. TiPg's catalog middleware refuses every request without a
+  catalog, so the landing probe sets an empty one on `tipg_app.state`.
+  `test_postgis_integration.py` probes a zoom-12 TiPg vector tile on the
+  session `TestClient`, whose lifespan opened the pool. Only that one runs
+  against real PostGIS, so it skips in CI when no table is published.
 - Build Parquet fixtures with the `sample_geoparquet` and `temp_parquet_dir`
   fixtures in `conftest.py`.
 - Do not touch the real singleton. Patch
