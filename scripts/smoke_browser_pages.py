@@ -14,7 +14,9 @@ this script asserts that:
 5. every slash redirect, requested with Caddy's X-Forwarded-Proto: https,
    stays on the public HTTPS origin, under the page's prefix, and lands on a 200;
 6. every OpenAPI spec an API docs page loads answers 200 with JSON whose
-   ``paths`` is not empty, so Swagger UI and ReDoc never show an empty page.
+   ``paths`` is not empty, so Swagger UI and ReDoc never show an empty page;
+7. write requests to the stac-api answer 403, since the public path is
+   read-only and publishers use the internal URL.
 
 Run it with ``make smoke-browser-pages``. It exits 1 and prints one line per
 failure when any check fails. Standard library only, so it runs in a bare
@@ -90,6 +92,13 @@ OPENAPI_SPECS: list[str] = [
 
 EXTERNAL_CORS_PAGES: list[str] = [
     "/aac-identify/?f=json",
+]
+
+# A missing id and an empty body: if home ever let them through, the API would
+# answer 404 or 422 and change nothing.
+PUBLIC_WRITES: list[tuple[str, str]] = [
+    ("DELETE", "/stac-api/collections/smoke-read-only-probe"),
+    ("POST", "/stac-api/collections"),
 ]
 
 SKIPPED_SCHEMES: tuple[str, ...] = ("data:", "blob:", "javascript:", "mailto:", "#")
@@ -170,6 +179,27 @@ def redirect_location(path: str) -> tuple[int, str]:
     except urllib.error.URLError as exc:
         print(f"note: {path}: {exc.reason}", flush=True)
         return 0, ""
+
+
+def check_read_only(method: str, path: str) -> list[str]:
+    """Report a write request that home does not refuse with 403."""
+    request = urllib.request.Request(
+        f"{BASE_URL}{path}",
+        data=b"{}" if method == "POST" else None,
+        method=method,
+        headers={"Content-Type": "application/json", "User-Agent": "smoke-browser"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            status = response.status
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+    except urllib.error.URLError as exc:
+        print(f"note: {method} {path}: {exc.reason}", flush=True)
+        status = 0
+    if status != 403:
+        return [f"{method} {path}: expected 403 on the public path, got HTTP {status}"]
+    return []
 
 
 def check_redirect(path: str) -> list[str]:
@@ -439,6 +469,9 @@ def main() -> int:
             continue
         failures += check_cors(path, acao)
 
+    for method, path in PUBLIC_WRITES:
+        failures += check_read_only(method, path)
+
     for failure in failures:
         print(f"✗ {failure}", flush=True)
     checked = (
@@ -448,6 +481,7 @@ def main() -> int:
         + len(REDIRECT_PAGES)
         + len(OPENAPI_SPECS)
         + len(EXTERNAL_CORS_PAGES)
+        + len(PUBLIC_WRITES)
     )
     if failures:
         print(f"{len(failures)} failure(s) across {checked} URLs", flush=True)

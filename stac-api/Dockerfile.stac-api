@@ -22,6 +22,7 @@ WORKDIR /app
 # Copy wait-for-it and entrypoint scripts
 COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
 COPY stac-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY stac-api/scripts/apply_pgstac_grants.sql /app/scripts/apply_pgstac_grants.sql
 RUN mkdir -p /app/scripts && chmod +x /usr/local/bin/wait-for-it.sh /usr/local/bin/entrypoint.sh
 
 # Install dependencies

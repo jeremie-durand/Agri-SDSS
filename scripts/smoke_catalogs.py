@@ -10,7 +10,9 @@ show up (#277, #287, #289). For each catalog it asserts that:
    200 and a GeoJSON FeatureCollection;
 2. every listed process answers ``/processes/{id}`` with 200 and its own id;
 3. the known heavy Parquet requests (HEAVY_PARQUET_CHECKS) answer 200, on
-   every run; a collection missing from the stack is skipped.
+   every run; a collection missing from the stack is skipped;
+4. the ``next`` link of a STAC items page stays under ``/stac-api/``, so a
+   client outside the Docker network can follow it.
 
 Requests run one at a time. The first 502, 503 or 504 stops the walk of that
 API, since the service is down and further requests only hit it while it
@@ -48,6 +50,7 @@ COLLECTION_CATALOGS: dict[str, str] = {
 }
 PROCESS_LIST: str = "/process-api/processes"
 PARQUET_COLLECTIONS: str = COLLECTION_CATALOGS["parquet"]
+STAC_PREFIX: str = "/stac-api/"
 
 # Known heavy requests on the real data, checked on every run because the
 # evenly spaced sample can miss them. Each is (collection id, items query,
@@ -141,7 +144,7 @@ def collection_ids(list_path: str) -> Iterator[str]:
 def check_items(
     list_path: str, collection_id: str, query: str = "limit=1"
 ) -> list[str]:
-    """Open the first items page as GeoJSON.
+    """Open the first items page as GeoJSON; a STAC ``next`` link keeps the prefix.
 
     TiPg answers ``Accept: application/json`` with a plain JSON array of rows,
     so items pages ask for ``application/geo+json``.
@@ -152,6 +155,13 @@ def check_items(
         return [f"{path}: HTTP {status}"]
     if not isinstance(body, dict) or body.get("type") != "FeatureCollection":
         return [f"{path}: not a FeatureCollection"]
+    next_path = next_page(body)
+    if (
+        list_path.startswith(STAC_PREFIX)
+        and next_path is not None
+        and not next_path.startswith(STAC_PREFIX)
+    ):
+        return [f"{path}: next link {next_path} is outside {STAC_PREFIX}"]
     return []
 
 
