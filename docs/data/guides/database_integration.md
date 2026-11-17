@@ -29,7 +29,7 @@ Replaces the manual [production dump restore](../../DEPLOYMENT.md#8-restoring-a-
 
 Native PostgreSQL publication/subscription. Rows flow automatically after an initial copy; local indexes and PostGIS geometries work normally, so vector-api serves replicated tables at full speed.
 
-On the **source** database (requires PostgreSQL ≥ 10, same or older major version than Agri-SDSS's 15):
+On the **source** database (requires PostgreSQL ≥ 10, same or older major version than Agri-SDSS's 17):
 
 ```sql
 -- postgresql.conf: wal_level = logical  (restart required)
