@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import math
+import multiprocessing
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
 import pytest
+from process_api.test.som_lock_helpers import train_scenario
 from processes.som_backend.som_ml_backend import SOMMLBackend
 from processes.som_backend.som_model_store import (
     SOMModelBundle,
@@ -367,3 +371,64 @@ class TestGlobalMetricsShape:
         assert bundle.global_metrics["r2_source"] in ("test", "val")
         r2 = bundle.global_metrics["R2_lin"]
         assert r2 is None or not (isinstance(r2, float) and math.isnan(r2))
+
+
+def _run_concurrently(
+    tmp_path: Path, scenarios: list[str], delay: float
+) -> tuple[list[dict], list[dict]]:
+    model_dir = tmp_path / "som_models"
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "BareSoil_TOPCLI_2019_Part01.parquet").write_bytes(b"abc")
+    runs_log = tmp_path / "runs.jsonl"
+    ctx = multiprocessing.get_context("spawn")
+    results = [tmp_path / f"result_{i}.json" for i in range(len(scenarios))]
+    start_together = ctx.Barrier(len(scenarios))
+    children = [
+        ctx.Process(
+            target=train_scenario,
+            args=(
+                str(model_dir),
+                str(data_dir),
+                scenario,
+                str(runs_log),
+                str(result),
+                delay,
+                start_together,
+            ),
+        )
+        for scenario, result in zip(scenarios, results)
+    ]
+    try:
+        for child in children:
+            child.start()
+        for child in children:
+            child.join(timeout=120)
+    finally:
+        for child in children:
+            if child.is_alive():
+                child.kill()
+                child.join()
+    assert [child.exitcode for child in children] == [0] * len(children)
+    runs = [json.loads(line) for line in runs_log.read_text().splitlines()]
+    return runs, [json.loads(result.read_text()) for result in results]
+
+
+@pytest.mark.unit
+class TestSOMModelStoreConcurrency:
+    def test_same_scenario_trains_once_across_processes(self, tmp_path):
+        runs, results = _run_concurrently(
+            tmp_path, ["S3_spec_soil_topo_clim", "S3_spec_soil_topo_clim"], 2.0
+        )
+
+        assert len(runs) == 1
+        assert results[0] == results[1]
+
+    def test_different_scenarios_train_in_parallel(self, tmp_path):
+        runs, _ = _run_concurrently(
+            tmp_path, ["S1_spec_soil", "S2_spec_soil_topo"], 2.0
+        )
+
+        assert len(runs) == 2
+        first, second = sorted(runs, key=lambda run: run["start"])
+        assert second["start"] < first["end"]

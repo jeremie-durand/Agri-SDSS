@@ -139,7 +139,10 @@ Backends that call slow external services cache results in a module-level
   [raster-api/CLAUDE.md](../raster-api/CLAUDE.md#the-url-contract)).
 - `som-predict-soil` reads `BareSoil_TOPCLI_*.parquet` from `DUCKDB_DATA_DIR`
   (ingested by gis-pipeline). It caches trained models keyed by a fingerprint
-  of those files (`som_model_store.py`).
+  of those files (`som_model_store.py`). `get_or_train()` holds an `flock` on
+  `som_model_<scenario>.lock` beside the bundle, so concurrent web and worker
+  processes on the same host train a scenario once. Keep every bundle read
+  and write inside that lock.
   - Callers send `som_field_boundaries.gid`; the process translates it to the
     GEE `FIELD_ID` through `gee_field_id`, which gis-pipeline stamps. The two
     identifiers differ, so never compare them directly.

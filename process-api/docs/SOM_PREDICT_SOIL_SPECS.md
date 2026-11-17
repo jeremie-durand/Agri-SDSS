@@ -180,7 +180,7 @@ curl -s -X POST https://<host>/process-api/processes/som-predict-soil/execution 
 
 | Item | Detail |
 | --- | --- |
-| Synchronous only | The process runs sync-execute. The first request for a scenario trains and caches the model (about 330 s for S3 on the full dataset); later requests reuse it unless the source data or the bundle format changes. |
+| Long first run | The process supports sync and async execution; send `Prefer: respond-async` to run it as a job on `process-worker`. The first request for a scenario trains and caches the model (about 330 s for S3 on the full dataset); later requests reuse it unless the source data or the bundle format changes. A per-scenario file lock beside the bundle makes concurrent requests train once: the others wait and reuse the persisted bundle. |
 | Cross-validated estimates | Reported values for known fields are field-grouped cross-validated predictions: each comes from a RandomForest that never saw its field, but feature and image selection are shared across folds (slightly optimistic), and the five fold models differ from the production model. |
 | NaN handling | All NaN/Inf values in the response are converted to JSON `null`. |
 | No plots | Matplotlib runs with the `Agg` backend — the process never writes plot files. |
