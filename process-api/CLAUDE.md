@@ -64,13 +64,15 @@ processes/
   backend_utils.py         LocationValidatorMixin, variable conversions
   cache_utils.py           TTLCache shared by the PAVICS/MSC/CMIP backends
   asset_url_utils.py       Public COG / preview / TileJSON hrefs (see Outputs)
+  jobs/                    schema (DDL), store (all job SQL), manager (pygeoapi), http (response rules)
   climate_backend/ weather_backend/ eo_backend/ lidar_backend/ som_backend/
 config/
   pygeoapi-config.yaml     Server + process registry; ${HOST_*} filled by start.sh
   weather_datasets.yaml, climate_datasets.yaml   Dataset registries
   openeo-config/           Mounted; openEO client config
 scripts/start.sh           envsubst → generate OpenAPI → validate env → gunicorn
-test/                      Bind-mounted at /app/process_api/test
+test/                      Bind-mounted at /app/process_api/test; job_api.py and
+                           job_processors.py are helpers for the job tests
 ```
 
 `som_backend/research/` (notebook + README) is reference material, not
@@ -101,19 +103,42 @@ Backends that call slow external services cache results in a module-level
 
 ## Execution Model
 
-- The pygeoapi manager is `Dummy`, so execution is **synchronous only**. No job
-  store, no async.
-- gunicorn runs **one sync worker** by default, because compose sets neither
-  `WEB_CONCURRENCY` nor `GUNICORN_TIMEOUT`. The timeout is 600 s. While one
-  process executes (a Sentinel or LiDAR fetch can take minutes), every other
-  request waits, including `GET /processes` from the chatbot. Keep processes
-  bounded, and do not assume concurrency.
+- The pygeoapi manager is `processes.jobs.manager.AgriJobManager`, set under
+  `server.manager` in `pygeoapi-config.yaml`. pygeoapi ignores a top-level
+  `manager:` block.
+- **Sync** (no `Prefer: respond-async`, or a process without `async-execute`):
+  the process runs inline in the gunicorn worker exactly as under pygeoapi's
+  `Dummy` manager: same outputs, failure body (`400`,
+  `Error executing process: …`) and status. It writes no job row, so it does
+  not depend on the database.
+- **Async** (`Prefer: respond-async` on `sentinel-fetch`, `lidar-fetch` or
+  `som-predict-soil`): the row is queued as `accepted` with the inputs and the
+  request locale. The answer is `201` plus `Location`, and `process-worker`
+  runs the job (see `processes/jobs/`). Declare `async-execute` in a
+  process's `jobControlOptions` only if its outputs are JSON: async results
+  are stored as `jsonb` in the job row.
+- All job SQL lives in `processes/jobs/store.py`. Job rows are timestamped
+  in pygeoapi's format; `/jobs` sorts on `started`, so it is set at
+  submission.
+- pygeoapi builds every served `jobControlOptions` from `manager.is_async`,
+  not from the metadata, and adds `Location` to every execution answer.
+  `processes/jobs/http.py`, installed on pygeoapi's Flask app in `wsgi.py`,
+  restores each process's declared options, drops `Location` from non-`201`
+  answers, and removes job-list links from the landing page (JSON and HTML)
+  and from JSON process descriptions; HTML process pages keep pygeoapi's.
+  pygeoapi's responses reach it without a mimetype, so it tries the body as
+  JSON first.
+- home nginx answers `404` to the public job list and `405` to any
+  non-read method on `/process-api/jobs/…`. A job id is a capability link.
+- gunicorn still runs **one sync worker** (compose sets neither
+  `WEB_CONCURRENCY` nor `GUNICORN_TIMEOUT`), with a 600 s timeout. A long
+  *sync* execution therefore still blocks every other request, so callers of
+  the long processes should use async.
 - Timeouts line up: gunicorn 600 s → home nginx `proxy_read_timeout 630s`.
   Caddy rate-limits `POST …/execution` (see `caddy/Caddyfile`).
-- `start.sh` only substitutes `${HOST_PROTOCOL}` and `${HOST_URL}` in the config.
-  Any other `${VAR}` in `pygeoapi-config.yaml` stays literal (the `Dummy`
-  subscriber URLs contain an unresolved `${PROCESS_API_PORT}`). Add a new
-  variable to the `envsubst` list if you need it resolved.
+- `start.sh` only substitutes `${HOST_PROTOCOL}` and `${HOST_URL}` in the
+  config. Any other `${VAR}` in `pygeoapi-config.yaml` stays literal. Add a
+  new variable to the `envsubst` list if you need it resolved.
 
 ## Configuration
 

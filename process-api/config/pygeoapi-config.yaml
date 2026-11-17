@@ -144,15 +144,11 @@ server:
   limits:
     default_items: 10
     maximum_items: 1000
+  manager:
+    name: processes.jobs.manager.AgriJobManager
+    connection: null
+    output_dir: null
 
 logging:
   level: DEBUG
   logfile: /tmp/pygeoapi.log
-
-manager:
-  name: Dummy
-  connection:
-    subscribers:
-      - in_progress_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PROCESS_API_PORT}/status/in-progress
-        success_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PROCESS_API_PORT}/status/success
-        failed_uri: ${HOST_PROTOCOL}://${HOST_URL}:${PROCESS_API_PORT}/status/failed

@@ -1,10 +1,10 @@
 """Every SQL statement on the process jobs table.
 
 The table is both pygeoapi's job store and the async queue. Liveness rule:
-whoever runs a job (the web request for sync, the worker parent for async)
-holds a session advisory lock keyed on the job id, taken in the same
-transaction that makes the row ``running``. A ``running`` row whose lock can
-be taken has lost its owner, so the sweeper fails it.
+the worker parent running a job holds a session advisory lock keyed on the
+job id, taken in the same transaction that makes the row ``running``. A
+``running`` row whose lock can be taken has lost its owner, so the sweeper
+fails it.
 """
 
 from __future__ import annotations
@@ -25,6 +25,10 @@ from .schema import DEFAULT_TABLE, LOCK_CLASS_ID, split_table, table_identifier
 
 TIMESTAMP_COLUMNS: tuple[str, ...] = ("created", "started", "updated", "finished")
 FINISHED_STATUSES: tuple[str, ...] = ("successful", "failed", "dismissed")
+LISTED_COLUMNS: str = (
+    "identifier, type, process_id, status, message, progress, "
+    "created, started, updated, finished, mimetype"
+)
 
 
 @dataclass(frozen=True)
@@ -93,29 +97,16 @@ class JobStore:
         )
         conn.commit()
 
-    def insert_running(self, conn: psycopg.Connection, job: NewJob) -> None:
-        """Record a sync job as running, owned by ``conn``'s session."""
-        self._lock(conn, job.identifier)
-        conn.execute(
-            self._sql(
-                "INSERT INTO {table} (identifier, process_id, status, message, "
-                "progress, started, execution_mode, locale) VALUES "
-                "(%s, %s, 'running', 'Job running', 10, now(), 'sync', %s)"
-            ),
-            (job.identifier, job.process_id, job.locale),
-        )
-        conn.commit()
-
     def insert_accepted(self, job: NewJob) -> None:
         """Queue an async job and wake the workers."""
         with self.connect() as conn:
             conn.execute(
                 self._sql(
                     "INSERT INTO {table} (identifier, process_id, status, message, "
-                    "progress, execution_mode, inputs, requested_outputs, "
+                    "progress, started, execution_mode, inputs, requested_outputs, "
                     "requested_response, locale) VALUES "
                     "(%s, %s, 'accepted', 'Job accepted and ready for execution', "
-                    "0, 'async', %s, %s, %s, %s)"
+                    "0, now(), 'async', %s, %s, %s, %s)"
                 ),
                 (
                     job.identifier,
@@ -157,27 +148,27 @@ class JobStore:
         message: str,
         result: Any = None,
         mimetype: str | None = None,
-        conn: psycopg.Connection | None = None,
     ) -> bool:
         """Write a terminal status if the job is still running."""
-        query = self._sql(
-            "UPDATE {table} SET status = %s, message = %s, result = %s, "
-            "mimetype = %s, progress = 100, finished = now(), updated = now() "
-            "WHERE identifier = %s AND status = 'running'"
-        )
-        params = (
-            status,
-            message,
-            Jsonb(result) if result is not None else None,
-            mimetype,
-            identifier,
-        )
-        if conn is not None:
-            updated = conn.execute(query, params).rowcount == 1
-            conn.commit()
-            return updated
-        with self.connect() as own_conn:
-            return own_conn.execute(query, params).rowcount == 1
+        with self.connect() as conn:
+            return (
+                conn.execute(
+                    self._sql(
+                        "UPDATE {table} SET status = %s, message = %s, result = %s, "
+                        "mimetype = %s, progress = 100, finished = now(), "
+                        "updated = now() "
+                        "WHERE identifier = %s AND status = 'running'"
+                    ),
+                    (
+                        status,
+                        message,
+                        Jsonb(result) if result is not None else None,
+                        mimetype,
+                        identifier,
+                    ),
+                ).rowcount
+                == 1
+            )
 
     def sweep(self, message_for: Callable[[str | None], str]) -> list[str]:
         """Fail running jobs whose owner session is gone; return their ids."""
@@ -219,19 +210,25 @@ class JobStore:
             ).rowcount
 
     def page(
-        self, limit: int | None, offset: int | None
+        self, limit: int | None, offset: int | None, status: str | None = None
     ) -> tuple[list[dict[str, Any]], int]:
-        """Return a page of jobs, newest first, and the total count."""
+        """Return a page of jobs, newest first, and the matching total."""
         with self.connect() as conn:
             total = conn.execute(
-                self._sql("SELECT count(*) AS n FROM {table}")
+                self._sql(
+                    "SELECT count(*) AS n FROM {table} "
+                    "WHERE %(status)s::text IS NULL OR status = %(status)s"
+                ),
+                {"status": status},
             ).fetchone()["n"]
             rows = conn.execute(
                 self._sql(
-                    "SELECT * FROM {table} ORDER BY created DESC, identifier "
-                    "LIMIT %s OFFSET %s"
+                    f"SELECT {LISTED_COLUMNS} FROM {{table}} "
+                    "WHERE %(status)s::text IS NULL OR status = %(status)s "
+                    "ORDER BY created DESC, identifier "
+                    "LIMIT %(limit)s OFFSET %(offset)s"
                 ),
-                (limit, offset or 0),
+                {"status": status, "limit": limit, "offset": offset or 0},
             ).fetchall()
         return [_to_job(row) for row in rows], total
 

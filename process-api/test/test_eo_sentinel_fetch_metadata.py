@@ -35,8 +35,8 @@ def test_id_is_sentinel_fetch():
 
 
 @pytest.mark.unit
-def test_job_control_options_sync():
-    assert "sync-execute" in PROCESS_METADATA["jobControlOptions"]
+def test_job_control_options_sync_and_async():
+    assert PROCESS_METADATA["jobControlOptions"] == ["sync-execute", "async-execute"]
 
 
 @pytest.mark.unit

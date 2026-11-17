@@ -37,7 +37,7 @@ PROCESS_METADATA = {
         "random forest",
         "gee",
     ],
-    "jobControlOptions": ["sync-execute"],
+    "jobControlOptions": ["sync-execute", "async-execute"],
     "outputTransmission": ["value"],
     "inputs": {
         "field_ids": {

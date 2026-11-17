@@ -167,19 +167,6 @@ def test_sweep_fails_only_jobs_whose_owner_is_gone(store: JobStore):
         assert store.get(alive)["status"] == "running"
 
 
-def test_sweep_fails_sync_job_whose_request_died(store: JobStore):
-    owner = store.connect()
-    store.insert_running(
-        owner, NewJob(identifier="sync-1", process_id="water-distance", locale="fr")
-    )
-
-    assert store.sweep(lambda locale: "stopped") == []
-
-    owner.close()
-
-    assert _sweep_until(store, ["sync-1"]) == ["sync-1"]
-
-
 def test_finish_only_updates_a_running_job(store: JobStore):
     identifier = _accepted(store)
 
@@ -190,7 +177,7 @@ def test_finish_only_updates_a_running_job(store: JobStore):
         assert store.finish(
             identifier, "successful", "done", {"value": 1}, "application/json"
         )
-        assert not store.finish(identifier, "failed", "late", conn=owner)
+        assert not store.finish(identifier, "failed", "late")
 
     job = store.get(identifier)
     assert job["status"] == "successful"
@@ -244,6 +231,7 @@ def test_page_is_newest_first_with_limit_and_offset(store: JobStore):
 
     assert total == 5
     assert [job["identifier"] for job in jobs] == [identifiers[3], identifiers[2]]
+    assert "inputs" not in jobs[0] and "result" not in jobs[0]
 
 
 def test_delete_reports_whether_the_job_existed(store: JobStore):
@@ -254,11 +242,13 @@ def test_delete_reports_whether_the_job_existed(store: JobStore):
     assert store.get(identifier) is None
 
 
-def test_finish_on_the_owner_connection_commits(store: JobStore):
-    with store.connect() as owner:
-        store.insert_running(
-            owner, NewJob(identifier="sync-1", process_id="water-distance", locale="fr")
-        )
+def test_page_filters_by_status(store: JobStore):
+    waiting, done = _accepted(store), _accepted(store)
+    _execute(
+        store, "UPDATE {table} SET status = 'successful' WHERE identifier = %s", done
+    )
 
-        assert store.finish("sync-1", "successful", "done", conn=owner)
-        assert store.get("sync-1")["status"] == "successful"
+    jobs, total = store.page(None, None, "accepted")
+
+    assert total == 1
+    assert [job["identifier"] for job in jobs] == [waiting]

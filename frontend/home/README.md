@@ -196,6 +196,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 | `/vector-api/` | `vector-api` | Used by chatbot-bridge.js and map |
 | `/raster-api/` | `raster-api` | Used for tile overlays |
 | `/process-api/` | `process-api:5000` | 630s read timeout for long-running processes |
+| `/process-api/jobs/` | `process-api:5000/jobs/` | Job status and results by id only: the bare listing answers 404, non-read methods 405 |
 | `/aac-identify/` | `agriculture.canada.ca` | CORS proxy for AAC imagery service |
 | `/cog/<file>.tif` | static file, `./data/output/raster_cog` | STAC asset hrefs published by process-api and gis-pipeline. Raster extensions only (`.tif`/`.tiff`) — the same directory holds `*.stac.json` publish markers, which the regex excludes. Byte-range capable (native nginx `Range` handling, so GDAL `/vsicurl` reads only the tiles it needs); `Cache-Control: public, max-age=0, must-revalidate` |
 

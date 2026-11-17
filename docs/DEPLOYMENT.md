@@ -246,6 +246,7 @@ docker build --target runtime -f gis-pipeline/Dockerfile.gis-pipeline .
 - [ ] `.env` not committed to git (it is in `.gitignore`)
 - [ ] Ports 8081–8085, 5000, 8005, 3001 **not** open on the server firewall — only 80 and 443
 - [ ] Database port `5439` bound to `127.0.0.1` only (already the case in `docker-compose.yml`)
+- [ ] `https://<host>/process-api/jobs` answers `404` and `DELETE https://<host>/process-api/jobs/<id>` answers `405`. home nginx enforces both: a job id is the only key to a job's inputs and results, so jobs are never listed or dismissed publicly.
 
 ---
 
