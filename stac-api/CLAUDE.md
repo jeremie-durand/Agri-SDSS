@@ -38,11 +38,13 @@ docker compose restart home
 ```text
 src/app.py               Re-exports the upstream create_app factory
                          (uvicorn stac_api.app:create_app --factory)
-scripts/entrypoint.sh    Waits for the DB, applies pgstac GRANTs as admin, then runs
-                         uvicorn with up to 5 restart attempts
+scripts/entrypoint.sh    Waits for the DB, runs apply_pgstac_grants.sql as admin,
+                         then uvicorn with up to 5 restart attempts
+scripts/apply_pgstac_grants.sql
+                         App role -> pgstac_ingest, CREATE revoked, direct grants removed
 test/                    Bind-mounted at /app/stac_api/test
   conftest.py            stac_integration_client + sample collection/item fixtures
-  db_utils.py            Admin-credential cleanup of test collections
+  db_utils.py            Admin and app-role connections, admin cleanup of test collections
 .coveragerc              Coverage scoped to stac_api
 ```
 
@@ -66,15 +68,26 @@ test/                    Bind-mounted at /app/stac_api/test
 
 ## Database Roles
 
-- The API runs as the app role (`PGUSER` = `DB_USER`, DML only).
-- On every start, `entrypoint.sh` connects as the superuser
-  (`PGSTAC_ADMIN_USER`/`PGSTAC_ADMIN_PASS`) and GRANTs the app role access to
-  all `pgstac` tables, sequences and functions. It is idempotent. A failed
-  GRANT only prints a warning, so check the logs when the API cannot read
-  pgstac.
-- The app role cannot delete a **collection**: pgstac's delete trigger drops a
-  partition, which needs ownership, so `DELETE /collections/{id}` fails with
-  an insufficient-privilege error. Item create, update and delete work.
+- The API runs as the app role (`PGUSER` = `DB_USER`). It reaches pgSTAC only
+  as a member of pgSTAC's `pgstac_ingest` role. pgSTAC grants its own objects
+  to that role, migrations included, and keeps its configuration tables
+  (`queryable_wrappers`, `queryable_index_template`) out of it.
+- On every start, `entrypoint.sh` runs `scripts/apply_pgstac_grants.sql` as the
+  superuser (`PGSTAC_ADMIN_USER`/`PGSTAC_ADMIN_PASS`), in one transaction. It
+  grants `pgstac_ingest`, revokes `CREATE ON SCHEMA pgstac` from
+  `pgstac_ingest`, and revokes every direct `pgstac` grant and default
+  privilege of the app role, which older releases and restored dumps carry. It
+  is idempotent. A failure only prints a warning, so check the logs when the
+  API cannot read pgstac.
+- `CREATE` stays revoked because pgSTAC calls PostGIS unqualified under
+  `search_path pgstac, public`. A role that can create in `pgstac` can shadow
+  those functions and run code with the rights of pgSTAC's functions or of a
+  migration. A pgSTAC migration grants `CREATE` back, so the revoke runs at
+  every start. `scripts/create_app_role.sh` applies the same membership and
+  revoke at first init.
+- The app role can delete a populated collection, as publishers need. The
+  integration tests still clean up through `db_utils.admin_delete_collection()`,
+  so a failed test never leaks a collection.
 
 ## Security
 
@@ -101,7 +114,7 @@ Keep it that way:
 - A new **read** route that needs `POST` needs its own exact-match `location`
   in home nginx, like `/search`. Never loosen the `/stac-api/` block.
 - Anything on the Docker network can still write, so never widen what the app
-  role can do in `entrypoint.sh`.
+  role can do in `apply_pgstac_grants.sql` or `entrypoint.sh`.
 
 ## Testing
 
@@ -111,10 +124,16 @@ Keep it that way:
 | `integration` | `test_stac_integration.py` | the **real** pgstac database |
 
 - Integration tests run against the same database the stack serves. They
-  create `test-integration-collection-<uuid>` and an item, then clean up
-  through `db_utils.admin_delete_collection()` with the admin credentials. If
-  those are unset, the test collection **leaks** into the live catalog with a
-  warning. Never point the suite at a production database.
+  create `test-integration-*-<suffix>` collections with items, then clean up
+  through `db_utils.admin_delete_collection()` with the admin credentials.
+  Tests that need cleanup skip when those credentials are unset. Never point
+  the suite at a production database.
+- The privilege tests run `apply_pgstac_grants.sql` through `psql` as the
+  admin, as a start does. One of them grants `CREATE` back to `pgstac_ingest`
+  first, to check that the file revokes it, and revokes it again in `finally`.
+  Another seeds the direct grants a restored dump carries. They run the copy
+  of the file baked into the image, so after editing it use
+  `make test-stac-api` or `docker compose run --build`.
 - `stac_integration_client` skips only when the database is unreachable
   (`OSError`). Any other startup failure fails the run on purpose.
 - Use `unique_suffix` for every id a test creates, so runs never collide.

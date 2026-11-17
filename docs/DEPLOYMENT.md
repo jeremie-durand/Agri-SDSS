@@ -118,10 +118,10 @@ Two PostgreSQL credentials exist to follow least-privilege:
 | --- | --- | --- |
 | `POSTGRES_USER=postgres` | Superuser | Docker image init, `pg_dump` backups, healthcheck |
 | `POSTGRES_PASS` | Superuser password | Same |
-| `DB_USER=agri_sdss` | App role (SELECT/INSERT/UPDATE/DELETE only) | All backend services |
+| `DB_USER=agri_sdss` | App role: DML and `CREATE` on `public`; pgSTAC through `pgstac_ingest`, without `CREATE` on `pgstac` | All backend services |
 | `DB_PASS` | App role password | Same |
 
-The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on first DB initialisation.
+The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on first DB initialisation. stac-api re-applies its pgSTAC access at every start (`stac-api/scripts/apply_pgstac_grants.sql`), which also clears the direct `pgstac` grants a restored dump brings back.
 
 ### CORS
 
