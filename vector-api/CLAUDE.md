@@ -204,6 +204,17 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   parallel outside that envelope. The query slots alone still serialize
   materialized queries: four parallel heavy queries were OOM-killed before
   they existed.
+- vector-api runs one uvicorn worker on purpose, unlike stac-api and
+  raster-api (`WEB_CONCURRENCY=2`). The gate, the connection cache and every
+  DuckDB `memory_limit` are per process, so a second worker doubles the DuckDB
+  instances, the schema warm-up and the peak, and lets two heavy queries run
+  in the 1 GiB container (#348). Per-thread or pooled read-only connections
+  are rejected for the same reason: each connection is its own DuckDB
+  instance with its own `memory_limit`. Either needs the container memory
+  raised and `make check-parquet-memory` re-run first.
+  `make test-repo-consistency` fails on any vector-api `WEB_CONCURRENCY` other
+  than a compose `WEB_CONCURRENCY=1`, in compose or in the Dockerfile, and on
+  any `--workers` option.
 - The `/parquet` read routes are thin `async def` handlers. Each one keeps its
   signature and docstring, which feed `/parquet/openapi.json`, and passes a
   `_*_body` builder and a renderer to `_render`. Rendering happens in the
