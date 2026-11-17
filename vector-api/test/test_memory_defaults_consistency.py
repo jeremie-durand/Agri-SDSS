@@ -1,4 +1,4 @@
-"""Guards the vector-api memory defaults against drifting between two files.
+"""Guards the vector-api memory envelope against drifting across repo files.
 
 ``DUCKDB_MEMORY_LIMIT``, ``VECTOR_API_MAX_OPEN_DUCKDB``,
 ``VECTOR_API_MAX_DUCKDB_QUERIES`` and ``VECTOR_API_MAX_PAGE_VERTICES`` each
@@ -20,7 +20,11 @@ never swaps and runs out of memory the same way on every host (#292). Without
 it Docker allows as much swap again as the limit, and a request that does not
 fit answers 200 slowly on a host with swap but is killed on one without.
 
-Both files are read as literal text. ``docker-compose.yml`` is not in the
+vector-api runs a single uvicorn worker. The request gate and every DuckDB
+``memory_limit`` are per process, so a second worker (``WEB_CONCURRENCY`` or
+``--workers``) would let two heavy queries run at once in the same container.
+
+The files are read as literal text. ``docker-compose.yml`` is not in the
 vector-api image, so the test skips under ``make test-vector-api``. It runs
 for real only through ``make test-repo-consistency``, which bind-mounts the
 repo at ``/repo``.
@@ -34,6 +38,7 @@ import pytest
 REPO_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 DOCKER_COMPOSE_YML: Path = REPO_ROOT / "docker-compose.yml"
 DUCKDB_MANAGER_PY: Path = REPO_ROOT / "vector-api" / "src" / "duckdb_manager.py"
+VECTOR_API_DOCKERFILE: Path = REPO_ROOT / "vector-api" / "Dockerfile.vector-api"
 
 pytestmark = [
     pytest.mark.unit,
@@ -89,3 +94,16 @@ def test_vector_api_never_swaps() -> None:
     memswap = re.findall(r"^\s+memswap_limit:\s*(\S+)\s*$", block, re.MULTILINE)
     assert len(memory) == 1, f"expected one memory limit, found {memory}"
     assert memswap == memory
+
+
+def test_vector_api_runs_one_worker() -> None:
+    block = _vector_api_block()
+    pinned = re.findall(r"^\s*-\s*WEB_CONCURRENCY=1\s*$", block, re.MULTILINE)
+    assert block.count("WEB_CONCURRENCY") == len(pinned)
+    assert "--workers" not in block
+
+
+def test_vector_api_image_sets_no_workers() -> None:
+    dockerfile = VECTOR_API_DOCKERFILE.read_text()
+    assert "WEB_CONCURRENCY" not in dockerfile
+    assert "--workers" not in dockerfile

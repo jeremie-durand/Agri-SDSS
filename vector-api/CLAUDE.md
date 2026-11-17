@@ -204,6 +204,17 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   parallel outside that envelope. The query slots alone still serialize
   materialized queries: four parallel heavy queries were OOM-killed before
   they existed.
+- vector-api runs one uvicorn worker on purpose, unlike stac-api and
+  raster-api (`WEB_CONCURRENCY=2`). The gate, the connection cache and every
+  DuckDB `memory_limit` are per process, so a second worker doubles the DuckDB
+  instances, the schema warm-up and the peak, and lets two heavy queries run
+  in the 1 GiB container (#348). Per-thread or pooled read-only connections
+  are rejected for the same reason: each connection is its own DuckDB
+  instance with its own `memory_limit`. Either needs the container memory
+  raised and `make check-parquet-memory` re-run first.
+  `make test-repo-consistency` fails on any vector-api `WEB_CONCURRENCY` other
+  than a compose `WEB_CONCURRENCY=1`, in compose or in the Dockerfile, and on
+  any `--workers` option.
 - The `/parquet` read routes are thin `async def` handlers. Each one keeps its
   signature and docstring, which feed `/parquet/openapi.json`, and passes a
   `_*_body` builder and a renderer to `_render`. Rendering happens in the
@@ -338,8 +349,17 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
 | `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py`, `test_parquet_binary_columns.py`, `test_parquet_geometry_passthrough.py`, `test_parquet_page_budget.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
 | `integration` | `test_duckdb_extensions.py` | the vector-api image, with `spatial` installed at build; fails outside it |
-| `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
+| `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable, and the tile test also skips when no collection serves a feature with a geometry |
 
+- Concurrency tests hold a DuckDB call with `Blocker` from
+  `test/concurrency.py` (no `test_` prefix, so it is not collected) and probe
+  another route while it waits (#280, #348). `test_event_loop_isolation.py`
+  probes `/` and the `/postgis/` landing through `httpx.ASGITransport`, which
+  runs no lifespan. TiPg's catalog middleware refuses every request without a
+  catalog, so the landing probe sets an empty one on `tipg_app.state`.
+  `test_postgis_integration.py` probes a zoom-12 TiPg vector tile on the
+  session `TestClient`, whose lifespan opened the pool. Only that one runs
+  against real PostGIS, so it skips in CI when no table is published.
 - Build Parquet fixtures with the `sample_geoparquet` and `temp_parquet_dir`
   fixtures in `conftest.py`.
 - Do not touch the real singleton. Patch

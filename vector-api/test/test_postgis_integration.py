@@ -6,12 +6,24 @@ without Docker Compose). In CI the database service is always started first.
 """
 
 import os
+import threading
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 from urllib.parse import urlparse
 
+import httpx
+import morecantile
 import pytest
 from fastapi.testclient import TestClient
 from vector_api.app import app
 from vector_api.config import CORS_ORIGINS, EXTERNAL_ROOT
+from vector_api.duckdb_manager import DuckDBManager
+from vector_api.test.concurrency import RELEASE_TIMEOUT_S, Blocker
+
+TILE_ZOOM: int = 12
+MVT_MEDIA_TYPE: str = "application/vnd.mapbox-vector-tile"
 
 
 @pytest.fixture(scope="session")
@@ -244,3 +256,92 @@ def test_postgis_items_features_have_geometry(
         if feature["geometry"] is not None:
             assert "type" in feature["geometry"]
             assert "coordinates" in feature["geometry"]
+
+
+# ------------------------------------------
+# /postgis tiles stay responsive while a Parquet request waits (#348)
+# ------------------------------------------
+
+
+def _first_vertex(coordinates: Any) -> tuple[float, float] | None:
+    """Return the first (lon, lat) pair of nested GeoJSON coordinates."""
+    while isinstance(coordinates, list) and coordinates:
+        if all(isinstance(value, (int, float)) for value in coordinates[:2]):
+            return float(coordinates[0]), float(coordinates[1])
+        coordinates = coordinates[0]
+    return None
+
+
+@pytest.fixture(scope="session")
+def _tile_path(postgis_integration_client: TestClient) -> str:
+    """Return a zoom-12 tile path that holds a vertex of a published feature.
+
+    Skips when no PostGIS collection serves a feature with a geometry.
+    """
+    resp = postgis_integration_client.get("/postgis/collections?limit=1000")
+    collections = resp.json().get("collections", [])
+    for collection in collections:
+        items = postgis_integration_client.get(
+            f"/postgis/collections/{collection['id']}/items?limit=1"
+        )
+        if items.status_code != 200:
+            continue
+        features = items.json().get("features") or [{}]
+        geometry = features[0].get("geometry") or {}
+        vertex = _first_vertex(geometry.get("coordinates"))
+        if vertex is None:
+            continue
+        tile = morecantile.tms.get("WebMercatorQuad").tile(*vertex, TILE_ZOOM)
+        return (
+            f"/postgis/collections/{collection['id']}/tiles/WebMercatorQuad/"
+            f"{tile.z}/{tile.x}/{tile.y}"
+        )
+    pytest.skip("No PostGIS collection serves a feature with a geometry")
+
+
+@pytest.fixture
+def blocked_parquet_manager(
+    temp_parquet_dir: Path, sample_geoparquet: Path
+) -> Iterator[DuckDBManager]:
+    """Fixture-local manager over the sample collection, used by /parquet."""
+    manager = DuckDBManager(data_dir=str(temp_parquet_dir))
+    with patch("vector_api.parquet_router.get_shared_manager", return_value=manager):
+        yield manager
+    manager.close()
+
+
+@pytest.mark.integration
+def test_postgis_tile_answers_during_slow_parquet_items(
+    postgis_integration_client: TestClient,
+    _tile_path: str,
+    blocked_parquet_manager: DuckDBManager,
+) -> None:
+    """A TiPg vector tile is served while a Parquet items query is held."""
+    blocker = Blocker()
+    slow: dict[str, httpx.Response] = {}
+
+    def run_slow() -> None:
+        slow["response"] = postgis_integration_client.get(
+            "/parquet/collections/test_collection/items"
+        )
+
+    with patch.object(
+        blocked_parquet_manager,
+        "query_items",
+        blocker.wrap(blocked_parquet_manager.query_items),
+    ):
+        worker = threading.Thread(target=run_slow)
+        worker.start()
+        try:
+            blocker.wait_entered_sync()
+            tile = postgis_integration_client.get(_tile_path)
+        finally:
+            blocker.release.set()
+            worker.join(RELEASE_TIMEOUT_S * 2)
+
+    assert tile.status_code == 200, _tile_path
+    assert tile.headers["content-type"].startswith(MVT_MEDIA_TYPE)
+    assert blocker.timed_out == [False], "the tile waited for the Parquet query"
+    assert not worker.is_alive()
+    assert slow["response"].status_code == 200
+    assert slow["response"].json()["numberReturned"] == 3
