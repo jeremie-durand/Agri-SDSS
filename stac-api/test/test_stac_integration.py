@@ -382,13 +382,18 @@ def test_item_lifecycle_as_the_app_role(
     sample_stac_item: dict[str, Any],
     unique_suffix: str,
 ) -> None:
-    """Create (201), update (200) and delete (200) an item, as publishers do."""
+    """Create (201), update (200) and delete (200) an item, as publishers do.
+
+    Publishers re-POST an item on every run and fall back to PUT on 409.
+    """
     item_id = f"test-integration-lifecycle-{unique_suffix}"
     item = {**sample_stac_item, "id": item_id}
     items_url = f"/collections/{_created_collection}/items"
 
     created = stac_integration_client.post(items_url, json=item)
     assert created.status_code == 201, created.text
+    duplicate = stac_integration_client.post(items_url, json=item)
+    assert duplicate.status_code == 409, duplicate.text
 
     updated_properties = {**item["properties"], "title": "updated"}
     updated = stac_integration_client.put(
