@@ -172,9 +172,15 @@ Backends that call slow external services cache results in a module-level
 
 ## Testing
 
-- The suite is `unit` and `mocked` only. openEO (`openeo.connect`), THREDDS,
-  GeoMet, LiDAR downloads, `requests` and `psycopg` are always patched. A
-  test must never reach a real external service or the database.
+- The suite is `unit` and `mocked`, with one exception. openEO
+  (`openeo.connect`), THREDDS, GeoMet, LiDAR downloads, `requests` and
+  `psycopg` are always patched, and a test must never reach a real external
+  service.
+- The exception is the job store and queue: `test_jobs_*_integration.py`
+  (`integration`) run against the live database. Each test creates a
+  throwaway `zz_it_jobs_*` table and drops it afterwards, and the module skips
+  when PostgreSQL is unreachable. `SKIP LOCKED` claims and advisory-lock crash
+  detection cannot be mocked. Keep every other database access patched.
 - Tests import `processes.<module>`. Inside `processes/`, prefer relative
   imports; `asset_url_utils.py` is the one module using
   `from processes.config import …`.

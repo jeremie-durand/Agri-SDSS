@@ -339,6 +339,10 @@ services:
       - SOM_TABLE_NAME=${SOM_TABLE_NAME:-public.som_field_boundaries}
       - RASTER_API_PORT=${RASTER_API_PORT}
       - STAC_API_URL=${STAC_API_URL}
+      - PROCESS_JOB_TIMEOUT_SECONDS=${PROCESS_JOB_TIMEOUT_SECONDS:-1800}
+      - PROCESS_JOB_RETENTION_DAYS=${PROCESS_JOB_RETENTION_DAYS:-7}
+      - PROCESS_WORKER_POLL_SECONDS=${PROCESS_WORKER_POLL_SECONDS:-5}
+      - PROCESS_WORKER_SWEEP_SECONDS=${PROCESS_WORKER_SWEEP_SECONDS:-60}
     volumes:
       - ./data/output/raster_cog:/data
       - ./data/duckdb:/data/duckdb

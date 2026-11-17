@@ -35,9 +35,7 @@ class SlowCountingStore(SOMModelStore):
         time.sleep(self._delay)
         with self._runs_log.open("a") as log:
             log.write(
-                json.dumps(
-                    {"scenario": scenario, "start": started, "end": time.time()}
-                )
+                json.dumps({"scenario": scenario, "start": started, "end": time.time()})
                 + "\n"
             )
         return SOMModelBundle(

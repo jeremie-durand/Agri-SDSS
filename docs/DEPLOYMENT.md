@@ -123,6 +123,19 @@ Two PostgreSQL credentials exist to follow least-privilege:
 
 The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on first DB initialisation. stac-api re-applies its pgSTAC access at every start (`stac-api/scripts/apply_pgstac_grants.sql`), which also clears the direct `pgstac` grants a restored dump brings back.
 
+### Process jobs table
+
+process-api creates `public.process_jobs` at every start
+(`python -m processes.jobs.schema`, idempotent) with the app role, which already
+has `CREATE` on `public`. It holds the OGC API – Processes job records and the
+async queue. It has no geometry, so vector-api does not list it.
+
+process-api and its workers must connect to PostgreSQL directly. A running job
+holds a session advisory lock, and a crash is detected when that session ends.
+A connection pooler in transaction mode would break this. The job timeout,
+retention and worker polling are set by the `PROCESS_*` variables in
+`.env.example`.
+
 ### CORS
 
 `VECTOR_API_CORS_ORIGINS` is automatically derived from `HOST_PROTOCOL` and `HOST_URL` in `docker-compose.yml`. Changing the domain in `.env` updates CORS automatically — no extra step needed.
