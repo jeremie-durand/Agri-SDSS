@@ -24,7 +24,7 @@ pydantic_core==2.33.2
 pyparsing==3.3.2
 pyproj==3.7.2
 pygeoif==1.5.1
-pystac==1.14.3
+pystac==1.16.0
 python-dateutil==3.0.0
 pytz==2026.6
 PyYAML==6.0.3
