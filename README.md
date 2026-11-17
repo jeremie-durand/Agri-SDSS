@@ -2,9 +2,13 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23369081.svg)](https://doi.org/10.5281/zenodo.23369081)
 
-Geospatial data platform for sustainable agriculture research in Quebec. Automated pipeline from raw geodata to OGC-compliant APIs, a STAC catalog, and an AI assistant.
+Open-source web platform for sustainable agriculture research in Quebec, developed within the MOS project supported by the RQRAD. Agri-SDSS brings together public data that used to be scattered: farm parcels and crops, soil maps, weather, climate and satellite imagery.
 
-Currently specialized for Soil Organic Matter (SOM) potential mapping and decision support for Quebec agricultural parcels. The modular architecture based on microservices and Docker makes each service independently reusable. Adapt or replace individual components (pipeline, APIs, frontend, chatbot) for your own geospatial use case.
+- **Open and standardized.** The data, and the calculations run on demand (a parcel's NDVI from satellite imagery, its mean elevation from lidar), are served through APIs that follow open international standards (OGC API, STAC). Other software, platforms and research teams can connect to them directly and reuse both data and calculations in their own tools.
+- **Parcel portrait in one click.** On the interactive map, clicking a parcel returns its portrait, with several agronomic variables computed automatically.
+- **AI assistant (experimental).** Query the data in natural language, a step towards making geomatics and remote-sensing information accessible to people working in agriculture.
+- **Soil organic matter.** A first soil organic matter prediction model is offered as a proof of concept for 436 fields in southern Quebec. The model of soil organic matter accumulation potential is not implemented yet; the platform was designed to host it.
+- **Modular.** Independent building blocks (data pipeline, APIs, interactive map, AI assistant), each with a single role, run as separate Docker services. Each block can be updated, replaced or reused on its own, so a new data source or model can be added without rebuilding everything, and another team can take the blocks it needs for its own project.
 
 ## Quick start
 
