@@ -42,8 +42,12 @@ make test-repo-consistency  # /cog route guard — runs in this image with the r
 docker compose run --rm process-api pytest process_api/test/test_msc_observations.py -v
 
 # Apply a change to processes/, config/*.yaml or requirements, then restart home
-docker compose up -d --build process-api
+docker compose up -d --build process-api process-worker
 docker compose restart home
+
+# Async job worker: logs, replicas
+docker compose logs -f process-worker
+docker compose up -d --scale process-worker=2
 
 # openEO refresh token (~30 days)
 ./process-api/scripts/get_openeo_token.sh
@@ -65,14 +69,16 @@ processes/
   cache_utils.py           TTLCache shared by the PAVICS/MSC/CMIP backends
   asset_url_utils.py       Public COG / preview / TileJSON hrefs (see Outputs)
   jobs/                    schema (DDL), store (all job SQL), manager (pygeoapi), http (response rules)
+  worker.py                process-worker entry: claim loop, one spawn child per job
   climate_backend/ weather_backend/ eo_backend/ lidar_backend/ som_backend/
 config/
   pygeoapi-config.yaml     Server + process registry; ${HOST_*} filled by start.sh
   weather_datasets.yaml, climate_datasets.yaml   Dataset registries
   openeo-config/           Mounted; openEO client config
 scripts/start.sh           envsubst → generate OpenAPI → validate env → gunicorn
-test/                      Bind-mounted at /app/process_api/test; job_api.py and
-                           job_processors.py are helpers for the job tests
+test/                      Bind-mounted at /app/process_api/test; job_api.py,
+                           job_processors.py and job_store_fake.py are helpers
+                           for the job tests
 ```
 
 `som_backend/research/` (notebook + README) is reference material, not
@@ -117,6 +123,13 @@ Backends that call slow external services cache results in a module-level
   runs the job (see `processes/jobs/`). Declare `async-execute` in a
   process's `jobControlOptions` only if its outputs are JSON: async results
   are stored as `jsonb` in the job row.
+- `process-worker` (`processes/worker.py`, same image) claims one job at a
+  time, holds the job's advisory lock and runs it in a `spawn` child, which
+  writes the result. The parent fails the job when the child crashes, passes
+  `PROCESS_JOB_TIMEOUT_SECONDS` or is stopped by SIGTERM, and periodically
+  sweeps orphaned jobs and purges old ones. It reads the processes and the
+  jobs table from the same `pygeoapi-config.yaml`. Scale it with replicas;
+  without a running worker, async jobs stay `accepted`.
 - All job SQL lives in `processes/jobs/store.py`. Job rows are timestamped
   in pygeoapi's format; `/jobs` sorts on `started`, so it is set at
   submission.

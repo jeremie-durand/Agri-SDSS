@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
@@ -20,6 +23,8 @@ FAILING_PROCESS: str = "process_api.test.job_processors.FailingProcessor"
 CRASHING_PROCESS: str = "process_api.test.job_processors.CrashingProcessor"
 SLEEPING_PROCESS: str = "process_api.test.job_processors.SleepingProcessor"
 BYTES_PROCESS: str = "process_api.test.job_processors.BytesProcessor"
+NAN_PROCESS: str = "process_api.test.job_processors.NanProcessor"
+TYPED_PROCESS: str = "process_api.test.job_processors.TypedProcessor"
 
 
 def _metadata(process_id: str, job_control: list[str]) -> dict[str, Any]:
@@ -100,6 +105,31 @@ class BytesProcessor(BaseProcessor):
 
     def execute(self, data: dict[str, Any], outputs: Any = None) -> tuple[str, Any]:
         return "image/png", b"\x89PNG"
+
+
+class NanProcessor(BaseProcessor):
+    """Returns a NaN, which JSON and jsonb reject."""
+
+    def __init__(self, processor_def: dict[str, Any]) -> None:
+        super().__init__(processor_def, _metadata("nan", ASYNC_CAPABLE))
+
+    def execute(self, data: dict[str, Any], outputs: Any = None) -> tuple[str, Any]:
+        return "application/json", {"id": "result", "value": float("nan")}
+
+
+class TypedProcessor(BaseProcessor):
+    """Returns values only pygeoapi's JSON serialiser accepts."""
+
+    def __init__(self, processor_def: dict[str, Any]) -> None:
+        super().__init__(processor_def, _metadata("typed", ASYNC_CAPABLE))
+
+    def execute(self, data: dict[str, Any], outputs: Any = None) -> tuple[str, Any]:
+        value = {
+            "ratio": Decimal("0.25"),
+            "date": date(2026, 11, 18),
+            "path": Path("/data/x.tif"),
+        }
+        return "application/json", {"id": "result", "value": value}
 
 
 def processes_config(**processors: str) -> dict[str, dict[str, Any]]:

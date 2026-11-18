@@ -9,7 +9,18 @@ Interactive API docs: `http://<host>/process-api/openapi?f=html`
 ## Start
 
 ```bash
-docker compose up -d process-api
+docker compose up -d process-api process-worker
+docker compose restart home
+```
+
+`process-worker` runs the async jobs (see below). It uses the same image with
+`python -m processes.worker` as its command, so rebuild both after a change to
+`processes/`.
+
+```bash
+docker compose up -d --build process-api process-worker   # after a code change
+docker compose up -d --scale process-worker=2             # two jobs at a time
+docker compose logs -f process-worker                     # "ready", claimed, finished
 ```
 
 ## Available processes
@@ -84,7 +95,10 @@ See [Internationalization](../docs/I18N.md).
 ## Configuration
 
 `process-api/config/pygeoapi-config.yaml` — processes and providers  
-`OPENEO_REFRESH_TOKEN` — Copernicus OIDC token
+`OPENEO_REFRESH_TOKEN` — Copernicus OIDC token  
+`PROCESS_JOB_TIMEOUT_SECONDS` (1800), `PROCESS_JOB_RETENTION_DAYS` (7),
+`PROCESS_WORKER_POLL_SECONDS` (5), `PROCESS_WORKER_SWEEP_SECONDS` (60) — async
+job time budget, retention, and worker polling and sweep intervals
 
 ## Docs
 

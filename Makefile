@@ -145,6 +145,8 @@ smoke-entrypoints:
 	$(SMOKE_RUN) chatbot-backend python -c "import sdss_main; sdss_main.app"
 	@echo "→ process-api    gunicorn processes.wsgi:APP"
 	$(SMOKE_RUN) process-api sh -c "python /app/generate_openapi.py > /dev/null && python -c 'import processes.wsgi; processes.wsgi.APP'"
+	@echo "→ process-worker python -m processes.worker"
+	$(SMOKE_RUN) process-worker python -c "import processes.worker; processes.worker.main"
 	@echo "All entrypoints resolve."
 
 STAC_BROWSER_EXEC = docker compose exec -T stac-browser

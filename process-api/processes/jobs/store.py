@@ -125,20 +125,24 @@ class JobStore:
         conn.commit()
 
     def claim(self, conn: psycopg.Connection, worker: str) -> dict[str, Any] | None:
-        """Take the oldest accepted async job, owned by ``conn``'s session."""
-        row = conn.execute(
-            self._sql(
-                "UPDATE {table} SET status = 'running', message = 'Job running', "
-                "progress = 10, started = now(), updated = now(), worker = %s "
-                "WHERE identifier = (SELECT identifier FROM {table} "
-                "WHERE status = 'accepted' AND execution_mode = 'async' "
-                "ORDER BY created FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *"
-            ),
-            (worker,),
-        ).fetchone()
-        if row is not None:
-            self._lock(conn, row["identifier"])
-        conn.commit()
+        """Take the oldest accepted async job, owned by ``conn``'s session.
+
+        The row update and the advisory lock commit together, also on an
+        autocommit connection.
+        """
+        with conn.transaction():
+            row = conn.execute(
+                self._sql(
+                    "UPDATE {table} SET status = 'running', message = 'Job running', "
+                    "progress = 10, started = now(), updated = now(), worker = %s "
+                    "WHERE identifier = (SELECT identifier FROM {table} "
+                    "WHERE status = 'accepted' AND execution_mode = 'async' "
+                    "ORDER BY created FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *"
+                ),
+                (worker,),
+            ).fetchone()
+            if row is not None:
+                self._lock(conn, row["identifier"])
         return _to_job(row) if row is not None else None
 
     def finish(
