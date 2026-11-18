@@ -56,9 +56,7 @@ def store(tmp_path: Path) -> FileJobStore:
     return FileJobStore(tmp_path / "jobs.json")
 
 
-def _worker(
-    store: FileJobStore, tmp_path: Path, timeout_seconds: int = 60
-) -> Worker:
+def _worker(store: FileJobStore, tmp_path: Path, timeout_seconds: int = 60) -> Worker:
     return Worker(
         store,
         PROCESSES,
@@ -175,9 +173,7 @@ def test_nan_result_fails_the_job(store: FileJobStore, tmp_path: Path):
     )
 
 
-def test_result_is_serialised_like_the_sync_answer(
-    store: FileJobStore, tmp_path: Path
-):
+def test_result_is_serialised_like_the_sync_answer(store: FileJobStore, tmp_path: Path):
     store.add("job-1", "typed")
 
     _worker(store, tmp_path).run_once(FakeConnection())
