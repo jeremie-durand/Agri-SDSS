@@ -29,6 +29,7 @@ docker compose logs -f process-worker                     # "ready", claimed, fi
 | --- | --- |
 | `sentinel-fetch` | Sentinel-2 vegetation indices via Copernicus OpenEO |
 | `lidar-fetch` | Quebec MRNF LiDAR products (DTM, CHM, hillshade) |
+| `lidar-flowpath` | Field flow paths and RUSLE LS factor from the MRNF LiDAR DTM (2 m, EPSG:32198) — [spec](docs/LIDAR_FLOWPATH_SPECS.md) |
 | `weather-timeseries` | ERA5-Land / RDRSv2.1 daily timeseries (PAVICS/Ouranos) |
 | `climate-timeseries` | CMIP6 ESPO-G6-R2 projections (26 models, 1950–2100) |
 | `climate-indicators` | Agronomic indicators: GDD, frost days, heat stress, precipitation |
@@ -52,8 +53,9 @@ curl -X POST https://<host>/process-api/processes/weather-timeseries/execution \
 
 ### Long processes as async jobs
 
-`sentinel-fetch`, `lidar-fetch` and `som-predict-soil` also run as jobs on the
-`process-worker` service. Send `Prefer: respond-async`: the answer is `201` with a
+`sentinel-fetch`, `lidar-fetch`, `lidar-flowpath` and `som-predict-soil` also run
+as jobs on the `process-worker` service. Send `Prefer: respond-async`: the answer
+is `201` with a
 `Location` header naming the job, and the HTTP request returns at once. Poll the
 job until its `status` is `successful` or `failed`, then read the results, which
 are the same body a synchronous execution returns. Other processes ignore the

@@ -14,6 +14,7 @@ Dockerfile's `i18n` build stage compiles the catalogs.
 | --- | --- | --- | --- |
 | `sentinel-fetch` | `eo_sentinel_fetch.py` | Copernicus openEO | [docs/SENTINEL_FETCH_PROCESS.md](docs/SENTINEL_FETCH_PROCESS.md) |
 | `lidar-fetch` | `quebec_lidar_fetch.py` | Quebec MRNF LiDAR tiles | [docs/LIDAR_QUERY_SPECS.md](docs/LIDAR_QUERY_SPECS.md) |
+| `lidar-flowpath` | `lidar_flowpath.py` (subclasses `LidarFetchProcessor`) | Quebec MRNF LiDAR tiles | [docs/LIDAR_FLOWPATH_SPECS.md](docs/LIDAR_FLOWPATH_SPECS.md) |
 | `weather-timeseries` | `weather_timeseries.py` | PAVICS THREDDS | [docs/CLIMATE_WEATHER_SPECS.md](docs/CLIMATE_WEATHER_SPECS.md) |
 | `climate-timeseries` | `climate_timeseries.py` | PAVICS THREDDS (CMIP6) | same |
 | `climate-indicators` | `climate_indicators.py` | PAVICS THREDDS | same |
@@ -71,6 +72,7 @@ processes/
   jobs/                    schema (DDL), store (all job SQL), manager (pygeoapi), http (response rules)
   worker.py                process-worker entry: claim loop, one spawn child per job
   climate_backend/ weather_backend/ eo_backend/ lidar_backend/ som_backend/
+  hydro_backend/           Terrain hydrology (fill, MFD, slope, LS) for lidar-flowpath
 config/
   pygeoapi-config.yaml     Server + process registry; ${HOST_*} filled by start.sh
   weather_datasets.yaml, climate_datasets.yaml   Dataset registries
@@ -117,12 +119,12 @@ Backends that call slow external services cache results in a module-level
   `Dummy` manager: same outputs, failure body (`400`,
   `Error executing process: …`) and status. It writes no job row, so it does
   not depend on the database.
-- **Async** (`Prefer: respond-async` on `sentinel-fetch`, `lidar-fetch` or
-  `som-predict-soil`): the row is queued as `accepted` with the inputs and the
-  request locale. The answer is `201` plus `Location`, and `process-worker`
-  runs the job (see `processes/jobs/`). Declare `async-execute` in a
-  process's `jobControlOptions` only if its outputs are JSON: async results
-  are stored as `jsonb` in the job row.
+- **Async** (`Prefer: respond-async` on `sentinel-fetch`, `lidar-fetch`,
+  `lidar-flowpath` or `som-predict-soil`): the row is queued as `accepted`
+  with the inputs and the request locale. The answer is `201` plus
+  `Location`, and `process-worker` runs the job (see `processes/jobs/`).
+  Declare `async-execute` in a process's `jobControlOptions` only if its
+  outputs are JSON: async results are stored as `jsonb` in the job row.
 - `process-worker` (`processes/worker.py`, same image) claims one job at a
   time, holds the job's advisory lock and runs it in a `spawn` child, which
   writes the result. The parent fails the job when the child crashes, passes
@@ -166,9 +168,10 @@ Backends that call slow external services cache results in a module-level
 
 ## Outputs and Cross-Service Contracts
 
-- `sentinel-fetch` and `lidar-fetch` write COGs to `/data` (the shared
-  `data/output/raster_cog`). They publish STAC items to
-  `sentinel2_eo_products` / `lidar_quebec` at `ApiConfig.STAC_API_URL`, which
+- `sentinel-fetch`, `lidar-fetch` and `lidar-flowpath` write COGs to `/data`
+  (the shared `data/output/raster_cog`). They publish STAC items to
+  `sentinel2_eo_products` / `lidar_quebec` / `lidar_flowpath` at
+  `ApiConfig.STAC_API_URL`, which
   is internal (`http://stac-api:8081`). The public `/stac-api/` path is
   read-only and rejects writes with 403.
 - Build every public href with `asset_url_utils.py`. `COG_ROUTE` is one of the
