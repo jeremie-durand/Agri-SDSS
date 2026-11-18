@@ -84,6 +84,14 @@ class LidarFetchProcessor(BaseProcessor):
 
     # STAC settings
     STAC_COLLECTION_ID: str = "lidar_quebec"
+    STAC_COLLECTION_TITLE: str = "Quebec LiDAR Derived Products"
+    STAC_COLLECTION_DESCRIPTION: str = (
+        "LiDAR-derived raster products (DTM, CHM, hillshade, slope) "
+        "from the Quebec MRNF open data portal, clipped to individual "
+        "farm extents."
+    )
+    STAC_PROJ_CODE: str = "EPSG:4326"
+    ITEM_ID_PREFIX: str = "lidar"
     STAC_VERSION: str = "1.1.0"
 
     # Keys of the raster-api renderings published beside each product asset.
@@ -114,11 +122,15 @@ class LidarFetchProcessor(BaseProcessor):
     API_TIMEOUT_SHORT: int = 10
     API_TIMEOUT_LONG: int = 30
 
-    # Class-level cache so the collection existence check runs once per lifetime
+    PROCESS_METADATA_DEF: dict[str, Any] = PROCESS_METADATA
+
+    # Class-level cache so the collection existence check runs once per
+    # lifetime. Read from the concrete class's own __dict__ so a subclass
+    # publishing to another collection never inherits this class's flag.
     _collection_checked: bool = False
 
     def __init__(self, processor_def: Dict[str, Any]) -> None:
-        super().__init__(processor_def, PROCESS_METADATA)
+        super().__init__(processor_def, self.PROCESS_METADATA_DEF)
         self.output_dir: str = StorageConfig().LIDAR_OUTPUT_DIR
 
     # ------------------------------------------------------------------
@@ -711,7 +723,7 @@ class LidarFetchProcessor(BaseProcessor):
             return
 
         stac_item = self._create_stac_item(
-            item_id=f"lidar_{product}_{farm_identifier}",
+            item_id=f"{self.ITEM_ID_PREFIX}_{product}_{farm_identifier}",
             geometry=geometry_geojson,
             bbox=tuple(bbox),
             product=product,
@@ -753,6 +765,7 @@ class LidarFetchProcessor(BaseProcessor):
         asset: Dict[str, Any],
         cog_path: str,
         marker_path: str,
+        extra_properties: dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """
         Build a STAC item and publish it to the STAC API. On success, a
@@ -769,6 +782,8 @@ class LidarFetchProcessor(BaseProcessor):
             cog_path: Local path to the COG, used to build the public preview
                 and TileJSON URLs.
             marker_path: Path to the cache marker for this COG.
+            extra_properties: Extra item properties. They never override the
+                common ones (datetime, product, proj:code, ...).
         """
         rescale = self._preview_rescale(cog_path)
         stac_item: Dict[str, Any] = {
@@ -781,6 +796,7 @@ class LidarFetchProcessor(BaseProcessor):
             "geometry": geometry,
             "bbox": list(bbox),
             "properties": {
+                **(extra_properties or {}),
                 "datetime": datetime.now(timezone.utc)
                 .isoformat()
                 .replace("+00:00", "Z"),
@@ -791,7 +807,7 @@ class LidarFetchProcessor(BaseProcessor):
                 "instruments": ["lidar"],
                 "agri_sdss:product": product,
                 "agri_sdss:source": "MRNF Quebec open data",
-                "proj:code": "EPSG:4326",
+                "proj:code": self.STAC_PROJ_CODE,
             },
             "assets": {
                 product: asset,
@@ -856,8 +872,9 @@ class LidarFetchProcessor(BaseProcessor):
             logger.warning("Could not write STAC marker %s: %s", marker_path, exc)
 
     def _ensure_collection_exists(self) -> None:
-        """Ensure the lidar_quebec collection exists in the STAC API."""
-        if LidarFetchProcessor._collection_checked:
+        """Ensure this processor's STAC collection exists in the STAC API."""
+        processor_class = type(self)
+        if processor_class.__dict__.get("_collection_checked", False):
             return
 
         stac_api_url: str = ApiConfig().STAC_API_URL
@@ -868,7 +885,7 @@ class LidarFetchProcessor(BaseProcessor):
             resp = requests.get(collection_url, timeout=self.API_TIMEOUT_SHORT)
             if resp.status_code == 200:
                 logger.info("STAC collection %s already exists", collection_id)
-                LidarFetchProcessor._collection_checked = True
+                processor_class._collection_checked = True
                 return
             elif resp.status_code != 404:
                 logger.warning(
@@ -880,12 +897,8 @@ class LidarFetchProcessor(BaseProcessor):
                 "type": "Collection",
                 "id": collection_id,
                 "stac_version": self.STAC_VERSION,
-                "title": "Quebec LiDAR Derived Products",
-                "description": (
-                    "LiDAR-derived raster products (DTM, CHM, hillshade, slope) "
-                    "from the Quebec MRNF open data portal, clipped to individual "
-                    "farm extents."
-                ),
+                "title": self.STAC_COLLECTION_TITLE,
+                "description": self.STAC_COLLECTION_DESCRIPTION,
                 "license": "OGL-Canada-2.0",
                 "extent": {
                     "spatial": {"bbox": [self.STAC_SPATIAL_EXTENT_BBOX]},
@@ -903,7 +916,7 @@ class LidarFetchProcessor(BaseProcessor):
 
             if resp.status_code in [200, 201]:
                 logger.info("Created STAC collection %s", collection_id)
-                LidarFetchProcessor._collection_checked = True
+                processor_class._collection_checked = True
             else:
                 logger.error(
                     "Failed to create STAC collection: %s - %s",

@@ -2068,3 +2068,150 @@ def test_current_marker_is_a_cache_hit(tmp_path, monkeypatch):
 
     mock_post.assert_not_called()
     assert stac_items == [cached]
+
+
+_OTHER_METADATA: dict = {**PROCESS_METADATA, "id": "zz-other-process"}
+
+
+class _OtherCollectionProcessor(LidarFetchProcessor):
+    STAC_COLLECTION_ID = "zz_other_collection"
+    STAC_COLLECTION_TITLE = "Other title"
+    STAC_COLLECTION_DESCRIPTION = "Other description"
+    STAC_PROJ_CODE = "EPSG:32198"
+    ITEM_ID_PREFIX = "zz_other"
+    PROCESS_METADATA_DEF = _OTHER_METADATA
+
+
+@pytest.fixture
+def _reset_collection_flags():
+    LidarFetchProcessor._collection_checked = False
+    if "_collection_checked" in _OtherCollectionProcessor.__dict__:
+        del _OtherCollectionProcessor._collection_checked
+    yield
+    LidarFetchProcessor._collection_checked = False
+    if "_collection_checked" in _OtherCollectionProcessor.__dict__:
+        del _OtherCollectionProcessor._collection_checked
+
+
+@pytest.mark.mocked
+def test_subclass_checks_its_own_collection_after_parent_checked(
+    _reset_collection_flags,
+):
+    """A subclass must not inherit lidar_quebec's checked flag."""
+    LidarFetchProcessor._collection_checked = True
+    processor = _OtherCollectionProcessor.__new__(_OtherCollectionProcessor)
+
+    with (
+        patch("requests.get", return_value=MagicMock(status_code=404)) as mock_get,
+        patch("requests.post", return_value=MagicMock(status_code=201)) as mock_post,
+    ):
+        processor._ensure_collection_exists()
+
+    assert mock_get.call_args.args[0].endswith("/collections/zz_other_collection")
+    body = mock_post.call_args.kwargs["json"]
+    assert body["id"] == "zz_other_collection"
+    assert body["title"] == "Other title"
+    assert body["description"] == "Other description"
+    assert _OtherCollectionProcessor.__dict__["_collection_checked"] is True
+
+
+@pytest.mark.mocked
+def test_subclass_check_leaves_parent_flag_unset(_reset_collection_flags):
+    processor = _OtherCollectionProcessor.__new__(_OtherCollectionProcessor)
+
+    with patch("requests.get", return_value=MagicMock(status_code=200)):
+        processor._ensure_collection_exists()
+
+    assert _OtherCollectionProcessor.__dict__["_collection_checked"] is True
+    assert LidarFetchProcessor._collection_checked is False
+
+
+@pytest.mark.mocked
+def test_create_stac_item_uses_subclass_proj_code_and_extra_properties():
+    processor = _OtherCollectionProcessor.__new__(_OtherCollectionProcessor)
+    asset = {"href": "https://example.org/cog/x.tif", "roles": ["data"]}
+
+    with (
+        patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=False),
+        patch.object(LidarFetchProcessor, "_preview_rescale", return_value=None),
+    ):
+        item = processor._create_stac_item(
+            item_id="x",
+            geometry={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0.0, 0.0, 0.0, 0.0),
+            product="ls",
+            asset=asset,
+            cog_path="/data/x.tif",
+            marker_path="/data/x.tif.stac.json",
+            extra_properties={"agri_sdss:sheets": ["31H03SE"]},
+        )
+
+    assert item["properties"]["proj:code"] == "EPSG:32198"
+    assert item["properties"]["agri_sdss:sheets"] == ["31H03SE"]
+
+
+@pytest.mark.mocked
+def test_create_stac_item_extra_properties_never_override_common_ones():
+    processor = _OtherCollectionProcessor.__new__(_OtherCollectionProcessor)
+
+    with (
+        patch.object(LidarFetchProcessor, "_post_to_stac_api", return_value=False),
+        patch.object(LidarFetchProcessor, "_preview_rescale", return_value=None),
+    ):
+        item = processor._create_stac_item(
+            item_id="x",
+            geometry={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0.0, 0.0, 0.0, 0.0),
+            product="ls",
+            asset={"href": "https://example.org/cog/x.tif", "roles": ["data"]},
+            cog_path="/data/x.tif",
+            marker_path="/data/x.tif.stac.json",
+            extra_properties={"proj:code": "EPSG:4326", "agri_sdss:product": "y"},
+        )
+
+    assert item["properties"]["proj:code"] == "EPSG:32198"
+    assert item["properties"]["agri_sdss:product"] == "ls"
+
+
+@pytest.mark.unit
+def test_subclass_metadata_hook_reaches_pygeoapi():
+    processor = _OtherCollectionProcessor({"name": "zz-other-process"})
+
+    assert processor.metadata["id"] == "zz-other-process"
+
+
+@pytest.mark.mocked
+def test_add_product_asset_uses_subclass_item_id_prefix(tmp_path):
+    processor = _OtherCollectionProcessor({"name": "zz-other-process"})
+    cog_path = str(tmp_path / "dtm.tif")
+    _write_test_raster(cog_path, [[1.0, 2.0], [3.0, 4.0]], nodata=-9999)
+
+    with patch.object(
+        LidarFetchProcessor, "_create_stac_item", return_value={"id": "x"}
+    ) as mock_create:
+        processor._add_product_asset(
+            assets={},
+            stac_items=[],
+            summaries={},
+            product="dtm",
+            cog_path=cog_path,
+            geometry_geojson={"type": "Point", "coordinates": [0, 0]},
+            bbox=(0.0, 0.0, 1.0, 1.0),
+            farm_identifier="farm_7",
+        )
+
+    assert mock_create.call_args.kwargs["item_id"] == "zz_other_dtm_farm_7"
+
+
+@pytest.mark.unit
+def test_lidar_fetch_hook_defaults_are_unchanged():
+    assert LidarFetchProcessor.STAC_COLLECTION_ID == "lidar_quebec"
+    assert LidarFetchProcessor.STAC_PROJ_CODE == "EPSG:4326"
+    assert LidarFetchProcessor.ITEM_ID_PREFIX == "lidar"
+    assert LidarFetchProcessor.PROCESS_METADATA_DEF is PROCESS_METADATA
+    assert LidarFetchProcessor.STAC_COLLECTION_TITLE == "Quebec LiDAR Derived Products"
+    assert LidarFetchProcessor.STAC_COLLECTION_DESCRIPTION == (
+        "LiDAR-derived raster products (DTM, CHM, hillshade, slope) "
+        "from the Quebec MRNF open data portal, clipped to individual "
+        "farm extents."
+    )
