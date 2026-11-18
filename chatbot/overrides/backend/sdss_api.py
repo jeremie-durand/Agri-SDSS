@@ -17,6 +17,7 @@ from tools_registry import (
     execute_pygeoapi_process,
     get_process_schema,
     list_pygeoapi_processes,
+    start_process_wait_budget,
 )
 
 from agri_i18n import _, set_locale
@@ -152,6 +153,7 @@ async def sdss_query(req: _QueryRequest) -> _QueryResponse:
     # is bound here instead of by middleware. No reset is needed: the binding
     # is local to this request's task context.
     set_locale(req.language)
+    start_process_wait_budget()
 
     api_key = os.environ.get("LLM_API_KEY", "")
     if not api_key:

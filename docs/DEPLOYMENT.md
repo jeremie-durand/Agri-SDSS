@@ -123,6 +123,42 @@ Two PostgreSQL credentials exist to follow least-privilege:
 
 The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on first DB initialisation. stac-api re-applies its pgSTAC access at every start (`stac-api/scripts/apply_pgstac_grants.sql`), which also clears the direct `pgstac` grants a restored dump brings back.
 
+### Process jobs table
+
+process-api creates `public.process_jobs` at every start
+(`python -m processes.jobs.schema`, idempotent) with the app role, which already
+has `CREATE` on `public`. It holds the OGC API – Processes job records and the
+async queue. It has no geometry, so vector-api does not list it.
+
+process-api and its workers must connect to PostgreSQL directly. A running job
+holds a session advisory lock, and a crash is detected when that session ends.
+A connection pooler in transaction mode would break this. The job timeout,
+retention and worker polling are set by the `PROCESS_*` variables in
+`.env.example`.
+
+### Process worker
+
+`process-worker` runs the async jobs (`Prefer: respond-async` on
+`sentinel-fetch`, `lidar-fetch` and `som-predict-soil`). It uses the process-api
+image with `python -m processes.worker`, mounts the same `./data` volumes, and
+has no port. Each replica runs one job at a time, each job in its own child
+process:
+
+```bash
+docker compose up -d --scale process-worker=2   # two jobs at a time
+docker compose logs -f process-worker           # "ready", "Claimed job", "Finished job"
+```
+
+- **Memory.** Each replica is capped at 2 GB and 1 vCPU, like process-api. Add
+  2 GB of headroom per replica to the sizing above. A job killed by the memory
+  limit is marked `failed`; the worker itself keeps running.
+- **No worker running.** Async jobs stay `accepted` forever, and the home map
+  gives up after 35 minutes. Check `docker compose ps process-worker`.
+- **Crash.** A job whose worker died is marked `failed` by the next sweep of
+  any worker (`PROCESS_WORKER_SWEEP_SECONDS`). Failed jobs are not retried.
+- **One host.** Replicas must share the host of the `./data` mounts: the SOM
+  training lock is an `flock` on `/data/duckdb`.
+
 ### CORS
 
 `VECTOR_API_CORS_ORIGINS` is automatically derived from `HOST_PROTOCOL` and `HOST_URL` in `docker-compose.yml`. Changing the domain in `.env` updates CORS automatically — no extra step needed.
@@ -233,6 +269,7 @@ docker build --target runtime -f gis-pipeline/Dockerfile.gis-pipeline .
 - [ ] `.env` not committed to git (it is in `.gitignore`)
 - [ ] Ports 8081–8085, 5000, 8005, 3001 **not** open on the server firewall — only 80 and 443
 - [ ] Database port `5439` bound to `127.0.0.1` only (already the case in `docker-compose.yml`)
+- [ ] `https://<host>/process-api/jobs` answers `404` and `DELETE https://<host>/process-api/jobs/<id>` answers `405`. home nginx enforces both: a job id is the only key to a job's inputs and results, so jobs are never listed or dismissed publicly.
 
 ---
 
@@ -278,6 +315,15 @@ docker compose restart stac-api home
 app role's pgSTAC access, since a migration can grant `CREATE` back to
 `pgstac_ingest`. A tag on another PostgreSQL major never goes this way: it needs
 an upgrade like section 9.
+
+After the release that adds async process jobs (#349), rebuild both process
+services, then restart home so nginx resolves the new process-api address:
+
+```bash
+docker compose up -d --build process-api process-worker
+docker compose restart home
+docker compose logs process-worker | grep ready
+```
 
 After the release that splits large polygons at ingestion (#292):
 

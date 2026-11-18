@@ -74,6 +74,10 @@ What needs a rebuild:
 - Timeouts are sized to the backends: `/api` and `/sdss` 600 s (LLM tool
   loops), `/process-api/` 630 s (gunicorn 600 s + margin), `/vector-api/`
   120 s.
+- `/process-api/jobs` and `/process-api/jobs/` answer `404`, and
+  `/process-api/jobs/…` admits only `GET`, `HEAD` and `OPTIONS` (`405`
+  otherwise). A job id is the only key to a job's inputs and results, so
+  never open the listing or `DELETE` publicly.
 - `/cog/<file>.tif` is served statically from `./data/output/raster_cog`,
   mounted at `/usr/share/nginx/cog`. The regex admits only `.tif`/`.tiff`, and
   the location is rate-limited. The route string and the mount are one of the

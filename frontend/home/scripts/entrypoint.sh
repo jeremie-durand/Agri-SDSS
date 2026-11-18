@@ -181,6 +181,26 @@ server {
         add_header Access-Control-Allow-Origin * always;
         proxy_read_timeout 630s;
     }
+    # A job id is the only key to its inputs and results: never list or dismiss jobs publicly.
+    location = /process-api/jobs {
+        add_header Access-Control-Allow-Origin * always;
+        return 404;
+    }
+    location = /process-api/jobs/ {
+        add_header Access-Control-Allow-Origin * always;
+        return 404;
+    }
+    location /process-api/jobs/ {
+        if ($request_method !~ ^(GET|HEAD|OPTIONS)$) {
+            return 405;
+        }
+        proxy_pass http://process-api:5000/jobs/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        add_header Access-Control-Allow-Origin * always;
+        proxy_read_timeout 30s;
+    }
     # ── Agriculture Canada AAC identify proxy ───────────────────────────────────
     # ArcGIS reflects the request Origin; hide it so only nginx's * is sent.
     location /aac-identify/ {

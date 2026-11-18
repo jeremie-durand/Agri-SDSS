@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Agri-SDSS\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-13 22:55+0000\n"
+"POT-Creation-Date: 2026-11-18 12:35+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: fr\n"
@@ -377,6 +377,19 @@ msgstr "Impossible de lire les limites des champs MOS."
 #, python-brace-format
 msgid "None of the field IDs {field_ids} has GEE training data."
 msgstr "Aucune des parcelles {field_ids} n'a de données d'entraînement GEE."
+
+#: process-api/processes/worker.py:48
+msgid "The job stopped before it finished."
+msgstr "La tâche s'est arrêtée avant la fin."
+
+#: process-api/processes/worker.py:54
+#, python-brace-format
+msgid "The job exceeded its time budget of {seconds} seconds."
+msgstr "La tâche a dépassé son temps maximal de {seconds} secondes."
+
+#: process-api/processes/worker.py:62
+msgid "The process returned a result that cannot be stored as JSON."
+msgstr "Le processus a renvoyé un résultat qui ne peut pas être enregistré en JSON."
 
 #: process-api/processes/climate_backend/cmip_backend.py:101
 msgid ""

@@ -21,7 +21,7 @@ PROCESS_METADATA = {
         "agriculture",
         "earth observation",
     ],
-    "jobControlOptions": ["sync-execute"],
+    "jobControlOptions": ["sync-execute", "async-execute"],
     "inputs": {
         "farm_geometry": {
             "title": "Farm Geometry (GeoJSON)",
