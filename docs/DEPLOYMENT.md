@@ -139,8 +139,9 @@ retention and worker polling are set by the `PROCESS_*` variables in
 ### Process worker
 
 `process-worker` runs the async jobs (`Prefer: respond-async` on
-`sentinel-fetch`, `lidar-fetch` and `som-predict-soil`). It uses the process-api
-image with `python -m processes.worker`, mounts the same `./data` volumes, and
+`sentinel-fetch`, `lidar-fetch`, `lidar-flowpath` and `som-predict-soil`). It uses
+the process-api image with `python -m processes.worker`, mounts the same `./data`
+volumes, and
 has no port. Each replica runs one job at a time, each job in its own child
 process:
 
@@ -407,10 +408,10 @@ so the markers must be removed before the next run:
 find ./data/output/raster_cog -name '*.stac.json' -delete
 ```
 
-The next `lidar-fetch` or `sentinel-fetch` execution for a given geometry then
-republishes that item with corrected hrefs. Items whose process is never re-run
-keep the old hrefs; to force the whole catalog, re-run the fetch processes for
-each published geometry.
+The next `lidar-fetch`, `lidar-flowpath` or `sentinel-fetch` execution for a
+given geometry then republishes that item with corrected hrefs. Items whose
+process is never re-run keep the old hrefs; to force the whole catalog, re-run the
+fetch processes for each published geometry.
 
 **gis-pipeline (`demo_collection`) needs its own pass.** Those items come from a
 different codebase with no marker cache, so the sweep above does not touch them.

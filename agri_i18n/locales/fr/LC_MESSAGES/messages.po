@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Agri-SDSS\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-18 12:35+0000\n"
+"POT-Creation-Date: 2026-11-18 20:23+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: fr\n"
@@ -21,11 +21,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: chatbot/overrides/backend/sdss_api.py:35
+#: chatbot/overrides/backend/sdss_api.py:36
 msgid "Invalid or missing API key."
 msgstr "Clé d’API invalide ou manquante."
 
-#: chatbot/overrides/backend/sdss_api.py:236
+#: chatbot/overrides/backend/sdss_api.py:238
 msgid "I was unable to complete the spatial analysis."
 msgstr "Je n’ai pas pu compléter l’analyse spatiale."
 
@@ -56,6 +56,7 @@ msgstr "« {field} » doit être fourni lorsque location_type vaut « {field} »
 
 #: process-api/processes/climate_indicators.py:94
 #: process-api/processes/climate_timeseries.py:88
+#: process-api/processes/lidar_flowpath.py:220
 #: process-api/processes/msc_observations.py:81
 #: process-api/processes/pedo_coverage.py:64
 #: process-api/processes/som_field_match.py:66
@@ -67,6 +68,7 @@ msgstr "Une erreur inattendue s'est produite lors de l'exécution de ce traiteme
 
 #: process-api/processes/climate_indicators.py:111
 #: process-api/processes/climate_timeseries.py:115
+#: process-api/processes/hydro_backend/field_grid.py:136
 #: process-api/processes/msc_observations.py:112
 #: process-api/processes/spatial_backend/models.py:70
 #: process-api/processes/weather_timeseries.py:117
@@ -86,20 +88,20 @@ msgstr "Indicateur non pris en charge : {indicator}"
 #: process-api/processes/location_utils.py:139
 #: process-api/processes/location_utils.py:142
 #: process-api/processes/location_utils.py:167
-#: process-api/processes/quebec_lidar_fetch.py:372
-#: process-api/processes/quebec_lidar_fetch.py:408
+#: process-api/processes/quebec_lidar_fetch.py:384
+#: process-api/processes/quebec_lidar_fetch.py:420
 msgid "Could not retrieve the farm geometry."
 msgstr "Impossible de récupérer la géométrie de la ferme."
 
 #: process-api/processes/eo_sentinel_fetch.py:239
 #: process-api/processes/location_utils.py:158
-#: process-api/processes/quebec_lidar_fetch.py:385
+#: process-api/processes/quebec_lidar_fetch.py:397
 #, python-brace-format
 msgid "Farm ID {farm_id} not found in database"
 msgstr "Identifiant de ferme {farm_id} introuvable dans la base de données"
 
 #: process-api/processes/eo_sentinel_fetch.py:254
-#: process-api/processes/quebec_lidar_fetch.py:400
+#: process-api/processes/quebec_lidar_fetch.py:412
 #, python-brace-format
 msgid "Invalid geometry data for farm ID {farm_id}"
 msgstr "Données de géométrie invalides pour la ferme {farm_id}"
@@ -166,18 +168,18 @@ msgid "'cloud_cover_max' must be between 0 and 100, got: {value}"
 msgstr "« cloud_cover_max » doit être compris entre 0 et 100, reçu : {value}"
 
 #: process-api/processes/eo_sentinel_fetch.py:1219
-#: process-api/processes/quebec_lidar_fetch.py:154
+#: process-api/processes/quebec_lidar_fetch.py:166
 msgid "Either 'farm_geometry' or 'farm_id' must be provided"
 msgstr "Vous devez fournir « farm_geometry » ou « farm_id »"
 
 #: process-api/processes/eo_sentinel_fetch.py:1223
-#: process-api/processes/quebec_lidar_fetch.py:158
+#: process-api/processes/quebec_lidar_fetch.py:170
 msgid "Provide only one of 'farm_geometry' or 'farm_id', not both"
 msgstr "Fournissez « farm_geometry » ou « farm_id », mais pas les deux"
 
 #: process-api/processes/eo_sentinel_fetch.py:1228
 #: process-api/processes/location_utils.py:122
-#: process-api/processes/quebec_lidar_fetch.py:162
+#: process-api/processes/quebec_lidar_fetch.py:174
 #, python-brace-format
 msgid "'farm_id' must be a positive integer, got: {value}"
 msgstr "« farm_id » doit être un entier positif, reçu : {value}"
@@ -231,6 +233,51 @@ msgstr "Erreur de validation des données — vérifiez les valeurs fournies."
 msgid "Unexpected error processing Sentinel-2 data."
 msgstr "Erreur inattendue lors du traitement des données Sentinel-2."
 
+#: process-api/processes/lidar_flowpath.py:253
+#: process-api/processes/quebec_lidar_fetch.py:214
+#, python-brace-format
+msgid "Farm area ({area} km²) exceeds maximum allowed ({maximum} km²)"
+msgstr ""
+"La superficie de la ferme ({area} km²) dépasse le maximum autorisé "
+"({maximum} km²)"
+
+#: process-api/processes/lidar_flowpath.py:263
+#, python-brace-format
+msgid ""
+"The field and its upstream margin cover {cells} million cells at 2 m, "
+"above the limit of {maximum} million. Reduce 'upstream_margin_m' or split"
+" the field."
+msgstr ""
+"Le champ et sa marge en amont couvrent {cells} millions de cellules à 2 m, "
+"au-delà de la limite de {maximum} millions. Réduisez « upstream_margin_m » "
+"ou divisez le champ."
+
+#: process-api/processes/lidar_flowpath.py:306
+#: process-api/processes/quebec_lidar_fetch.py:244
+#, python-brace-format
+msgid ""
+"No LiDAR tiles found for the supplied geometry (bbox={bbox}). The area "
+"may not be covered by MRNF LiDAR data."
+msgstr ""
+"Aucune tuile LiDAR trouvée pour la géométrie fournie (bbox={bbox}). Le "
+"secteur n'est peut-être pas couvert par les données LiDAR du MRNF."
+
+#: process-api/processes/lidar_flowpath.py:371
+#: process-api/processes/quebec_lidar_fetch.py:580
+#, python-brace-format
+msgid ""
+"LiDAR processing exceeded the time limit of {seconds} seconds. Try a "
+"smaller area or fewer products."
+msgstr ""
+"Le traitement LiDAR a dépassé la limite de temps de {seconds} secondes. "
+"Essayez une zone plus petite ou moins de produits."
+
+#: process-api/processes/lidar_flowpath.py:434
+msgid "Could not prepare the terrain model for the flow-path computation."
+msgstr ""
+"Impossible de préparer le modèle de terrain pour le calcul de "
+"l'écoulement."
+
 #: process-api/processes/location_utils.py:68
 #, python-brace-format
 msgid "Unsupported location type: {value}"
@@ -252,28 +299,12 @@ msgstr "La géométrie GeoJSON est invalide ou vide"
 msgid "'farm_id' must be a valid integer, got: {value!r}"
 msgstr "« farm_id » doit être un entier valide, reçu : {value!r}"
 
-#: process-api/processes/quebec_lidar_fetch.py:170
+#: process-api/processes/quebec_lidar_fetch.py:182
 #, python-brace-format
 msgid "Unknown product(s): {products}. Valid values: {valid}"
 msgstr "Produit(s) inconnu(s) : {products}. Valeurs acceptées : {valid}"
 
-#: process-api/processes/quebec_lidar_fetch.py:202
-#, python-brace-format
-msgid "Farm area ({area} km²) exceeds maximum allowed ({maximum} km²)"
-msgstr ""
-"La superficie de la ferme ({area} km²) dépasse le maximum autorisé "
-"({maximum} km²)"
-
-#: process-api/processes/quebec_lidar_fetch.py:232
-#, python-brace-format
-msgid ""
-"No LiDAR tiles found for the supplied geometry (bbox={bbox}). The area "
-"may not be covered by MRNF LiDAR data."
-msgstr ""
-"Aucune tuile LiDAR trouvée pour la géométrie fournie (bbox={bbox}). Le "
-"secteur n'est peut-être pas couvert par les données LiDAR du MRNF."
-
-#: process-api/processes/quebec_lidar_fetch.py:243
+#: process-api/processes/quebec_lidar_fetch.py:255
 #, python-brace-format
 msgid ""
 "Cannot compute 'aspect': no DTM tiles found for the supplied geometry "
@@ -282,28 +313,19 @@ msgstr ""
 "Impossible de calculer l'orientation : aucune tuile MNT trouvée pour la "
 "géométrie fournie (bbox={bbox}). L'orientation est dérivée du MNT."
 
-#: process-api/processes/quebec_lidar_fetch.py:342
+#: process-api/processes/quebec_lidar_fetch.py:354
 msgid "Unexpected error processing LiDAR data."
 msgstr "Erreur inattendue lors du traitement des données LiDAR."
 
-#: process-api/processes/quebec_lidar_fetch.py:509
+#: process-api/processes/quebec_lidar_fetch.py:521
 msgid "Could not clip and convert the LiDAR raster to COG format."
 msgstr "Impossible de découper et de convertir le raster LiDAR au format COG."
 
-#: process-api/processes/quebec_lidar_fetch.py:544
+#: process-api/processes/quebec_lidar_fetch.py:556
 msgid "Could not compute the aspect raster from the terrain model."
 msgstr ""
 "Impossible de calculer le raster d'orientation à partir du modèle de "
 "terrain."
-
-#: process-api/processes/quebec_lidar_fetch.py:568
-#, python-brace-format
-msgid ""
-"LiDAR processing exceeded the time limit of {seconds} seconds. Try a "
-"smaller area or fewer products."
-msgstr ""
-"Le traitement LiDAR a dépassé la limite de temps de {seconds} secondes. "
-"Essayez une zone plus petite ou moins de produits."
 
 #: process-api/processes/som_predict_soil.py:112
 msgid ""
@@ -378,18 +400,20 @@ msgstr "Impossible de lire les limites des champs MOS."
 msgid "None of the field IDs {field_ids} has GEE training data."
 msgstr "Aucune des parcelles {field_ids} n'a de données d'entraînement GEE."
 
-#: process-api/processes/worker.py:48
+#: process-api/processes/worker.py:55
 msgid "The job stopped before it finished."
 msgstr "La tâche s'est arrêtée avant la fin."
 
-#: process-api/processes/worker.py:54
+#: process-api/processes/worker.py:61
 #, python-brace-format
 msgid "The job exceeded its time budget of {seconds} seconds."
 msgstr "La tâche a dépassé son temps maximal de {seconds} secondes."
 
-#: process-api/processes/worker.py:62
+#: process-api/processes/worker.py:69
 msgid "The process returned a result that cannot be stored as JSON."
-msgstr "Le processus a renvoyé un résultat qui ne peut pas être enregistré en JSON."
+msgstr ""
+"Le processus a renvoyé un résultat qui ne peut pas être enregistré en "
+"JSON."
 
 #: process-api/processes/climate_backend/cmip_backend.py:101
 msgid ""
@@ -528,6 +552,34 @@ msgstr "« scenario » est requis avec un jeu de données CMIP6"
 #: process-api/processes/climate_backend/models.py:238
 msgid "'model' is required when using a CMIP6 dataset"
 msgstr "« model » est requis avec un jeu de données CMIP6"
+
+#: process-api/processes/hydro_backend/field_grid.py:137
+#, python-brace-format
+msgid "Zone {zone} does not intersect the field"
+msgstr "La zone {zone} ne recoupe pas le champ"
+
+#: process-api/processes/hydro_backend/models.py:38
+msgid "location_type 'point' is not supported by this process"
+msgstr "location_type « point » n'est pas pris en charge par ce processus"
+
+#: process-api/processes/hydro_backend/models.py:50
+msgid "'zones' must be a GeoJSON FeatureCollection"
+msgstr "« zones » doit être une FeatureCollection GeoJSON"
+
+#: process-api/processes/hydro_backend/models.py:53
+#, python-brace-format
+msgid "'zones' must hold between 1 and {maximum} features"
+msgstr "« zones » doit contenir entre 1 et {maximum} entités"
+
+#: process-api/processes/hydro_backend/models.py:60
+#, python-brace-format
+msgid "Zone {zone} must be a Polygon or MultiPolygon"
+msgstr "La zone {zone} doit être un Polygon ou un MultiPolygon"
+
+#: process-api/processes/hydro_backend/models.py:67
+#, python-brace-format
+msgid "Zone {zone} properties must be an object or null"
+msgstr "Les propriétés de la zone {zone} doivent être un objet ou null"
 
 #: process-api/processes/spatial_backend/models.py:34
 msgid "location_type 'bbox' is not supported by this process"
@@ -671,8 +723,8 @@ msgid ""
 "Feature too large to be served in collection {collection}: {vertices} "
 "vertices, the limit is {limit}."
 msgstr ""
-"Entité trop volumineuse pour être servie dans la collection {collection} : "
-"{vertices} sommets, la limite est de {limit}."
+"Entité trop volumineuse pour être servie dans la collection {collection} "
+": {vertices} sommets, la limite est de {limit}."
 
 #: vector-api/src/parquet_router.py:338 vector-api/src/parquet_router.py:400
 #: vector-api/src/parquet_router.py:544 vector-api/src/parquet_router.py:617
