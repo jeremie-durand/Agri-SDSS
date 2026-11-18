@@ -1,5 +1,5 @@
 import { somContext, somChartInstance, setSomChartInstance, vectorState, layers } from './state.js';
-import { bboxAreaHa, apiFetch } from './utils.js';
+import { bboxAreaHa, apiFetch, runProcessJob } from './utils.js';
 import { somRasterUrl } from './config.js';
 
 function _tL() { return (window.T && window.T[window.lang]) || {}; }
@@ -210,13 +210,7 @@ export async function somPredictRun() {
     status.className = 'som-run__status';
     somProgressStart();
     try {
-        var r = await apiFetch('/process-api/processes/som-predict-soil/execution?f=json', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ inputs: { field_ids: somPredictFieldIds, scenarios: ['S3_spec_soil_topo_clim'] } })
-        });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        var data = await r.json();
+        var data = await runProcessJob('som-predict-soil', { inputs: { field_ids: somPredictFieldIds, scenarios: ['S3_spec_soil_topo_clim'] } });
         // Response: { id: 'result', value: <FeatureCollection> }
         var fc = data.value || data;
         somProgressDone(true);
@@ -1138,21 +1132,15 @@ export async function somAutoGenScenes() {
         } else {
             usedSlowPath = true;
             _somScenesProgress.start();
-            var r = await apiFetch('/process-api/processes/sentinel-fetch/execution?f=json', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    inputs: {
-                        farm_geometry: geom,
-                        temporal_extent: [startDate, endDate],
-                        output_products: ['ndvi'],
-                        aggregation_method: 'median',
-                        cloud_cover_max: 20
-                    }
-                })
+            var data = await runProcessJob('sentinel-fetch', {
+                inputs: {
+                    farm_geometry: geom,
+                    temporal_extent: [startDate, endDate],
+                    output_products: ['ndvi'],
+                    aggregation_method: 'median',
+                    cloud_cover_max: 20
+                }
             });
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            var data = await r.json();
             var stacItem = data.value && data.value.stac_item;
             mean = _firstBandMean(stacItem && stacItem.assets && stacItem.assets.ndvi);
         }
@@ -1187,13 +1175,7 @@ export async function somAutoGenElevation() {
                                [b.getEast(), b.getNorth()], [b.getWest(), b.getNorth()],
                                [b.getWest(), b.getSouth()]]]
             };
-            var r = await apiFetch('/process-api/processes/lidar-fetch/execution?f=json', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ inputs: { farm_geometry: bboxGeom, products: ['dtm'] } })
-            });
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            var data = await r.json();
+            var data = await runProcessJob('lidar-fetch', { inputs: { farm_geometry: bboxGeom, products: ['dtm'] } });
             var dtmAsset = data.assets && data.assets.dtm;
             if (!dtmAsset) throw new Error(lang === 'fr' ? 'Aucun actif DTM dans la réponse' : 'No DTM asset in response');
             mean = _firstBandMean(dtmAsset);
