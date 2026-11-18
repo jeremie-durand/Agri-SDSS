@@ -244,9 +244,7 @@ def test_ls_caps_catchment_area_at_300_m_without_touching_sca():
 
     ls = ls_factor(sca, np.array([9.0, 9.0, 9.0]))
 
-    expected_cap = (300 / 22.13) ** 0.4 * (
-        math.sin(math.atan(0.09)) / 0.0896
-    ) ** 1.3
+    expected_cap = (300 / 22.13) ** 0.4 * (math.sin(math.atan(0.09)) / 0.0896) ** 1.3
     assert ls[0] < ls[1]
     assert ls[1] == pytest.approx(expected_cap, rel=1e-9)
     assert ls[2] == pytest.approx(expected_cap, rel=1e-9)
