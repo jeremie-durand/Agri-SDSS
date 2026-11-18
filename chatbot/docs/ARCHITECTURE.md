@@ -66,6 +66,7 @@ URLs are set in `docker-compose.yml` from each target's port variable:
 | `RASTER_API_INTERNAL_URL` | `http://raster-api:${RASTER_API_PORT}` (8082) |
 | `VECTOR_API_INTERNAL_URL`, `VECTOR_API_URL` | `http://vector-api:${VECTOR_API_PORT}` (8083) |
 | `PYGEOAPI_INTERNAL_URL` | `http://process-api:5000` |
+| `CHATBOT_PROCESS_WAIT_SECONDS` | not a URL: how long the process tool waits for a job (default 480) |
 
 `VECTOR_API_URL` is the name upstream reads; `VECTOR_API_INTERNAL_URL` is ours.
 
@@ -81,6 +82,25 @@ pinned tag.
 | `list_pygeoapi_processes` | Discover available OGC processes on process-api |
 | `get_process_schema` | Fetch input/output schema for one process |
 | `execute_pygeoapi_process` | Execute a process with given inputs |
+
+`execute_pygeoapi_process` sends `Prefer: respond-async`. A process without
+async support (`water-distance`, the climate processes…) answers `200`, and the
+tool returns that body. `sentinel-fetch`, `lidar-fetch` and `som-predict-soil`
+answer `201`: the tool takes the job id from the `Location` header and polls
+`{PYGEOAPI_INTERNAL_URL}/jobs/<id>` every 3 s, never the public origin that
+header names, then returns the `/results` body. A `failed` job raises
+`ProcessJobFailed` with the job's message, which the loop hands to the model as
+`{"error": …}`. Every request carries `Accept-Language`.
+
+The wait is capped by `CHATBOT_PROCESS_WAIT_SECONDS` (default 480, below the
+600 s `/sdss` proxy timeout). `/sdss/query` starts that budget once per request
+(`start_process_wait_budget()`), and every process call of the request draws
+on what is left of it. At the cap the tool returns
+`{"job_id", "job_url", "status", "message"}`: `job_url` is the public
+`Location` the user can follow, and the English message tells the model not to
+run the process again. The job keeps running on `process-worker`. Each HTTP
+request keeps its 30 s timeout, so a sync-only process slower than that still
+fails.
 
 Domain-specific stubs (`predict_soil_organic_matter`, `query_agricultural_parcels`, `search_soil_datasets`, `run_som_process`) exist in the same file but are not yet exported.
 

@@ -261,6 +261,22 @@ def test_sdss_query_binds_locale_from_body(monkeypatch, language, expected):
     assert observed["locale"] == expected
 
 
+@pytest.mark.mocked
+def test_sdss_query_starts_the_process_wait_budget(monkeypatch):
+    """Every process call of one request shares one wait budget, so their
+    waits together stay below the /sdss proxy timeout."""
+    monkeypatch.setenv("ENABLE_AUTH", "false")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    app = FastAPI()
+    app.include_router(router, prefix="/sdss")
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with patch("sdss_api.start_process_wait_budget") as start_budget:
+        client.post("/sdss/query", json={"query": "hello"})
+
+    start_budget.assert_called_once_with()
+
+
 def _tool_call_completion() -> MagicMock:
     tool_call = MagicMock()
     tool_call.id = "call-0"
