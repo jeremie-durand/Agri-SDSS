@@ -36,22 +36,16 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     ALTER DEFAULT PRIVILEGES IN SCHEMA public
         GRANT USAGE, SELECT ON SEQUENCES TO "${DB_USER}";
 
-    -- Schema: pgstac — created by the pgSTAC Docker image AFTER this script runs.
-    -- Grants are applied here only if the schema already exists (re-runs / manual invocation).
-    -- On first init the schema won't exist yet; stac-api connects as the postgres
-    -- superuser so it can access pgstac without needing explicit grants here.
+    -- Schema: pgstac — pgSTAC's own init files (990_pgstac.sh, 999_pgstac.sql)
+    -- sort before this script, so the schema exists at first init. The app role
+    -- reaches pgstac only through pgstac_ingest, without CREATE, as stac-api's
+    -- apply_pgstac_grants.sql re-applies at every start.
     DO \$\$
     BEGIN
       IF EXISTS (
         SELECT FROM information_schema.schemata WHERE schema_name = 'pgstac') THEN
-
-        EXECUTE format('GRANT USAGE ON SCHEMA pgstac TO %I', '${DB_USER}');
-        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgstac TO %I', '${DB_USER}');
-        EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pgstac TO %I', '${DB_USER}');
-        EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgstac TO %I', '${DB_USER}');
-        EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA pgstac GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', '${DB_USER}');
-        EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA pgstac GRANT USAGE, SELECT ON SEQUENCES TO %I', '${DB_USER}');
-
+        EXECUTE format('GRANT pgstac_ingest TO %I', '${DB_USER}');
+        REVOKE CREATE ON SCHEMA pgstac FROM pgstac_ingest;
       END IF;
     END
     \$\$;

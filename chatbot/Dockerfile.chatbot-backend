@@ -23,7 +23,7 @@ FROM ollama-${INCLUDE_OLLAMA} AS ollama
 # ── Stage 1: Clone OpenGeo-AI-Assistant at pinned version ────────────────────
 FROM alpine/git:2.43.0 AS source
 # Default, override with --build-arg CHATBOT_VERSION=... when building
-ARG CHATBOT_VERSION=v0.2.2-alpha
+ARG CHATBOT_VERSION=v0.3.0-alpha
 RUN git clone --depth 1 --branch ${CHATBOT_VERSION} \
     https://github.com/jeremie-durand/OpenGeo-AI-Assistant.git /src
 
@@ -56,7 +56,8 @@ WORKDIR /app
 # requirements.txt lives at opengeo-ai-assistant/ root (not inside container-app/)
 COPY --from=source /src/opengeo-ai-assistant/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall -y pip
 
 # Copy all app code from container-app/ (*.py, *.json, agents/, geoint/)
 COPY --from=source /src/opengeo-ai-assistant/container-app/ .
@@ -95,7 +96,8 @@ FROM runtime AS test
 USER root
 
 COPY chatbot/requirements-chatbot-test.txt /tmp/
-RUN pip install --no-cache-dir -r /tmp/requirements-chatbot-test.txt
+RUN python -m ensurepip && \
+    python -m pip install --no-cache-dir -r /tmp/requirements-chatbot-test.txt
 
 COPY chatbot/test /app/chatbot/test
 COPY chatbot/pytest.ini /app/pytest.ini

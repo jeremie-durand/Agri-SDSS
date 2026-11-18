@@ -4,6 +4,7 @@ TiTiler serves individual COGs by absolute file path (/cog/info?url=...)
 but has no way to discover what files exist. This router adds a directory
 listing so the /data frontend catalog can detect ingested rasters.
 """
+
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -27,9 +28,7 @@ def list_cog_files(data_dir: Optional[str] = None) -> List[Dict[str, Any]]:
     if not directory.exists():
         return []
     files = sorted(list(directory.glob("*.tif")) + list(directory.glob("*.tiff")))
-    return [
-        {"id": f.stem, "title": f.stem.replace("_", " ").title()} for f in files
-    ]
+    return [{"id": f.stem, "title": f.stem.replace("_", " ").title()} for f in files]
 
 
 @router.get("/collections")

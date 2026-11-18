@@ -3,7 +3,7 @@ import subprocess
 import time
 import unicodedata
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import duckdb
 import fiona
@@ -11,6 +11,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio
+import shapely
 import structlog
 from gis_pipeline.core.config import (
     Config,
@@ -23,19 +24,21 @@ from gis_pipeline.core.logging_setup import handle_error
 from gis_pipeline.core.utils import add_process_to_logger, harmonize_name
 from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
 from gis_pipeline.modules.db.materialize_trigger import trigger_materialize_and_notify
-from gis_pipeline.modules.db.pg_utils import PostGISManager
-from gis_pipeline.modules.io_tools.input_data import read_csv_file
+from gis_pipeline.modules.db.pg_utils import GIDValidator, PostGISManager
+from gis_pipeline.modules.io_tools.input_data import is_ingested_layer, read_csv_file
 from gis_pipeline.modules.processing.processing_stac import (
     StacApiClient,
     build_stac_collection_from_items,
     build_stac_items_from_cog,
 )
 from gis_pipeline.services.mapping import (
+    SPLIT_MAX_VERTICES,
+    SPLIT_PART_COLUMN,
+    SPLIT_SOURCE_GID_COLUMN,
     AttributeNullValues,
     ColumnMappings,
     CSVDataRegistryForSourceCRS,
     NamingPatterns,
-    QGISInternalLayers,
     RasterTargetCRSOverrides,
 )
 from pyproj import CRS
@@ -43,12 +46,56 @@ from pyproj.exceptions import CRSError
 from rasterio.coords import BoundingBox
 from rasterio.warp import transform_bounds
 from shapely import get_dimensions, get_parts, make_valid
+from shapely.geometry import MultiPolygon
+from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 logger = structlog.get_logger()
 
 # Assumed when a coordinate CSV declares no CRS by any other means.
 DEFAULT_CSV_CRS = "EPSG:4326"
+
+POLYGONAL_TYPES: tuple[str, ...] = ("Polygon", "MultiPolygon")
+# Each halving at least halves the cut extent, so this bounds the recursion
+# for degenerate input (vertices piled on one point) without limiting real data.
+MAX_SPLIT_DEPTH: int = 48
+
+
+def _polygonal_parts(geom: BaseGeometry) -> list[BaseGeometry]:
+    """Return the non-empty polygons of geom, dropping lines and points left by a cut."""
+    return [
+        part
+        for part in shapely.get_parts(geom)
+        if part.geom_type == "Polygon" and not part.is_empty
+    ]
+
+
+def _halve(geom: BaseGeometry, depth: int = 0) -> list[BaseGeometry]:
+    """Cut geom into pieces of at most SPLIT_MAX_VERTICES vertices.
+
+    Each step clips the geometry to the two halves of its bounds, across the
+    longer side, and recurses into each half. A cut keeps every source vertex
+    and adds new ones only on the cut line, so the pieces cover the source
+    exactly.
+    """
+    if shapely.get_num_coordinates(geom) <= SPLIT_MAX_VERTICES or (
+        depth >= MAX_SPLIT_DEPTH
+    ):
+        return [geom]
+    minx, miny, maxx, maxy = geom.bounds
+    if maxx - minx >= maxy - miny:
+        middle = (minx + maxx) / 2
+        halves = [(minx, miny, middle, maxy), (middle, miny, maxx, maxy)]
+    else:
+        middle = (miny + maxy) / 2
+        halves = [(minx, miny, maxx, middle), (minx, middle, maxx, maxy)]
+    pieces: list[BaseGeometry] = []
+    for rect in halves:
+        parts = _polygonal_parts(shapely.clip_by_rect(geom, *rect))
+        if parts:
+            half = parts[0] if len(parts) == 1 else MultiPolygon(parts)
+            pieces += _halve(half, depth + 1)
+    return pieces
 
 
 class GeoprocessingVector:
@@ -393,6 +440,122 @@ class GeoprocessingVector:
 
         logger.info("GeoDataFrame harmonization completed.")
 
+    def _split_geometry(self, geom: BaseGeometry) -> list[BaseGeometry]:
+        """Split one polygonal geometry, keeping the source's geometry type.
+
+        A Polygon source gives one Polygon per part of each piece; a
+        MultiPolygon source gives one MultiPolygon per piece. Pieces that are
+        not valid go through the same repair as clean_geometries_gdf.
+        """
+        pieces: list[BaseGeometry] = []
+        for piece in _halve(geom):
+            if not piece.is_valid:
+                piece = self._repair_geometry(piece)
+                if piece is None:
+                    continue
+            parts = _polygonal_parts(piece)
+            if geom.geom_type == "Polygon":
+                pieces += parts
+            elif parts:
+                pieces.append(MultiPolygon(parts))
+        return pieces
+
+    def split_large_geometries_gdf(
+        self, table: str, split: bool = True, gid_offset: int = 0
+    ) -> gpd.GeoDataFrame:
+        """Split each polygonal feature above SPLIT_MAX_VERTICES vertices (#292).
+
+        In a layer where at least one feature is split, every row gets
+        split_source_gid (the gid it would have had) and split_part (1 for an
+        unsplit feature), every attribute is copied to each piece, and gid is
+        dropped so the PostGIS insert numbers the rows again from a fresh
+        RangeIndex. A layer with no feature above the threshold is unchanged.
+
+        Args:
+            table: Target table name, for the logs.
+            split: False for one chunk of a chunked layer: generated gids are
+                offset by the source row, so pieces would collide with the next
+                chunk's gids. Each large feature is then only logged.
+            gid_offset: The offset insert_table_data() adds to generated gids,
+                so a logged feature id is the gid stored for it.
+
+        Returns:
+            The processed GeoDataFrame, also stored in self.gdf.
+        """
+        gdf = self.gdf
+        geometries = gdf.geometry
+        vertex_counts = shapely.get_num_coordinates(geometries.values)
+        large = geometries.geom_type.isin(POLYGONAL_TYPES).to_numpy() & (
+            vertex_counts > SPLIT_MAX_VERTICES
+        )
+        if not large.any():
+            return gdf
+
+        conflict = {SPLIT_SOURCE_GID_COLUMN, SPLIT_PART_COLUMN} & set(gdf.columns)
+        if not split or conflict:
+            reason = "chunked" if not split else "column_conflict"
+            feature_ids = (
+                GIDValidator._ensure_gid_column(gdf.copy(deep=False))["gid"].to_numpy()
+                + gid_offset
+            )
+            for feature_id, vertices in zip(
+                feature_ids[large], vertex_counts[large], strict=True
+            ):
+                logger.warning(
+                    "feature_not_split",
+                    table=table,
+                    feature=int(feature_id),
+                    vertices=int(vertices),
+                    reason=reason,
+                )
+            return gdf
+
+        source_gids = (
+            GIDValidator._ensure_gid_column(gdf)["gid"].to_numpy() + gid_offset
+        )
+        geometry_column = geometries.name
+        pieces: list[list[BaseGeometry | None]] = []
+        for geom, is_large, source_gid, vertices in zip(
+            geometries, large, source_gids, vertex_counts, strict=True
+        ):
+            if not is_large:
+                pieces.append([geom])
+                continue
+            feature_pieces = self._split_geometry(geom) or [geom]
+            logger.info(
+                "feature_split",
+                table=table,
+                source_gid=int(source_gid),
+                vertices=int(vertices),
+                parts=len(feature_pieces),
+            )
+            largest_piece = max(
+                (shapely.get_num_coordinates(piece) for piece in feature_pieces),
+                default=0,
+            )
+            if largest_piece > SPLIT_MAX_VERTICES:
+                logger.warning(
+                    "feature_split_incomplete",
+                    table=table,
+                    source_gid=int(source_gid),
+                    largest_piece_vertices=int(largest_piece),
+                    max_vertices=SPLIT_MAX_VERTICES,
+                )
+            pieces.append(feature_pieces)
+
+        attributes = pd.DataFrame(gdf.drop(columns=[geometry_column, "gid"]))
+        attributes[SPLIT_SOURCE_GID_COLUMN] = source_gids
+        attributes["__pieces__"] = pieces
+        exploded = attributes.explode("__pieces__")
+        exploded[SPLIT_PART_COLUMN] = exploded.groupby(level=0).cumcount() + 1
+        exploded = exploded.reset_index(drop=True)
+        piece_geometries = exploded.pop("__pieces__")
+        exploded[geometry_column] = gpd.GeoSeries(
+            piece_geometries.tolist(), index=exploded.index, crs=gdf.crs
+        )
+        self.gdf = gpd.GeoDataFrame(exploded, geometry=geometry_column, crs=gdf.crs)
+        return self.gdf
+
     def clean_geometries_gdf(
         self,
         is_fix_invalid: bool = True,
@@ -531,10 +694,7 @@ class GeoprocessingVector:
                     else:
                         layers = fiona.listlayers(vector_file)
                         for layer in layers:
-                            if layer.lower() in {e.value for e in QGISInternalLayers}:
-                                logger.info(
-                                    f"Skipping QGIS internal layer '{layer}' in {vector_file}"
-                                )
+                            if not is_ingested_layer(vector_file, layer):
                                 continue
                             gdf = gpd.read_file(vector_file, layer=layer)
                             if len(layers) == 1:
@@ -592,6 +752,9 @@ def _process_spatial_table(
     processor.harmonize_gdf()
     processor.clean_geometries_gdf()
     processor.harmonize_crs_gdf()
+    processor.split_large_geometries_gdf(
+        table, split=chunk_index is None, gid_offset=gid_offset
+    )
 
     processed_gdf = processor.gdf
     logger.info(f"Vector data for table {table} processed successfully.")
@@ -1203,35 +1366,65 @@ class GeoprocessingRaster:
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
     @staticmethod
+    def _build_stac_bands(src: rasterio.DatasetReader) -> list[dict]:
+        """Build the STAC 1.1 ``bands`` array describing a COG asset.
+
+        STAC only accepts a number or ``"nan"``/``"inf"``/``"-inf"`` as
+        ``nodata``: an unset nodata is left out, and a non-finite one is written
+        as its string, since ``_clean_metadata`` turns a float NaN into null.
+
+        Args:
+            src: Open rasterio dataset for the COG.
+
+        Returns:
+            list[dict]: One band object per band, in band order.
+        """
+        resolution = abs(src.transform[0])
+        bands: list[dict] = []
+        for i in range(1, src.count + 1):
+            band: dict[str, str | float] = {
+                "name": src.descriptions[i - 1] or f"b{i}",
+                "data_type": str(src.dtypes[i - 1]),
+                "raster:spatial_resolution": resolution,
+            }
+            nodata = src.nodatavals[i - 1] if src.nodatavals else src.nodata
+            if nodata is not None:
+                band["nodata"] = nodata if np.isfinite(nodata) else str(nodata)
+            bands.append(band)
+        return bands
+
+    @staticmethod
     def _build_stac_properties(
         src: rasterio.DatasetReader,
         crs: rasterio.crs.CRS,
-        raster_bands: list[dict],
         proj_transform: list[float],
         dt_val: str,
     ) -> dict:
         """Build the STAC ``properties`` sub-dict from an open rasterio dataset.
 
+        Band descriptions live on the COG asset (see ``_build_stac_bands``),
+        not here.
+
         Args:
             src: Open rasterio dataset for the COG.
             crs: CRS of the dataset.
-            raster_bands: Pre-built list of band descriptors.
             proj_transform: GDAL-order affine coefficients.
             dt_val: ISO-8601 datetime string.
 
         Returns:
             dict: STAC properties sub-dict.
         """
-        return {
+        epsg = crs.to_epsg() if crs else 4326
+        properties: dict[str, Any] = {
             "datetime": dt_val,
-            "proj:epsg": crs.to_epsg() if crs else 4326,
+            "proj:code": f"EPSG:{epsg}" if epsg else None,
             "proj:shape": [src.height, src.width],
             "proj:transform": proj_transform,
-            "raster:bands": raster_bands,
-            "bands": src.count,
             "source": "cog_processing",
-            "data_type": "raster",
         }
+        if epsg is None:
+            properties["proj:wkt2"] = crs.to_wkt(version="WKT2_2019")
+        return properties
 
     @staticmethod
     def _render_params(
@@ -1306,21 +1499,14 @@ class GeoprocessingRaster:
             crs = src.crs
 
             # STAC's core bbox/geometry are spec-required to be WGS84 lon/lat,
-            # regardless of the asset's own CRS (proj:epsg carries the true
+            # regardless of the asset's own CRS (proj:code carries the true
             # native CRS separately via _build_stac_properties).
             if crs and crs.to_epsg() != 4326:
                 wgs84_bounds = BoundingBox(*transform_bounds(crs, "EPSG:4326", *bounds))
             else:
                 wgs84_bounds = bounds
 
-            raster_bands = [
-                {
-                    "nodata": (src.nodatavals[i - 1] if src.nodatavals else src.nodata),
-                    "data_type": str(src.dtypes[i - 1]),
-                    "spatial_resolution": abs(src.transform[0]),
-                }
-                for i in range(1, src.count + 1)
-            ]
+            bands = self._build_stac_bands(src)
 
             stored_metadata = self.raster_metadata[original_raster_path]
 
@@ -1347,7 +1533,7 @@ class GeoprocessingRaster:
                     "type": "image/tiff; application=geotiff; profile=cloud-optimized",
                     "roles": ["data"],
                     "title": cog_file_path.name,
-                    "raster_bands": raster_bands,
+                    "bands": bands,
                 },
                 "preview": {
                     "href": public_preview_url(
@@ -1391,14 +1577,13 @@ class GeoprocessingRaster:
                 "properties": self._build_stac_properties(
                     src=src,
                     crs=crs,
-                    raster_bands=raster_bands,
                     proj_transform=proj_transform,
                     dt_val=dt_val,
                 ),
                 "assets": assets,
                 "stac_extensions": [
-                    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
-                    "https://stac-extensions.github.io/projection/v1.1.0/schema.json",
+                    "https://stac-extensions.github.io/raster/v2.0.0/schema.json",
+                    "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
                 ],
                 "file_url": str(cog_file_path.absolute()),
                 "href": cog_url,

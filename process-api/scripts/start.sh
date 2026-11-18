@@ -37,17 +37,29 @@ echo "Validating environment configuration..."
 python -c "
 import sys
 sys.path.insert(0, '/app')
-from processes.config import ApiConfig, DatabaseConfig, FarmConfig, StorageConfig
+from processes.config import (
+    ApiConfig,
+    DatabaseConfig,
+    FarmConfig,
+    JobQueueConfig,
+    SpatialTablesConfig,
+    StorageConfig,
+)
 try:
     DatabaseConfig()
     ApiConfig()
     FarmConfig()
+    JobQueueConfig()
+    SpatialTablesConfig()
     StorageConfig()
     print('Environment configuration: OK')
 except Exception as e:
     print(f'ERROR: invalid environment configuration: {e}', file=sys.stderr)
     sys.exit(1)
 "
+#
+echo "Ensuring the process jobs table..."
+python -m processes.jobs.schema
 #
 echo "Starting pygeoapi server..."
 exec gunicorn processes.wsgi:APP \
@@ -56,4 +68,5 @@ exec gunicorn processes.wsgi:APP \
     --timeout ${GUNICORN_TIMEOUT:-600} \
     --access-logfile - \
     --access-logformat 'INFO:     %(h)s - "%(r)s" %(s)s' \
-    --log-level info
+    --log-level info \
+    --no-control-socket

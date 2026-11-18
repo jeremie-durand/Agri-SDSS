@@ -10,6 +10,7 @@ import pytest
 import rasterio
 from gis_pipeline.core.config import Config
 from gis_pipeline.modules.processing.geoprocessing import GeoprocessingRaster
+from rasterio.crs import CRS
 from rasterio.transform import from_origin
 
 
@@ -2073,7 +2074,8 @@ def test_prepare_cog_metadata_for_stac_success(
     )
 
     assert metadata["id"] == cog_file.stem
-    assert metadata["assets"]["cog"]["raster_bands"][0]["data_type"] == "uint8"
+    assert metadata["assets"]["cog"]["bands"][0]["data_type"] == "uint8"
+    assert "raster_bands" not in metadata["assets"]["cog"]
 
 
 def test_prepare_cog_metadata_for_stac_geometry_structure(
@@ -2199,11 +2201,15 @@ def test_prepare_cog_metadata_for_stac_properties(
     properties = metadata["properties"]
 
     # Verify specific values
-    assert properties["proj:epsg"] == 3857
+    assert properties["proj:code"] == "EPSG:3857"
+    assert "proj:epsg" not in properties
     assert properties["proj:shape"] == [20, 30]
-    assert properties["bands"] == 3
+    assert "bands" not in properties
+    assert "raster:bands" not in properties
+    assert len(metadata["assets"]["cog"]["bands"]) == 3
     assert properties["source"] == "cog_processing"
-    assert properties["data_type"] == "raster"
+    assert "data_type" not in properties
+    assert "proj:wkt2" not in properties
 
 
 def test_prepare_cog_metadata_for_stac_raster_bands(
@@ -2241,18 +2247,14 @@ def test_prepare_cog_metadata_for_stac_raster_bands(
     )
     metadata = _to_mapping(metadata_model)
 
-    raster_bands = metadata["properties"]["raster:bands"]
+    bands = metadata["assets"]["cog"]["bands"]
 
-    assert len(raster_bands) == 2
+    assert len(bands) == 2
 
-    for band in raster_bands:
-        assert "nodata" in band
-        assert "data_type" in band
-        assert "spatial_resolution" in band
-
+    for band in bands:
         assert band["nodata"] == -9999
         assert band["data_type"] == "float32"
-        assert band["spatial_resolution"] == 1.0  # abs(transform[0])
+        assert band["raster:spatial_resolution"] == 1.0  # abs(transform[0])
 
 
 def test_prepare_cog_metadata_for_stac_assets_section(
@@ -2335,9 +2337,9 @@ def test_prepare_cog_metadata_for_stac_stac_extensions(
 
     # Verify STAC extensions
     assert len(extensions) == 2
-    assert "https://stac-extensions.github.io/raster/v1.1.0/schema.json" in extensions
+    assert "https://stac-extensions.github.io/raster/v2.0.0/schema.json" in extensions
     assert (
-        "https://stac-extensions.github.io/projection/v1.1.0/schema.json" in extensions
+        "https://stac-extensions.github.io/projection/v2.0.0/schema.json" in extensions
     )
 
 
@@ -2432,7 +2434,7 @@ def test_prepare_cog_metadata_for_stac_no_crs(
     metadata = _to_mapping(metadata_model)
 
     # Should default to EPSG:4326
-    assert metadata["properties"]["proj:epsg"] == 4326
+    assert metadata["properties"]["proj:code"] == "EPSG:4326"
 
 
 def test_prepare_cog_metadata_for_stac_no_nodata(
@@ -2470,9 +2472,7 @@ def test_prepare_cog_metadata_for_stac_no_nodata(
     )
     metadata = _to_mapping(metadata_model)
 
-    # Verify nodata is None
-    raster_bands = metadata["properties"]["raster:bands"]
-    assert raster_bands[0]["nodata"] is None
+    assert "nodata" not in metadata["assets"]["cog"]["bands"][0]
 
 
 def test_prepare_cog_metadata_for_stac_multiband_different_nodata(
@@ -2512,13 +2512,13 @@ def test_prepare_cog_metadata_for_stac_multiband_different_nodata(
     )
     metadata = _to_mapping(metadata_model)
 
-    # Verify nodata values per band
-    raster_bands = metadata["properties"]["raster:bands"]
-    assert len(raster_bands) == 3
+    bands = metadata["assets"]["cog"]["bands"]
+    assert len(bands) == 3
 
-    for band in raster_bands:
+    for band in bands:
         assert band["data_type"] == "uint8"
-        assert band["spatial_resolution"] == 1.0
+        assert band["nodata"] == 255
+        assert band["raster:spatial_resolution"] == 1.0
 
 
 def test_prepare_cog_metadata_for_stac_datetime_from_stored_metadata(tmp_path: Path):
@@ -2709,7 +2709,7 @@ def test_prepare_cog_metadata_for_stac_complex_crs(
     tmp_raster_valid_fixture: Path, tmp_path: Path
 ):
     """
-    Test metadata preparation with complex CRS (non-EPSG).
+    Test metadata preparation with a projected CRS that has an EPSG code.
     """
     processing_raster = GeoprocessingRaster(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
@@ -2720,7 +2720,6 @@ def test_prepare_cog_metadata_for_stac_complex_crs(
     data = np.ones((1, 10, 10), dtype=np.uint8)
     valid_transform = from_origin(0, 10, 1, 1)
 
-    # Create with a CRS that might not have EPSG code
     with rasterio.open(
         cog_file,
         "w",
@@ -2740,7 +2739,43 @@ def test_prepare_cog_metadata_for_stac_complex_crs(
     metadata = _to_mapping(metadata_model)
 
     # Should correctly extract EPSG code
-    assert metadata["properties"]["proj:epsg"] == 2154
+    assert metadata["properties"]["proj:code"] == "EPSG:2154"
+
+
+def test_prepare_cog_metadata_for_stac_non_epsg_crs_publishes_wkt2(
+    tmp_raster_valid_fixture: Path, tmp_path: Path
+):
+    """A CRS with no EPSG code keeps its definition through proj:wkt2."""
+    processing_raster = GeoprocessingRaster(
+        config=Config(), raster_paths=[tmp_raster_valid_fixture]
+    )
+    custom_crs = CRS.from_proj4(
+        "+proj=tmerc +lat_0=0 +lon_0=-71.123 +k=0.9996 +x_0=300000 +y_0=0 "
+        "+ellps=GRS80 +units=m +no_defs"
+    )
+    cog_file = tmp_path / "custom_crs_cog.tif"
+    with rasterio.open(
+        cog_file,
+        "w",
+        driver="GTiff",
+        height=10,
+        width=10,
+        count=1,
+        dtype="uint8",
+        crs=custom_crs,
+        transform=from_origin(300000, 5000000, 10, 10),
+    ) as dst:
+        dst.write(np.ones((1, 10, 10), dtype=np.uint8))
+
+    metadata = _to_mapping(
+        processing_raster.prepare_cog_metadata_for_stac(
+            original_raster_path=tmp_raster_valid_fixture, cog_file_path=cog_file
+        )
+    )
+
+    properties = metadata["properties"]
+    assert properties["proj:code"] is None
+    assert properties["proj:wkt2"].startswith("PROJCRS")
 
 
 def test_prepare_cog_metadata_for_stac_bbox_reprojected_to_wgs84(
@@ -2750,7 +2785,7 @@ def test_prepare_cog_metadata_for_stac_bbox_reprojected_to_wgs84(
     Test that bbox/geometry are always WGS84 lon/lat, even when the COG stays
     in its native projected CRS (e.g. EPSG:32198 for SIIGSOL). STAC's core
     bbox/geometry fields are spec-required to be WGS84 regardless of the
-    asset's own CRS; proj:epsg carries the true native CRS separately.
+    asset's own CRS; proj:code carries the true native CRS separately.
     """
     processing_raster = GeoprocessingRaster(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
@@ -2787,8 +2822,8 @@ def test_prepare_cog_metadata_for_stac_bbox_reprojected_to_wgs84(
     assert bbox[0] < bbox[2]
     assert bbox[1] < bbox[3]
 
-    # proj:epsg must still reflect the true native (non-WGS84) CRS
-    assert metadata["properties"]["proj:epsg"] == 32198
+    # proj:code must still reflect the true native (non-WGS84) CRS
+    assert metadata["properties"]["proj:code"] == "EPSG:32198"
 
     # geometry corners must match the transformed bbox, not raw src.bounds
     coords = metadata["geometry"]["coordinates"][0]
@@ -2832,9 +2867,7 @@ def test_prepare_cog_metadata_for_stac_various_dtypes(
     )
     metadata = _to_mapping(metadata_model)
 
-    # Verify data type in raster bands
-    raster_bands = metadata["properties"]["raster:bands"]
-    assert raster_bands[0]["data_type"] == str(dtype.__name__)
+    assert metadata["assets"]["cog"]["bands"][0]["data_type"] == str(dtype.__name__)
 
 
 def test_prepare_cog_metadata_for_stac_large_dimensions(
@@ -2912,6 +2945,74 @@ def test_prepare_cog_metadata_for_stac_special_characters_in_filename(
     assert metadata["id"] == cog_file.stem
     assert metadata["assets"]["cog"]["title"] == cog_file.name
     assert str(cog_file.absolute()) in metadata["file_url"]
+
+
+# ------------------------------------------
+# Test cases for GeoprocessingRaster._build_stac_bands()
+# ------------------------------------------
+def _write_tif(path: Path, count: int, dtype: str, nodata: float | None) -> Path:
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=4,
+        width=4,
+        count=count,
+        dtype=dtype,
+        crs="EPSG:4326",
+        transform=from_origin(0, 4, 0.5, 0.5),
+        nodata=nodata,
+    ) as dst:
+        dst.write(np.ones((count, 4, 4), dtype=dtype))
+    return path
+
+
+def test_build_stac_bands_one_object_per_band(tmp_path: Path):
+    """STAC 1.1 `bands` is an array of band objects, never a count (#221)."""
+    tif = _write_tif(tmp_path / "six.tif", count=6, dtype="float32", nodata=-9999)
+
+    with rasterio.open(tif) as src:
+        bands = GeoprocessingRaster._build_stac_bands(src)
+
+    assert isinstance(bands, list)
+    assert len(bands) == 6
+    assert [b["name"] for b in bands] == ["b1", "b2", "b3", "b4", "b5", "b6"]
+    for band in bands:
+        assert band["data_type"] == "float32"
+        assert band["nodata"] == -9999
+        assert band["raster:spatial_resolution"] == 0.5
+        assert "spatial_resolution" not in band
+
+
+def test_build_stac_bands_uses_band_description_as_name(tmp_path: Path):
+    tif = _write_tif(tmp_path / "named.tif", count=2, dtype="uint8", nodata=None)
+    with rasterio.open(tif, "r+") as dst:
+        dst.set_band_description(1, "clay")
+
+    with rasterio.open(tif) as src:
+        bands = GeoprocessingRaster._build_stac_bands(src)
+
+    assert [b["name"] for b in bands] == ["clay", "b2"]
+
+
+def test_build_stac_bands_omits_unset_nodata(tmp_path: Path):
+    """STAC forbids `nodata: null`, so an unset nodata is left out."""
+    tif = _write_tif(tmp_path / "plain.tif", count=1, dtype="uint8", nodata=None)
+
+    with rasterio.open(tif) as src:
+        bands = GeoprocessingRaster._build_stac_bands(src)
+
+    assert "nodata" not in bands[0]
+
+
+def test_build_stac_bands_writes_nan_nodata_as_string(tmp_path: Path):
+    """A NaN nodata must be the string "nan"; a float NaN is cleaned to null."""
+    tif = _write_tif(tmp_path / "nan.tif", count=1, dtype="float32", nodata=np.nan)
+
+    with rasterio.open(tif) as src:
+        bands = GeoprocessingRaster._build_stac_bands(src)
+
+    assert bands[0]["nodata"] == "nan"
 
 
 # ------------------------------------------
@@ -3871,9 +3972,7 @@ def test_process_raster_to_cog_siigsol_override_skips_reprojection(tmp_path: Pat
     ) as dst:
         dst.write(data)
 
-    processing_raster = GeoprocessingRaster(
-        config=Config(), raster_paths=[raster_path]
-    )
+    processing_raster = GeoprocessingRaster(config=Config(), raster_paths=[raster_path])
 
     output_path = tmp_path / "output"
     output_path.mkdir()
@@ -4188,9 +4287,7 @@ def test_prepare_cog_metadata_publishes_render_assets(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
     )
     cog_file = tmp_path / "render_cog.tif"
-    _write_cog_fixture(
-        cog_file, np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
-    )
+    _write_cog_fixture(cog_file, np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32"))
 
     metadata = _to_mapping(
         processing_raster.prepare_cog_metadata_for_stac(
@@ -4223,9 +4320,7 @@ def test_prepare_cog_metadata_skips_rescale_on_a_flat_raster(
         config=Config(), raster_paths=[tmp_raster_valid_fixture]
     )
     cog_file = tmp_path / "flat_cog.tif"
-    _write_cog_fixture(
-        cog_file, np.array([[7.0, 7.0], [7.0, 7.0]], dtype="float32")
-    )
+    _write_cog_fixture(cog_file, np.array([[7.0, 7.0], [7.0, 7.0]], dtype="float32"))
 
     metadata = _to_mapping(
         processing_raster.prepare_cog_metadata_for_stac(
@@ -4252,7 +4347,8 @@ def _write_multiband_cog(path: Path, band_count: int, dtype: str) -> None:
     ) as dst:
         for band in range(1, band_count + 1):
             dst.write(
-                np.full((2, 2), band, dtype=dtype) * np.array([[1, 2], [3, 4]], dtype=dtype),
+                np.full((2, 2), band, dtype=dtype)
+                * np.array([[1, 2], [3, 4]], dtype=dtype),
                 band,
             )
 

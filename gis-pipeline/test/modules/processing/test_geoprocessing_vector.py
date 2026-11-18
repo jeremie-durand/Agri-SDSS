@@ -1,5 +1,7 @@
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import fiona
@@ -19,6 +21,7 @@ from gis_pipeline.modules.processing.geoprocessing import (
 from gis_pipeline.services.mapping import NamingPatterns
 from pyproj import CRS
 from shapely.geometry import MultiPolygon, Point, Polygon
+from structlog.testing import capture_logs
 
 _GDF_PATTERN = NamingPatterns.PATTERN_GDF_NAME.value
 _MAX = Config.POSTGRES_MAX_NAME_LENGTH
@@ -1340,6 +1343,30 @@ def test_convert_vector_files_to_gdf_geopandas_exception(
     assert result == []
 
 
+@pytest.mark.unit
+@patch(
+    "gis_pipeline.modules.io_tools.input_data.pyogrio.read_info",
+    return_value={"geometry_type": None},
+)
+@patch("gis_pipeline.modules.processing.geoprocessing.fiona.listlayers")
+@patch("gis_pipeline.modules.processing.geoprocessing.gpd.read_file")
+def test_convert_vector_files_to_gdf_skips_esri_network_tables(
+    mock_read_file, mock_listlayers, mock_read_info, tmp_path
+):
+    """Geometric-network tables of a .gdb are not read."""
+    gdb_file = tmp_path / "network.gdb"
+    gdb_file.mkdir()
+    mock_listlayers.return_value = ["RH_L", "N_1_EDesc"]
+    mock_read_file.return_value = gpd.GeoDataFrame(
+        {"gid": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"
+    )
+
+    result = GeoprocessingVector.convert_vector_files_to_gdf(vector_files=[gdb_file])
+
+    assert [name for name, _ in result] == ["network_rh_l"]
+    mock_read_file.assert_called_once_with(gdb_file, layer="RH_L")
+
+
 def test_convert_vector_files_to_gdf_name_harmonization(tmp_path):
     """Test that file names are properly harmonized."""
     # Create file with name that needs harmonization
@@ -1825,6 +1852,120 @@ def test_process_spatial_table_writes_final_path_and_triggers_when_not_chunked(
 
         assert (tmp_path / "my_table.parquet").exists()
         mock_trigger.assert_called_once_with("my_table")
+
+
+def _large_layer() -> gpd.GeoDataFrame:
+    return gpd.GeoDataFrame(
+        {
+            "name": ["small", "large"],
+            "geometry": [
+                Point(0, 0).buffer(1, quad_segs=10),
+                Point(5, 0).buffer(1, quad_segs=750),
+            ],
+        },
+        crs="EPSG:4326",
+    )
+
+
+def _insert_assigning_gids(seen: dict[str, Any]) -> Callable[..., None]:
+    """Stand in for insert_table_data, which numbers gids on the frame it gets."""
+
+    def insert(
+        gdf: gpd.GeoDataFrame, table_name: str, override_method: str, gid_offset: int
+    ) -> None:
+        seen["columns"] = list(gdf.columns)
+        seen["index"] = gdf.index
+        gdf["gid"] = range(1 + gid_offset, len(gdf) + 1 + gid_offset)
+
+    return insert
+
+
+@pytest.mark.unit
+def test_process_spatial_table_splits_large_features_in_both_stores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "gis_pipeline.modules.processing.geoprocessing.Config.DUCKDB_DATA_DIR",
+        str(tmp_path),
+    )
+    monkeypatch.setattr(
+        "gis_pipeline.modules.processing.geoprocessing.SPLIT_MAX_VERTICES", 1_000
+    )
+    processor = GeoprocessingVector(
+        gdf=_large_layer(), target_crs="EPSG:4326", collection_id="test"
+    )
+    seen: dict[str, Any] = {}
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ):
+        mock_pg.return_value.__enter__.return_value.insert_table_data.side_effect = (
+            _insert_assigning_gids(seen)
+        )
+        _process_spatial_table(table="my_table", processor=processor)
+
+    assert "gid" not in seen["columns"]
+    assert isinstance(seen["index"], pd.RangeIndex)
+    stored = gpd.read_parquet(tmp_path / "my_table.parquet")
+    assert len(stored) > 2
+    assert stored["gid"].is_unique
+    assert list(stored["gid"]) == list(range(1, len(stored) + 1))
+    assert list(stored["split_source_gid"]) == [1] + [2] * (len(stored) - 1)
+    assert list(stored["split_part"]) == [1] + list(range(1, len(stored)))
+    assert set(stored.loc[stored["split_source_gid"] == 2, "name"]) == {"large"}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("gids", "gid_offset", "expected_feature"),
+    [(None, 0, 2), (None, 50_000, 50_002), (["a", None], 0, 2)],
+    ids=["no-gid", "later-chunk", "text-gid"],
+)
+def test_process_spatial_table_logs_large_features_of_a_chunk(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    gids: list[str | None] | None,
+    gid_offset: int,
+    expected_feature: int,
+) -> None:
+    monkeypatch.setattr(
+        "gis_pipeline.modules.processing.geoprocessing.Config.DUCKDB_DATA_DIR",
+        str(tmp_path),
+    )
+    monkeypatch.setattr(
+        "gis_pipeline.modules.processing.geoprocessing.SPLIT_MAX_VERTICES", 1_000
+    )
+    layer = _large_layer()
+    if gids is not None:
+        layer.insert(0, "gid", gids)
+    processor = GeoprocessingVector(
+        gdf=layer, target_crs="EPSG:4326", collection_id="test"
+    )
+
+    with patch(
+        "gis_pipeline.modules.processing.geoprocessing.PostGISManager"
+    ) as mock_pg, patch(
+        "gis_pipeline.modules.processing.geoprocessing.trigger_materialize_and_notify"
+    ), capture_logs() as logs:
+        mock_pg.return_value.__enter__.return_value.insert_table_data.side_effect = (
+            _insert_assigning_gids({})
+        )
+        _process_spatial_table(
+            table="my_table",
+            processor=processor,
+            chunk_index=1,
+            gid_offset=gid_offset,
+        )
+
+    stored = gpd.read_parquet(tmp_path / ".chunks" / "my_table" / "part0001.parquet")
+    assert len(stored) == 2
+    assert "split_part" not in stored.columns
+    warnings = [log for log in logs if log["event"] == "feature_not_split"]
+    assert [
+        (w["table"], w["feature"], w["vertices"], w["reason"]) for w in warnings
+    ] == [("my_table", expected_feature, 3001, "chunked")]
 
 
 # ------------------------------------------

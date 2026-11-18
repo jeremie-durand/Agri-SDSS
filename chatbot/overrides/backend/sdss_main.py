@@ -5,10 +5,11 @@ uvicorn runs this module (sdss_main:app) instead of fastapi_app:app so that
 /sdss/* routes are available alongside all upstream routes.
 """
 
-from agri_i18n.middleware import LocaleASGIMiddleware
 from fastapi_app import app
 from sdss_api import router as sdss_router
 from starlette.middleware.cors import CORSMiddleware
+
+from agri_i18n.middleware import LocaleASGIMiddleware
 
 app.include_router(sdss_router, prefix="/sdss")
 

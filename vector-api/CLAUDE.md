@@ -6,16 +6,20 @@ unless overridden here.
 
 ## Service Overview
 
-OGC API – Features over two backends, plus three PostGIS utility endpoints, in
-one FastAPI app on port 8083 (`expose:` only). Public prefix: `/vector-api`.
+OGC API – Features over two backends, plus the `/pedo-properties` utility
+endpoint, in one FastAPI app on port 8083 (`expose:` only). Public prefix:
+`/vector-api`.
 
 | Route | Backend | Code |
 | --- | --- | --- |
 | `/postgis/*` | PostGIS via TiPg (mounted sub-app) | `app.py` |
 | `/parquet/*` | GeoParquet via DuckDB | `parquet_router.py`, `duckdb_manager.py` |
-| `POST /water-distance`, `/pedo-coverage`, `/som-field-match` | PostGIS via asyncpg | `*_router.py`, `db_pool.py` |
-| `POST /pedo-properties` | PostGIS overlap + GeoParquet joins | `pedo_properties_router.py` |
+| `POST /pedo-properties` | PostGIS overlap + GeoParquet joins | `pedo_properties_router.py`, `db_pool.py` |
 | `POST /parquet/collections/{id}/invalidate` | DuckDB cache | `parquet_router.py` |
+
+The water-distance, pedo-coverage and som-field-match utilities are OGC
+processes in process-api, not vector-api routes; see
+[process-api/CLAUDE.md](../process-api/CLAUDE.md).
 
 - Endpoint list, output formats, configuration:
   [README.md](README.md). Where it or
@@ -46,16 +50,21 @@ Restart `home` after recreating `vector-api` — see the root
 
 ```text
 src/                      Copied to /app/vector_api — import as the vector_api package
-  app.py                  FastAPI app, lifespan (TiPg DB init with 5 retries),
-                          MountRootPathMiddleware, landing + Parquet OpenAPI routes
+  app.py                  FastAPI app, lifespan (TiPg DB init with 5 retries,
+                          background schema warm-up), MountRootPathMiddleware,
+                          landing + Parquet OpenAPI routes
   config.py               Prefixes, CORS, APP_ROOT_PATH → EXTERNAL_ROOT,
                           external_base_url()
   parquet_router.py       /parquet OGC Features routes + /invalidate
   duckdb_manager.py       DuckDBManager singleton: discovery, schema cache,
                           materialized connections, queries
   materialize.py          RTree-indexed .duckdb build (copy — see Cross-Service)
-  db_pool.py              Shared asyncpg pool for the utility routers
-  water_router.py, pedo_router.py, som_router.py   Utility endpoints
+  check_materialized.py   make check-materialized: large collections without
+                          a usable .duckdb (exit 0/1/2)
+  check_peak_memory.py    make check-parquet-memory: peak RSS of each known heavy
+                          request, read from PID 1 (exit 0/1/2)
+  db_pool.py              asyncpg pool for pedo_properties_router
+  pedo_properties_router.py   /pedo-properties
 test/                     Bind-mounted at /app/vector_api/test
 scripts/entrypoint.sh     Waits for the database, then execs uvicorn
 ```
@@ -70,14 +79,34 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   `external_base_url(request)` from `config.py`; never emit
   `request.base_url` directly.
 - TiPg is mounted at `/postgis` through `MountRootPathMiddleware`. It sets
-  `root_path` to the mount prefix and rewrites JSON response bodies to insert
-  `APP_ROOT_PATH`. Widening `root_path` instead breaks TiPg routing (404).
-- Home nginx strips `/vector-api/` and also `sub_filter`s the Swagger HTML. A
+  `root_path` to the mount prefix and rewrites JSON and HTML response bodies to
+  insert `APP_ROOT_PATH` (tiles and images pass through). The rewrite needs
+  uncompressed bodies, which home's `Accept-Encoding ""` guarantees. Widening `root_path` instead breaks TiPg routing (404).
+  It also points `scope["router"]` at TiPg's router: TiPg's landing resolves
+  `request.url_for("openapi")` / `("swagger_ui_html")`, which on the parent
+  router become `/postgis/openapi.json` and `/postgis/docs` (404).
+- Home nginx strips `/vector-api/`, `sub_filter`s the Swagger HTML, and
+  rewrites Starlette's slash-redirect `Location` back under `/vector-api/`
+  (`proxy_redirect`). A
   new HTML page may need a matching rule in `frontend/home/scripts/entrypoint.sh`.
+- `/parquet/openapi.json` is generated from `parquet_router.routes`, so a
+  route added to that router appears in `/parquet/api.html` automatically; a
+  route defined in `app.py` (the `/parquet` landing) does not. Do not build it
+  by filtering `app.routes`: since FastAPI 0.141 an included router is a
+  single `_IncludedRouter` entry there, and the spec came back empty (#276).
 - `config.py` sets `TIPG_NAME` / `TIPG_ROOT_PATH` defaults, but `app.py`
   imports TiPg first, so they have no effect: the `/postgis` landing title is
   TiPg's default. Set TiPg options through `docker-compose.yml` env instead
-  (as `TIPG_FALLBACK_KEY_NAMES` and `TIPG_DB_SPATIAL_EXTENT` are).
+  (as `TIPG_FALLBACK_KEY_NAMES`, `TIPG_DB_SPATIAL_EXTENT` and
+  `TIPG_DB_FUNCTIONS` are).
+- `TIPG_DB_FUNCTIONS=[]` keeps SQL functions out of the `/postgis` catalog.
+  Without it TiPg lists every geometry-returning function in `public`,
+  PostGIS's own included, and their items pages answer 422 (#277). To publish
+  a project function, list it by `schema.name`; do not remove the setting.
+- CORS belongs to the parent app alone (`VECTOR_API_CORS_ORIGINS`). `app.py`
+  removes TiPg's own `CORSMiddleware`, which would otherwise reflect any
+  origin on `/postgis/*` with `allow-credentials: true`. Home nginx adds no
+  CORS header on `/vector-api/`.
 
 ## Parquet Backend
 
@@ -89,40 +118,196 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 - ID column: first of `gid`, `id`, `fid`, `ogc_fid`, `objectid`. Geometry
   column: first of `geometry`, `geom`, `the_geom`, `shape`, `wkb_geometry`.
   Without an ID column, item ids are 1-based row numbers.
+- Binary columns are left out of every response (#289): `BLOB` columns, and
+  any `GEOMETRY` column other than the served geometry. DuckDB returns their
+  values as bytes, which the JSON rendering cannot encode (500).
+  `_compute_parquet_schema()` lists them in `binary_columns`, the item queries
+  drop them in SQL through `_star_sql()`, and `property_columns()` feeds both
+  queryables outputs. Keep `schema["columns"]` complete:
+  `_can_page_by_position()` must see every source column name.
 - A `<id>.duckdb` next to the Parquet file (built by gis-pipeline) is
-  preferred automatically. It is opened read-only and cached per collection,
-  and a file that fails to open is remembered and skipped.
-  `invalidate_materialized()` clears both.
+  preferred automatically. It is opened read-only, and a file that fails to
+  open is remembered and skipped. `invalidate_materialized()` clears both.
+  What counts as usable is decided by `open_materialized()`, which
+  `make check-materialized` calls too: change the probe there, never in one
+  caller only.
+- Without its `.duckdb`, a collection is served from `read_parquet()`, about
+  50× slower on large ones (#282). The first raw fallback of a geometry
+  collection larger than `VECTOR_API_RAW_PARQUET_WARN_MB` (default 50) logs
+  `Serving <id> from raw Parquet (<size> MB, no .duckdb)` once per process;
+  `/invalidate` re-arms it. `_warn_if_large_raw_parquet()` is called where
+  `query_items()` and `get_item_by_id()` fall back, not in
+  `_run_materialized()`: `query_items()` skips that call when the file is
+  missing. Collections without geometry can never be materialized and are
+  never reported.
+- Open `.duckdb` connections form an LRU capped by
+  `VECTOR_API_MAX_OPEN_DUCKDB` (default 2). Each one is a separate DuckDB
+  instance that keeps its own block cache, so an unbounded cache got the
+  container OOM-killed after about 40 collections (#288). On the real data in
+  1 GiB, cap 4 at 819MB was still killed and cap 2 walks all 253 collections.
+  Raise the cap only together with the container memory. The cap bounds the
+  cache, not every open instance: a new connection opens before the oldest is
+  popped, and a popped one stays open until its running query ends, so up to
+  `max_open + max_queries + 1` instances can be live for a moment. Openers stay
+  one at a time: connections open under `_cache_lock`, and the request gate
+  (below) admits one request.
+- The lifespan starts `warm_schema_cache()` (`duckdb_manager.py`) as a
+  background task once TiPg is up, and cancels it on shutdown. It creates the
+  manager, then computes each collection's schema through
+  `run_duckdb_request`, one collection per gate acquisition. The gate wakes
+  waiters in arrival order, so a request that arrives mid warm-up waits for
+  one scan, not the whole catalog. Do not fold the loop into a single
+  `run_duckdb_request` call, and do not run it outside the gate. Failures are
+  logged and never raised: start-up and `/postgis` never depend on it. On
+  the 253 real collections (1 CPU) it takes 16–17 s, as long as the cold
+  first `/parquet/collections` did (16.9 s; now about 15 ms). Stopping the
+  container mid warm-up shuts down in about 0.1 s.
 - The schema cache (`_schema_cache`) is never cleared. The code assumes
   Parquet files are immutable, but gis-pipeline overwrites `<id>.parquet` on
   re-ingestion, so feature count, bbox and detected columns stay stale until a
-  restart. `/invalidate` does not clear it.
-- DuckDB connections are not thread-safe. Every query goes through
-  `_fetchone`/`_fetchall` with the matching lock. For a materialized
-  connection, hold its lock across count and select, as `query_items()` does,
-  so `/invalidate` cannot close it mid-request.
+  restart. `/invalidate` does not clear it. If the new file drops or renames
+  a binary column, the cached `binary_columns` still names it, DuckDB rejects
+  the `EXCLUDE` (Binder Error), and items answer 500 and single items 404
+  until a restart. A schema whose bbox scan raised
+  (for example `OutOfMemoryException` under a low `DUCKDB_MEMORY_LIMIT`) is
+  not cached: that request serves the collection without an extent, and the
+  next one computes the schema again. This applies to any DuckDB error, so a
+  bbox scan that always fails (a `geometry` column that is not a geometry
+  type) is re-run and logged on every request for that collection.
+- DuckDB connections are not thread-safe. In-memory queries go through
+  `_fetchone`/`_fetchall`, which hold `self._lock`. Materialized queries go
+  only through `_run_materialized(collection_id, work)`; never use the pair
+  `_get_materialized_connection()` returns directly, because eviction or
+  `/invalidate` can close it at any time. `_run_materialized` takes a query
+  slot (`VECTOR_API_MAX_DUCKDB_QUERIES`, default 1), then the connection's
+  lock, for the whole of `work`. It reopens a connection closed between lookup
+  and lock. Run count and select in one `work`, as `query_items()` does.
+- Lock rules that keep this deadlock-free:
+  - `_cache_lock` guards only the cache dicts, including the identity check
+    `_run_materialized` makes while holding a connection lock.
+  - A connection is popped from the cache under `_cache_lock`, and then closed
+    under its own lock with `_cache_lock` released. Never hold `_cache_lock`
+    while waiting for a connection lock.
+  - Order: query slot, then connection lock.
+  - `self._lock` is separate: it is held for whole in-memory queries.
+- Every request-time DuckDB call goes through
+  `await run_duckdb_request(func, *args)` (`duckdb_manager.py`). It runs `func`
+  in a worker thread behind one process-wide `CapacityLimiter(1)`, so DuckDB
+  never blocks the event loop (#280) and one request at a time runs DuckDB
+  work, on the in-memory and the materialized connections alike. That keeps
+  the memory envelope the 819MB figure below and the cap figures above were
+  measured with: `/postgis` and `/` stay responsive, and Parquet requests still
+  queue behind each other. A waiting request holds no thread. Calling the
+  manager directly from an `async def` route stalls the whole app again. A
+  plain `def` route or `run_in_threadpool` skips the gate, so response
+  rendering, feature building and in-memory vs materialized queries run in
+  parallel outside that envelope. The query slots alone still serialize
+  materialized queries: four parallel heavy queries were OOM-killed before
+  they existed.
+- vector-api runs one uvicorn worker on purpose, unlike stac-api and
+  raster-api (`WEB_CONCURRENCY=2`). The gate, the connection cache and every
+  DuckDB `memory_limit` are per process, so a second worker doubles the DuckDB
+  instances, the schema warm-up and the peak, and lets two heavy queries run
+  in the 1 GiB container (#348). Per-thread or pooled read-only connections
+  are rejected for the same reason: each connection is its own DuckDB
+  instance with its own `memory_limit`. Either needs the container memory
+  raised and `make check-parquet-memory` re-run first.
+  `make test-repo-consistency` fails on any vector-api `WEB_CONCURRENCY` other
+  than a compose `WEB_CONCURRENCY=1`, in compose or in the Dockerfile, and on
+  any `--workers` option.
+- The `/parquet` read routes are thin `async def` handlers. Each one keeps its
+  signature and docstring, which feed `/parquet/openapi.json`, and passes a
+  `_*_body` builder and a renderer to `_render`. Rendering happens in the
+  worker. Every value goes through `_encode_json`, the same Pydantic JSON-mode
+  serialization and `json.dumps` arguments FastAPI used, so decimals stay
+  strings and dates ISO. `response_model=dict[str, Any]` on the decorator
+  keeps the OpenAPI schema. `test_parquet_response_encoding.py` and the
+  snapshot in `test/data/parquet_openapi.json` pin both.
+- Items and single items are the exception for geometry (#292). The router
+  asks the manager for `raw_geometry=True`, so each geometry is a `RawGeoJSON`
+  holding DuckDB's `ST_AsGeoJSON` text. `_feature_collection_response` and
+  `_feature_response` splice that text into the body unparsed, encode every
+  other key through `_encode_json`, and join the parts once. Parsing it and
+  serializing it back made one 54 MiB polygon peak at 1023 MB in a 1 GiB
+  container (stage-by-stage replay). The JSON value is unchanged, but number spelling inside
+  `geometry` is DuckDB's (`0.00001` where Python writes `1e-05`). Called
+  directly, `query_items()` and `get_item_by_id()` still return parsed dicts.
+- A page's geometry is bounded by `VECTOR_API_MAX_PAGE_VERTICES` (default
+  1500000, just above the largest real feature, `grhq_hr_06aa_udh`, 1 442 728
+  vertices) (#292). Before rendering, `query_items()` runs a sizing query over
+  the same page selection (same source, filter, order, `LIMIT` and `OFFSET`,
+  built beside both page shapes) that returns `ST_NPoints` per row, keeps the
+  longest leading run within the budget (`_rows_within_budget`), then runs the
+  page query with that `LIMIT`. Count, sizing and page run in one `work` on a
+  materialized collection. A first row above the budget raises
+  `FeatureTooLargeError`, which the router maps to a translated 413, on
+  `items` and `items/{item_id}` alike. Vertices, not GeoJSON bytes, because
+  the size is known only after `ST_AsGeoJSON`, the step that costs memory.
+  The `next` link's offset is `offset + numberReturned`, so a shortened page
+  continues where it stopped; `prev` keeps `offset - limit`.
+- `/invalidate` runs in the default thread pool, outside the gate. It runs no
+  query, but it waits for a running query on the same collection, and
+  gis-pipeline calls it with a 10 s timeout, so it must not queue behind other
+  collections.
+- Every DuckDB connection is opened with `config={"memory_limit": ...}` from
+  `DUCKDB_MEMORY_LIMIT` (default `819MB`). The limit is per DuckDB instance,
+  not per process: the in-memory connection and each materialized `.duckdb`
+  are separate instances with their own budget. A connection opened without it
+  defaults to 80% of the container memory, and a heavy query then gets the
+  process OOM-killed instead of raising (#279).
+- 819MB is sized for the largest single feature. `grhq_hr_06aa_udh` and
+  `grhq_hr_06ac_udh` are each one polygon of about 54 MiB of GeoJSON (1.44M
+  vertices). They answer 500 at 512MB and 200 at 819MB. The default memory
+  settings, the cap, the page vertex budget and the container's
+  `memswap_limit` were measured as a set (#292): `make check-parquet-memory`
+  (`check_peak_memory.py`, run inside the container) gave peaks up to 833 MB
+  on the known heavy requests, with no swap, except the shortened 1.5M-vertex
+  page below. Before the WKB fix below, multi-feature pages peaked at
+  818-920 MB on a live container and 931 MB in a fresh process, so the probe
+  threshold is 950 MB until the GRHQ data is re-ingested with the split and the
+  budget can be lowered. After it, `grhq_hr_04ac_s_udh/items?limit=10000` (a
+  page shortened to the 1.5M budget) still peaks at 774-960 MB depending on
+  what DuckDB has cached from earlier requests (`DUCKDB_MEMORY_LIMIT=640MB`
+  does not help), so that one request can fail the probe until the follow-up
+  lowers the budget. A failure there is that known edge, not a regression.
+  Profiling put that excess in DuckDB reading every candidate geometry, not
+  in Python. `memswap_limit` equals the memory limit, so the container never
+  swaps: without it a request that does not fit answers 200 slowly on a host
+  with swap and is killed on one without. `make test-repo-consistency` checks
+  that the compose defaults match the `DEFAULT_*` constants and that
+  `memswap_limit` equals the memory limit. The item queries leave the served
+  geometry out of `*` (`_columns_left_out`): it is returned once, as GeoJSON
+  text. Heavy queries spill to `<id>.duckdb.tmp` next to the data, which needs
+  the read-write `./data/duckdb` mount.
+- The `spatial` extension is installed at image build into
+  `/tmp/.duckdb/extensions` (`HOME=/tmp`), owned by UID 1000, so a new
+  container loads it without network access (#281). The run-time
+  `INSTALL spatial` calls stay as a no-op fallback for running outside the
+  image. Never mount a volume or `tmpfs` over `/tmp`: it would hide the
+  extension, and the manager would download it again, or fail to start
+  offline. `test_duckdb_extensions.py` fails if the extension was not baked
+  into the image.
 - SQL: escape identifiers with `escape_identifier()` and path literals with
   `_escape_sql_string()`. Bind values as `$1` parameters, never
   interpolation. `bbox` values are floats parsed and range-checked in the
   router before they reach SQL.
 
-## PostGIS Utility Endpoints
+## The `/pedo-properties` Endpoint
 
-- Table names come from `WATER_TABLE_NAME`, `PEDO_TABLE_NAME` and
-  `SOM_TABLE_NAME` (set in `docker-compose.yml`) and are interpolated into
-  SQL. They are operator config, never request input.
-- The GeoJSON input is always bound as `$1`. Queries are written so the GiST
-  index is used (`<->` KNN, `ST_DWithin`, `ST_Intersects`); keep that when
-  editing them.
+- The polygon table comes from `PEDO_POLYGON_TABLE_NAME` (set in
+  `docker-compose.yml`) and is interpolated into SQL. It is operator config,
+  never request input.
+- The GeoJSON input is always bound as `$1`, and the overlap query filters with
+  `ST_Intersects` so the GiST index is used; keep that when editing it.
 - The database role is the app role (`DB_USER` mapped onto `POSTGRES_USER`),
   so queries are read-only DML.
-- `som_field_boundaries.has_gee_data` is stamped by gis-pipeline at the end of
-  each run; `/som-field-match` depends on it.
-- `/pedo-properties` is the one mixed endpoint: PostGIS only computes which IRDA
-  polygons (`PEDO_POLYGON_TABLE_NAME`) the parcel overlaps and by how much; the
-  component, hydrologic-group and bulk-density joins run in DuckDB on the
-  GeoParquet tables named by the `PEDO_*_COLLECTION` variables, through
+- It is a mixed endpoint: PostGIS only computes which IRDA polygons the
+  parcel overlaps and by how much; the component, hydrologic-group and
+  bulk-density joins run in DuckDB on the GeoParquet tables named by the
+  `PEDO_*_COLLECTION` variables, through
   `DuckDBManager.parquet_source()` / `query_rows()`. Missing tables return 503.
+  Those joins run in `_load_soil_tables` through `run_duckdb_request`, the
+  same gate as `/parquet`. The asyncpg overlap query stays on the event loop.
 - The IRDA `couverture_pps` table currently lacks every `numero_composante = 1`
   row (each polygon's dominant soil), so `described_pct` is low and the dominant
   hydrologic group can be wrong until it is re-imported. The endpoint reports
@@ -162,14 +347,31 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 | Marker | Where | What it needs |
 | --- | --- | --- |
 | `unit` / `mocked` | most files | nothing live; asyncpg pool and `requests` are patched |
-| `integration` | `test_parquet_ogc_compliance.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
-| `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable |
+| `integration` | `test_parquet_ogc_compliance.py`, `test_parquet_catalog_walk.py`, `test_parquet_response_encoding.py`, `test_event_loop_isolation.py`, `test_parquet_schema_cache.py`, `test_schema_warmup.py`, `test_parquet_timestamptz.py`, `test_parquet_binary_columns.py`, `test_parquet_geometry_passthrough.py`, `test_parquet_page_budget.py` | real DuckDB on fixture GeoParquet (`tmp_path`) |
+| `integration` | `test_duckdb_extensions.py` | the vector-api image, with `spatial` installed at build; fails outside it |
+| `integration` | `test_postgis_integration.py` | live PostgreSQL; skips itself if unavailable, and the tile test also skips when no collection serves a feature with a geometry |
 
+- Concurrency tests hold a DuckDB call with `Blocker` from
+  `test/concurrency.py` (no `test_` prefix, so it is not collected) and probe
+  another route while it waits (#280, #348). `test_event_loop_isolation.py`
+  probes `/` and the `/postgis/` landing through `httpx.ASGITransport`, which
+  runs no lifespan. TiPg's catalog middleware refuses every request without a
+  catalog, so the landing probe sets an empty one on `tipg_app.state`.
+  `test_postgis_integration.py` probes a zoom-12 TiPg vector tile on the
+  session `TestClient`, whose lifespan opened the pool. Only that one runs
+  against real PostGIS, so it skips in CI when no table is published.
 - Build Parquet fixtures with the `sample_geoparquet` and `temp_parquet_dir`
   fixtures in `conftest.py`.
 - Do not touch the real singleton. Patch
   `vector_api.parquet_router.get_shared_manager` to return a
   `DuckDBManager(data_dir=tmp_path)`, as `conftest.py` does.
+- A session-scoped autouse fixture in `conftest.py` replaces
+  `vector_api.app.warm_schema_cache` with a no-op, because the test container
+  bind-mounts the real data. Keep it session-scoped: a session-scoped
+  `TestClient` enters the lifespan before any function-scoped patch exists,
+  and the real warm-up then holds the gate and stalls later tests. To test the
+  warm-up itself, patch `vector_api.duckdb_manager.get_shared_manager`, as
+  `test_schema_warmup.py` does.
 - New utility endpoints need tests for the normal result, the empty result, a
   missing geometry (422) and a database error (500). Follow
-  `test_water_router.py`.
+  `test_pedo_properties_router.py`.

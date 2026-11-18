@@ -11,12 +11,32 @@ def admin_credentials_available() -> bool:
     return bool(os.getenv("PGSTAC_ADMIN_USER") and os.getenv("PGSTAC_ADMIN_PASS"))
 
 
-def admin_delete_collection(collection_id: str) -> None:
-    """Remove a test collection as the pgstac admin.
+def _connect(user: str | None, password: str | None) -> psycopg.Connection:
+    return psycopg.connect(
+        host=os.getenv("PGHOST", "database"),
+        port=os.getenv("PGPORT", "5432"),
+        dbname=os.getenv("PGDATABASE", "agri_sdss"),
+        user=user,
+        password=password,
+        connect_timeout=10,
+    )
 
-    The app role holds only DML grants, and pgstac's collection delete trigger
-    drops a partition table, which requires ownership -- so the API's DELETE
-    returns InsufficientPrivilegeError. Tests clean up out-of-band instead.
+
+def admin_connection() -> psycopg.Connection:
+    """Connect as the pgstac admin; check admin_credentials_available() first."""
+    return _connect(os.getenv("PGSTAC_ADMIN_USER"), os.getenv("PGSTAC_ADMIN_PASS"))
+
+
+def app_connection() -> psycopg.Connection:
+    """Connect as the application role the API runs as."""
+    return _connect(os.getenv("PGUSER"), os.getenv("PGPASSWORD"))
+
+
+def admin_delete_collection(collection_id: str) -> None:
+    """Remove a test collection and its items as the pgstac admin.
+
+    Deletes whatever the API did not, so a failed test or a broken DELETE
+    route never leaks a collection into the catalog the stack serves.
     """
     if not admin_credentials_available():
         warnings.warn(
@@ -26,17 +46,6 @@ def admin_delete_collection(collection_id: str) -> None:
         )
         return
 
-    with psycopg.connect(
-        host=os.getenv("PGHOST", "database"),
-        port=os.getenv("PGPORT", "5432"),
-        dbname=os.getenv("PGDATABASE", "agri_sdss"),
-        user=os.getenv("PGSTAC_ADMIN_USER"),
-        password=os.getenv("PGSTAC_ADMIN_PASS"),
-        connect_timeout=10,
-    ) as conn:
-        conn.execute(
-            "DELETE FROM pgstac.items WHERE collection = %s", (collection_id,)
-        )
-        conn.execute(
-            "DELETE FROM pgstac.collections WHERE id = %s", (collection_id,)
-        )
+    with admin_connection() as conn:
+        conn.execute("DELETE FROM pgstac.items WHERE collection = %s", (collection_id,))
+        conn.execute("DELETE FROM pgstac.collections WHERE id = %s", (collection_id,))

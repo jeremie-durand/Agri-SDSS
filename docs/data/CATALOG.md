@@ -25,7 +25,7 @@ Datasets fetched on demand from external open APIs — by the process-api proces
 
 | Source | Fetched by | Provider | License | Description | Details |
 | ------ | ---------- | -------- | ------- | ----------- | ------- |
-| AAC_ANNUAL_CROP | map frontend (`/aac-identify/` proxy) | Agriculture and Agri-Food Canada | OGL-Canada | Annual crop classification raster for Canada 2016–2024 | [Details](sources/AAC_ANNUAL_CROP.md) |
+| AAC_ANNUAL_CROP | map frontend (`/aac-identify/` proxy) | Agriculture and Agri-Food Canada | OGL-Canada | Annual crop classification raster for Canada 2016–2025 | [Details](sources/AAC_ANNUAL_CROP.md) |
 | Sentinel-2 L2A | `sentinel-fetch` | Copernicus Data Space (ESA) | [Copernicus Sentinel licence](https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice) | Satellite imagery → vegetation indices (NDVI, EVI, SAVI) | [Specs](../../process-api/docs/SENTINEL_FETCH_PROCESS.md) |
 | Quebec LiDAR derivatives | `lidar-fetch` | MRNF, Gouvernement du Québec | OGL-Canada 2.0 | DTM, CHM, hillshade, slope rasters (1–2 m) | [Specs](../../process-api/docs/LIDAR_QUERY_SPECS.md) |
 | ERA5-Land | `weather-timeseries`, `climate-indicators` | Copernicus C3S via PAVICS (Ouranos) | [Copernicus C3S licence](https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land) | Historical reanalysis, daily/hourly, 1950 → present | [Specs](../../process-api/docs/CLIMATE_WEATHER_SPECS.md) |

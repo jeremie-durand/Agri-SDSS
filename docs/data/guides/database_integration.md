@@ -29,7 +29,7 @@ Replaces the manual [production dump restore](../../DEPLOYMENT.md#8-restoring-a-
 
 Native PostgreSQL publication/subscription. Rows flow automatically after an initial copy; local indexes and PostGIS geometries work normally, so vector-api serves replicated tables at full speed.
 
-On the **source** database (requires PostgreSQL ≥ 10, same or older major version than Agri-SDSS's 15):
+On the **source** database (requires PostgreSQL ≥ 10, same or older major version than Agri-SDSS's 17):
 
 ```sql
 -- postgresql.conf: wal_level = logical  (restart required)
@@ -75,7 +75,7 @@ CREATE INDEX ON my_table_local USING GIST (geometry);
 
 ### Scheduled dump/restore (batch)
 
-The existing [section 8 procedure](../../DEPLOYMENT.md#8-restoring-a-production-database-dump), narrowed to selected tables (`pg_dump -t my_table`) and run from cron. Simplest to operate; freshness is the cron interval.
+A `pg_dump -Fc -t my_table` of the selected tables on the source, loaded from cron with `pg_restore --clean --if-exists --no-owner --no-privileges` as the app role, so the tables stay owned by it. The archive holds only the selected tables with their indexes; `pg_restore -t` would drop the indexes. Simplest to operate; freshness is the cron interval. Do not use the [section 8 procedure](../../DEPLOYMENT.md#8-restoring-a-production-database-dump) for this: it rebuilds the whole database from an empty one.
 
 ## Connection direction
 

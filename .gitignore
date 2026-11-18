@@ -213,7 +213,12 @@ pygeoapi/config/openeo-config/refresh-tokens.json
 process-api/processes/hamed_functions/
 
 # AI development tools
-.claude/
+.claude/*
+!.claude/agents/
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/github-issues/
+!.claude/skills/github-issues-apply/
 .github/prompts/
 .github/skills/
 .cursor/

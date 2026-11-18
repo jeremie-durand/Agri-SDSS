@@ -1,4 +1,5 @@
 import argparse
+import sys
 from pathlib import Path
 
 import structlog
@@ -44,25 +45,29 @@ def process_vector_pipeline(vector_files, args, report_data):
         args: Parsed command-line arguments.
         report_data (dict): Dictionary to store processing report data.
     """
+    import shutil
+
     import fiona
     import geopandas as gpd
-    import shutil
     from gis_pipeline.modules.db.duckdb_utils import DuckDBManager
     from gis_pipeline.modules.db.materialize_trigger import (
         trigger_materialize_and_notify,
     )
     from gis_pipeline.modules.db.pg_utils import PostGISManager
     from gis_pipeline.modules.io_tools.input_data import (
+        apply_source_dtypes,
         detect_non_spatial_csv,
         extract_gpkg_fk_schema,
+        is_ingested_layer,
         read_csv_file,
+        read_source_dtypes,
     )
     from gis_pipeline.modules.processing.geoprocessing import (
         GeoprocessingVector,
         geoprocessing_vector_data,
         stamp_gee_flags_on_field_boundaries,
     )
-    from gis_pipeline.services.mapping import CHUNK_SIZE, QGISInternalLayers
+    from gis_pipeline.services.mapping import CHUNK_SIZE
 
     if len(vector_files) == 0:
         logger.info("No vector files found. Skipping vector data processing.")
@@ -88,7 +93,6 @@ def process_vector_pipeline(vector_files, args, report_data):
         report_data["vector_data"]["errors"] += 1
 
     # Spatial files: one file → one layer → one chunk at a time to bound peak RAM
-    internal_layer_names = {e.value for e in QGISInternalLayers}
     spatial_files = [vf for vf in vector_files if vf not in non_spatial_csv_files]
 
     for vector_file in spatial_files:
@@ -119,7 +123,7 @@ def process_vector_pipeline(vector_files, args, report_data):
             continue
 
         valid_layers = [
-            layer for layer in all_layers if layer.lower() not in internal_layer_names
+            layer for layer in all_layers if is_ingested_layer(vector_file, layer)
         ]
 
         # Accumulate {sqlite_layer → pg_table} for FK extraction after all layers load
@@ -141,6 +145,7 @@ def process_vector_pipeline(vector_files, args, report_data):
                 )
                 clean_name = GeoprocessingVector._harmonize_name_gdf(name=raw_name)
                 is_chunked = total_rows > CHUNK_SIZE
+                source_dtypes = read_source_dtypes(vector_file, layer)
 
                 if is_chunked:
                     staging_dir = Path(Config.DUCKDB_DATA_DIR) / ".chunks" / clean_name
@@ -151,6 +156,7 @@ def process_vector_pipeline(vector_files, args, report_data):
                     gdf_chunk = gpd.read_file(
                         vector_file, layer=layer, rows=slice(start, start + CHUNK_SIZE)
                     )
+                    gdf_chunk = apply_source_dtypes(gdf_chunk, source_dtypes)
 
                     geoprocessing_vector_data(
                         gdf_list=[(clean_name, gdf_chunk)],
@@ -286,6 +292,9 @@ def main():
     )
 
     generate_processing_report(log=logger, report_data=report_data)
+
+    if report_data["vector_data"]["errors"] or report_data["raster_data"]["errors"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

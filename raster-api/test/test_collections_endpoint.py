@@ -1,10 +1,9 @@
 """Tests for the raster-api /collections listing endpoint."""
+
 import pytest
 from fastapi.testclient import TestClient
-
 from raster_api.collections_router import list_cog_files
 from raster_api.main import app
-
 
 # ------------------------------------------
 # list_cog_files() — pure directory-scanning logic
@@ -31,9 +30,7 @@ def test_list_cog_files_id_strips_extension(tmp_path):
 
     result = list_cog_files(data_dir=str(tmp_path))
 
-    assert result == [
-        {"id": "corg_fr_siigsol_cog", "title": "Corg Fr Siigsol Cog"}
-    ]
+    assert result == [{"id": "corg_fr_siigsol_cog", "title": "Corg Fr Siigsol Cog"}]
 
 
 @pytest.mark.unit

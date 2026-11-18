@@ -40,6 +40,7 @@ sed -i.bak -e "s|^POSTGRES_PASS=.*|POSTGRES_PASS=$(openssl rand -hex 24)|" \
 Good to know:
 
 - PostgreSQL is initialized with these credentials on the **first** `docker compose up`. To change them afterwards, use `ALTER ROLE` in the database — or wipe `./data/pg` to re-initialize.
+- The database runs PostgreSQL 17 since #90 and refuses a data directory created by PostgreSQL 15: `database` exits at startup with `database files are incompatible with server` (see `docker compose logs database`). Keep your local data by upgrading it as in [DEPLOYMENT.md section 9](DEPLOYMENT.md#9-upgrading-postgresql-15-to-17), or set it aside to start from an empty database. `./data/pg` belongs to root, so move it through a container: `docker run --rm -v "$PWD/data/pg:/pg" alpine mv /pg/.pgdata /pg/.pgdata-pg15` (adapt the path if `PGDATA_PATH` is set).
 - If you set passwords by hand, use only letters and digits — some services embed them in a connection URL.
 - Don't export `DB_PASS`/`POSTGRES_PASS` in your shell: OS environment variables override `.env` in Docker Compose.
 - Optional integrations (LLM API key for the chatbot, OpenEO token for climate processes) are documented in `.env.example`.
@@ -145,6 +146,7 @@ git commit -m "fix: resolve projection issue in pipeline"
 | `docs:` | Documentation changes |
 | `test:` | Test additions/changes |
 | `refactor:` | Code refactoring |
+| `ci:` | CI workflow changes |
 | `chore:` | Maintenance tasks |
 
 ### 5. Open a Pull Request
@@ -159,6 +161,7 @@ git commit -m "fix: resolve projection issue in pipeline"
 - [ ] New logic is covered by tests
 - [ ] Documentation updated (READMEs, guides, catalog)
 - [ ] If you changed CLI arguments: `make generate-args` was run (CI fails if `ARGS.md` is out of sync)
+- [ ] If you use Claude Code: the `agri-reviewer` subagent ran clean, or its findings were addressed
 
 CI will build the service images, verify `ARGS.md` sync, run the full test suite, and run a security scan.
 

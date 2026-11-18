@@ -1,6 +1,6 @@
 # stac-api
 
-STAC 1.0.0 catalog API backed by pgSTAC. Search raster and vector datasets by spatial extent, time range, and metadata properties.
+STAC catalog API (stac-fastapi + pgSTAC); items and collections follow STAC 1.1.0. Search raster and vector datasets by spatial extent, time range, and metadata properties.
 
 **Port**: 8081 | **Requires**: PostGIS with pgSTAC schema
 
@@ -53,7 +53,7 @@ curl -X POST https://<host>/stac-api/search \
 | --- | --- |
 | `PGHOST` / `PGPORT` / `PGDATABASE` | pgSTAC database connection |
 | `PGUSER` / `PGPASSWORD` | App role the API runs as (`DB_USER` / `DB_PASS`) |
-| `PGSTAC_ADMIN_USER` / `PGSTAC_ADMIN_PASS` | Superuser, used only by the entrypoint to grant pgstac access to the app role (and by test cleanup) |
+| `PGSTAC_ADMIN_USER` / `PGSTAC_ADMIN_PASS` | Superuser, used only by the entrypoint to run `scripts/apply_pgstac_grants.sql` (and by the integration tests' cleanup and privilege checks) |
 | `APP_ROOT_PATH` | Public path prefix (`/stac-api`), passed to uvicorn `--root-path`; self-links are built from it |
 | `CORS_ORIGINS` | Allowed CORS origins (`*` by default in `.env`) |
 | `ENABLE_TRANSACTIONS_EXTENSIONS` | Enables the write endpoints used by gis-pipeline and process-api |

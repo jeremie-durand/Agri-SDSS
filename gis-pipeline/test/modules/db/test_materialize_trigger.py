@@ -3,7 +3,6 @@
 import geopandas as gpd
 import pytest
 import responses
-from gis_pipeline.core.config import Config
 from gis_pipeline.modules.db.materialize_trigger import trigger_materialize_and_notify
 from shapely.geometry import Point
 

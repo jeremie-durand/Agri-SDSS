@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import agri_i18n
 import numpy as np
 import pytest
 from processes.climate_backend.cmip_backend import CMIPBackend
@@ -34,6 +33,8 @@ from processes.weather_backend.models import WeatherTimeseriesFeature as WTFeatu
 from processes.weather_backend.models import WeatherTimeseriesProperties as WTProps
 from processes.weather_backend.pavics_backend import PAVICSBackend
 from pygeoapi.process.base import ProcessorExecuteError
+
+import agri_i18n
 
 
 @pytest.fixture(autouse=True)

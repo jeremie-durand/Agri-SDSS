@@ -106,9 +106,7 @@ def test_asgi_concurrent_requests_do_not_leak():
         english["delay"] = 0.02
         french = _scope(accept_language="fr-CA")
         french["delay"] = 0.0
-        await asyncio.gather(
-            app(english, None, None), app(french, None, None)
-        )
+        await asyncio.gather(app(english, None, None), app(french, None, None))
         return english["observed"], french["observed"]
 
     assert asyncio.run(main()) == ("en", "fr")

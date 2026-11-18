@@ -1,6 +1,6 @@
 """The integration client fixture must skip only for an absent database."""
-import pytest
 
+import pytest
 from stac_api.test import conftest
 
 

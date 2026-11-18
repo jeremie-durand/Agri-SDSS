@@ -2,15 +2,27 @@ cff-version: 1.2.0
 title: "Agri-SDSS"
 message: "If you use this software, please cite it as below."
 type: software
-version: 2.0.0
+version: 2.1.0
 doi: 10.5281/zenodo.23369081
 license: MIT
 repository-code: "https://github.com/jeremie-durand/Agri-SDSS"
 abstract: >-
-  Geospatial data platform for sustainable agriculture research in Quebec.
-  Automated pipeline from raw geodata to OGC-compliant APIs, a STAC catalog,
-  and an AI assistant, currently specialized for Soil Organic Matter (SOM)
-  potential mapping and decision support for Quebec agricultural parcels.
+  Agri-SDSS is an open-source web platform for sustainable agriculture
+  research in Quebec, developed within the MOS project supported by the
+  RQRAD. It brings together public data that used to be scattered: farm
+  parcels and crops, soil maps, weather, climate and satellite imagery. The
+  data, and the calculations run on demand (for example a parcel's NDVI from
+  satellite imagery, or its mean elevation from lidar), are served through
+  APIs that follow open international standards (OGC API, STAC), so other
+  software, platforms and research teams can reuse them in their own tools.
+  On the interactive map, clicking a parcel returns its portrait with several
+  agronomic variables computed automatically, and an experimental AI
+  assistant answers questions about the data in natural language. A first
+  soil organic matter prediction model is offered as a proof of concept for
+  436 fields in southern Quebec; the platform is designed to host the future
+  model of soil organic matter accumulation potential. Agri-SDSS is modular:
+  independent blocks (data pipeline, APIs, interactive map, AI assistant) can
+  each be updated, replaced or reused on their own.
 keywords:
   - geospatial
   - spatial decision support system

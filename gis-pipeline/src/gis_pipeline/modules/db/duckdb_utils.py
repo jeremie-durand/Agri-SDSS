@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -298,6 +299,40 @@ class DuckDBManager:
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)
 
     @staticmethod
+    def _unify_chunk_schemas(chunk_files: list[Path]) -> pa.Schema:
+        """Build the schema of a combined file from all of its chunks.
+
+        A text column has no Arrow type in a chunk where it is entirely NULL, and
+        its string type can differ between chunks. The GeoParquet metadata comes
+        from the first chunk, with each geometry bbox widened to cover every chunk.
+
+        Args:
+            chunk_files: Staged chunk files, in order.
+
+        Returns:
+            The unified Arrow schema, carrying the combined `geo` metadata.
+        """
+        schemas = [pq.read_schema(chunk_file) for chunk_file in chunk_files]
+        metadata = dict(schemas[0].metadata or {})
+        chunk_geos = [json.loads(s.metadata[b"geo"]) for s in schemas]
+
+        geo = chunk_geos[0]
+        for name, column in geo["columns"].items():
+            bboxes = [chunk["columns"][name].get("bbox") for chunk in chunk_geos]
+            if all(bboxes):
+                column["bbox"] = [
+                    *map(min, zip(*(bbox[:2] for bbox in bboxes), strict=True)),
+                    *map(max, zip(*(bbox[2:] for bbox in bboxes), strict=True)),
+                ]
+            else:
+                column.pop("bbox", None)
+        metadata[b"geo"] = json.dumps(geo).encode()
+
+        return pa.unify_schemas(schemas, promote_options="permissive").with_metadata(
+            metadata
+        )
+
+    @staticmethod
     def finalize_chunked_geoparquet(table: str) -> None:
         """Combine a table's per-chunk staged Parquet files into one final file.
 
@@ -327,12 +362,18 @@ class DuckDBManager:
         tmp_path = parquet_path.with_suffix(".tmp")
 
         try:
-            schema = pq.ParquetFile(chunk_files[0]).schema_arrow
+            schema = DuckDBManager._unify_chunk_schemas(chunk_files)
             with pq.ParquetWriter(tmp_path, schema) as writer:
                 for chunk_file in chunk_files:
                     for batch in pq.ParquetFile(chunk_file).iter_batches():
-                        writer.write_batch(batch)
-        except (pa.ArrowInvalid, OSError, ValueError) as e:
+                        writer.write_table(pa.Table.from_batches([batch]).cast(schema))
+        except (
+            pa.ArrowInvalid,
+            pa.ArrowNotImplementedError,
+            pa.ArrowTypeError,
+            OSError,
+            ValueError,
+        ) as e:
             error_msg = f"Failed to combine chunked GeoParquet for table '{table}': {e}"
             DuckDBManager._cleanup_temp_file(tmp_path=tmp_path)
             handle_error(logger=logger, error_msg=error_msg, exc_class=RuntimeError)

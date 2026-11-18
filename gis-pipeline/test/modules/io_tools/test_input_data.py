@@ -3,13 +3,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import geopandas as gpd
+import pandas as pd
 import pytest
 from gis_pipeline.modules.io_tools.input_data import (
+    apply_source_dtypes,
     detect_non_spatial_csv,
     discover_geodata,
     extract_gpkg_fk_schema,
+    is_ingested_layer,
     read_csv_file,
+    read_source_dtypes,
 )
+from shapely.geometry import Point
+from structlog.testing import capture_logs
 
 
 # ------------------------------------------
@@ -664,3 +671,138 @@ def test_extract_gpkg_fk_schema_multiple_fks(tmp_path):
     assert len(result) == 2
     from_cols = {r["from_col"] for r in result}
     assert from_cols == {"code_sol", "composante"}
+
+
+# ------------------------------------------
+# Source dtypes
+# ------------------------------------------
+@pytest.fixture
+def gpkg_chunks(tmp_path):
+    """A layer whose first rows hide the real type of each field in chunks of 2."""
+    path = tmp_path / "layer.gpkg"
+    gdf = gpd.GeoDataFrame(
+        {
+            "share": [None, None, 66.5, 66.0],
+            "order_no": [1, 2, None, 4],
+            "label": [None, None, "a", "b"],
+        },
+        geometry=[Point(i, i) for i in range(4)],
+        crs="EPSG:4326",
+    )
+    gdf["order_no"] = gdf["order_no"].astype("Int64")
+    gdf["label"] = gdf["label"].astype("object")
+    gdf.to_file(path, layer="layer", driver="GPKG")
+    return path
+
+
+def test_read_source_dtypes_returns_declared_field_types(gpkg_chunks):
+    dtypes = read_source_dtypes(gpkg_chunks, "layer")
+
+    assert dtypes["share"].startswith("float")
+    assert dtypes["order_no"].startswith("int")
+    assert dtypes["label"] == "object"
+
+
+def test_apply_source_dtypes_gives_all_chunks_the_same_numeric_types(gpkg_chunks):
+    dtypes = read_source_dtypes(gpkg_chunks, "layer")
+
+    first = apply_source_dtypes(
+        gpd.read_file(gpkg_chunks, layer="layer", rows=slice(0, 2)), dtypes
+    )
+    second = apply_source_dtypes(
+        gpd.read_file(gpkg_chunks, layer="layer", rows=slice(2, 4)), dtypes
+    )
+
+    for chunk in (first, second):
+        assert chunk["share"].dtype == "float64"
+        assert chunk["order_no"].dtype == "Int64"
+
+
+def test_apply_source_dtypes_ignores_fields_missing_from_the_chunk():
+    gdf = gpd.GeoDataFrame({"a": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326")
+
+    result = apply_source_dtypes(gdf, {"a": "int32", "missing": "float64"})
+
+    assert list(result.columns) == ["a", "geometry"]
+    assert pd.api.types.is_extension_array_dtype(result["a"].dtype)
+
+
+# ------------------------------------------
+# is_ingested_layer
+# ------------------------------------------
+GDB_FILE = Path("/data/input/GRHQ_03AJ.gdb")
+
+
+@pytest.fixture
+def read_info():
+    """Patched pyogrio.read_info, reporting a layer without geometry."""
+    with patch(
+        "gis_pipeline.modules.io_tools.input_data.pyogrio.read_info",
+        return_value={"geometry_type": None},
+    ) as mock_read_info:
+        yield mock_read_info
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("layer", ["layer_styles", "QGIS_Projects"])
+def test_is_ingested_layer_skips_qgis_internal_layers(layer, read_info):
+    assert is_ingested_layer(Path("/data/input/soils.gpkg"), layer) is False
+    read_info.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("layer", ["N_1_EDesc", "N_1_Desc", "n_12_jtopo"])
+def test_is_ingested_layer_skips_esri_network_tables(layer, read_info):
+    with capture_logs() as logs:
+        assert is_ingested_layer(GDB_FILE, layer) is False
+
+    read_info.assert_called_once_with(GDB_FILE, layer=layer)
+    assert logs == [
+        {
+            "event": "layer_skipped",
+            "log_level": "info",
+            "file": GDB_FILE.name,
+            "layer": layer,
+            "reason": "esri_network_table",
+        }
+    ]
+
+
+@pytest.mark.unit
+def test_is_ingested_layer_keeps_spatial_layer_named_like_a_network_table(read_info):
+    read_info.return_value = {"geometry_type": "LineString"}
+
+    assert is_ingested_layer(GDB_FILE, "N_1_Roads") is True
+
+
+@pytest.mark.unit
+def test_is_ingested_layer_keeps_matching_name_outside_a_geodatabase(read_info):
+    assert is_ingested_layer(Path("/data/input/network.gpkg"), "N_1_Desc") is True
+    read_info.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("layer", ["RH_L", "N_1", "RN_1_Desc", "N_x_Desc"])
+def test_is_ingested_layer_keeps_other_layers_without_reading_metadata(
+    layer, read_info
+):
+    assert is_ingested_layer(GDB_FILE, layer) is True
+    read_info.assert_not_called()
+
+
+@pytest.mark.unit
+def test_is_ingested_layer_keeps_layer_whose_metadata_cannot_be_read(read_info):
+    read_info.side_effect = RuntimeError("cannot open layer")
+
+    with capture_logs() as logs:
+        assert is_ingested_layer(GDB_FILE, "N_1_EDesc") is True
+
+    assert logs == [
+        {
+            "event": "layer_metadata_unreadable",
+            "log_level": "warning",
+            "file": GDB_FILE.name,
+            "layer": "N_1_EDesc",
+            "error": "cannot open layer",
+        }
+    ]

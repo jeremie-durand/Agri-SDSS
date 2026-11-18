@@ -7,11 +7,12 @@ that BaseHTTPMiddleware would have broken.
 """
 
 import pytest
-from agri_i18n import DEFAULT, get_locale
-from agri_i18n.middleware import LocaleASGIMiddleware
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from vector_api.app import app
+
+from agri_i18n import DEFAULT, get_locale
+from agri_i18n.middleware import LocaleASGIMiddleware
 
 
 @pytest.fixture

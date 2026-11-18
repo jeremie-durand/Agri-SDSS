@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from stac_api.app import app as stac_app
+from stac_api.app import create_app
 
 
 @pytest.fixture(scope="session")
@@ -20,8 +20,9 @@ def stac_integration_client():
     migration, a bad credential, an app-startup bug — propagates, because a
     reachable-but-failing stack is a bug rather than an absent environment.
     """
+    app = create_app()
     try:
-        with TestClient(stac_app, raise_server_exceptions=False) as client:
+        with TestClient(app, raise_server_exceptions=False) as client:
             yield client
     except OSError as exc:
         pytest.skip(
@@ -35,7 +36,7 @@ def sample_stac_collection(unique_suffix: str) -> dict[str, Any]:
     return {
         "type": "Collection",
         "id": f"test-integration-collection-{unique_suffix}",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "description": "Integration test collection — created and deleted by test suite",
         "links": [],
         "title": "Test Integration Collection",
@@ -43,7 +44,7 @@ def sample_stac_collection(unique_suffix: str) -> dict[str, Any]:
             "spatial": {"bbox": [[-180, -90, 180, 90]]},
             "temporal": {"interval": [["2020-01-01T00:00:00Z", None]]},
         },
-        "license": "proprietary",
+        "license": "other",
     }
 
 
@@ -52,7 +53,7 @@ def sample_stac_item(unique_suffix: str) -> dict[str, Any]:
     """Minimal valid STAC Item for integration tests (polygon near Montreal)."""
     return {
         "type": "Feature",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "stac_extensions": [],
         "id": f"test-integration-item-{unique_suffix}",
         "geometry": {

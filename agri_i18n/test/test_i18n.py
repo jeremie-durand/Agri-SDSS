@@ -252,10 +252,14 @@ _SHIPPED = [
     ("'geometry' field is required", "Le champ « geometry » est requis"),
     ("Internal database error", "Erreur interne de la base de données"),
     ("Internal server error", "Erreur interne du serveur"),
-    ("GeoJSON geometry is invalid or empty",
-     "La géométrie GeoJSON est invalide ou vide"),
-    ("I was unable to complete the spatial analysis.",
-     "Je n’ai pas pu compléter l’analyse spatiale."),
+    (
+        "GeoJSON geometry is invalid or empty",
+        "La géométrie GeoJSON est invalide ou vide",
+    ),
+    (
+        "I was unable to complete the spatial analysis.",
+        "Je n’ai pas pu compléter l’analyse spatiale.",
+    ),
 ]
 
 

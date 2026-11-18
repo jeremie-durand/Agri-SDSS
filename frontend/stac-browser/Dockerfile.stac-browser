@@ -1,5 +1,5 @@
 # Official STAC Browser image
-FROM ghcr.io/radiantearth/stac-browser:5.1.0
+FROM ghcr.io/radiantearth/stac-browser:5.2.0
 
 # Upstream's /docker-entrypoint.sh renders the nginx config and runs
 # /docker-entrypoint.d/ scripts in order; ours expands the browser config.

@@ -107,7 +107,9 @@ def test_rate_limiter_buckets_per_resolved_client():
     from rate_limit_middleware import RateLimitMiddleware, _llm_limit
 
     app = Starlette(
-        routes=[Route("/api/query", lambda r: PlainTextResponse("ok"), methods=["POST"])]
+        routes=[
+            Route("/api/query", lambda r: PlainTextResponse("ok"), methods=["POST"])
+        ]
     )
     app.add_middleware(RateLimitMiddleware)
     allowed = _llm_limit.amount

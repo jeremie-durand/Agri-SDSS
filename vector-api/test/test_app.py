@@ -5,12 +5,27 @@ and MountRootPathMiddleware ASGI middleware.
 """
 
 import asyncio
+import json
 import os
+import re
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.middleware.cors import CORSMiddleware
+from tipg.main import app as tipg_app
 from vector_api.app import MountRootPathMiddleware, app
+
+PARQUET_OPENAPI_SNAPSHOT: Path = Path(__file__).parent / "data" / "parquet_openapi.json"
+PARQUET_SPEC_PATHS: set[str] = {
+    "/parquet/collections",
+    "/parquet/collections/{collection_id}",
+    "/parquet/collections/{collection_id}/items",
+    "/parquet/collections/{collection_id}/items/{item_id}",
+    "/parquet/collections/{collection_id}/queryables",
+    "/parquet/collections/{collection_id}/invalidate",
+}
 
 
 @pytest.fixture
@@ -48,6 +63,19 @@ def test_root_landing_page_links_include_postgis_and_parquet(app_client):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("path", ["/", "/parquet"])
+def test_landing_page_links_carry_the_external_prefix(app_client, path):
+    """Root-relative /postgis or /parquet hrefs 404 behind the /vector-api proxy."""
+    with patch("vector_api.config.EXTERNAL_ROOT", "/vector-api"):
+        resp = app_client.get(path)
+
+    hrefs = [link["href"] for link in resp.json()["links"]]
+    assert hrefs
+    for href in hrefs:
+        assert href.startswith("http://testserver/vector-api/"), href
+
+
+@pytest.mark.unit
 def test_parquet_landing_page_returns_200(app_client):
     """GET /parquet returns 200 with title, description, and links."""
     resp = app_client.get("/parquet")
@@ -82,6 +110,81 @@ def test_parquet_openapi_spec_includes_external_root_as_server(app_client):
     assert resp.json().get("servers") == [{"url": "/vector-api"}]
 
 
+@pytest.mark.unit
+def test_parquet_openapi_spec_lists_parquet_paths_only(app_client):
+    """An empty spec leaves /parquet/api.html with no endpoints (issue #276)."""
+    resp = app_client.get("/parquet/openapi.json")
+
+    assert resp.status_code == 200
+    paths = resp.json()["paths"]
+    assert PARQUET_SPEC_PATHS <= set(paths), PARQUET_SPEC_PATHS - set(paths)
+    assert "/" not in paths
+    assert "/pedo-properties" not in paths
+    for path in paths:
+        assert path.startswith("/parquet"), path
+
+
+@pytest.mark.unit
+def test_parquet_openapi_spec_resolves_every_schema_reference(app_client):
+    """Swagger UI fails to render an operation whose $ref points nowhere."""
+    spec = app_client.get("/parquet/openapi.json").json()
+
+    refs = set(re.findall(r'"#/components/schemas/([^"]+)"', json.dumps(spec)))
+    defined = set(spec.get("components", {}).get("schemas", {}))
+    assert refs
+    assert refs <= defined, refs - defined
+
+
+@pytest.mark.unit
+def test_parquet_openapi_spec_matches_snapshot(app_client: TestClient) -> None:
+    """Paths, response schemas and descriptions stay as pinned for #280.
+
+    After an intended change (a FastAPI or Pydantic upgrade included),
+    regenerate the snapshot with json.dump(spec, f, indent=2, sort_keys=True,
+    ensure_ascii=False) and review the diff.
+    """
+    with patch("vector_api.app.EXTERNAL_ROOT", "/vector-api"):
+        spec = app_client.get("/parquet/openapi.json").json()
+
+    assert spec == json.loads(PARQUET_OPENAPI_SNAPSHOT.read_text(encoding="utf-8"))
+
+
+# --- Main docs pages ---
+
+
+@pytest.mark.unit
+def test_docs_page_loads_the_spec_under_the_external_prefix(app_client):
+    """/docs must fetch /vector-api/openapi.json; /openapi.json 404s behind home."""
+    with patch("vector_api.app.EXTERNAL_ROOT", "/vector-api"):
+        resp = app_client.get("/docs")
+
+    assert resp.status_code == 200
+    assert "url: '/vector-api/openapi.json'" in resp.text
+
+
+@pytest.mark.unit
+def test_redoc_page_loads_the_spec_under_the_external_prefix(app_client):
+    """/redoc must fetch the prefixed spec and skip the CSP-blocked Google Fonts."""
+    with patch("vector_api.app.EXTERNAL_ROOT", "/vector-api"):
+        resp = app_client.get("/redoc")
+
+    assert resp.status_code == 200
+    assert 'spec-url="/vector-api/openapi.json"' in resp.text
+    assert "fonts.googleapis.com" not in resp.text
+
+
+@pytest.mark.unit
+def test_main_openapi_spec_declares_the_external_prefix_as_server(app_client):
+    """Without servers, "Try it out" on /docs calls the domain root and 404s."""
+    external = os.getenv("APP_ROOT_PATH", "").rstrip("/")
+    assert external, "APP_ROOT_PATH must be set for this test to mean anything"
+
+    resp = app_client.get("/openapi.json")
+
+    assert resp.status_code == 200
+    assert resp.json().get("servers") == [{"url": external}]
+
+
 # --- Lifespan ---
 
 
@@ -113,6 +216,48 @@ def test_lifespan_calls_close_db_on_shutdown():
     mock_close.assert_awaited_once()
 
 
+@pytest.mark.mocked
+def test_lifespan_serves_while_warmup_runs_and_cancels_it_on_shutdown():
+    """The schema warm-up runs in the background and stops at shutdown."""
+    events: list[str] = []
+
+    async def endless_warmup() -> None:
+        events.append("started")
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            events.append("cancelled")
+            raise
+
+    with (
+        patch("vector_api.app.connect_to_db", new=AsyncMock()),
+        patch("vector_api.app.register_collection_catalog", new=AsyncMock()),
+        patch("vector_api.app.close_db_connection", new=AsyncMock()),
+        patch("vector_api.app.warm_schema_cache", new=endless_warmup),
+    ):
+        with TestClient(app) as client:
+            assert client.get("/").status_code == 200
+            assert events == ["started"]
+
+    assert events == ["started", "cancelled"]
+
+
+@pytest.mark.mocked
+def test_lifespan_shutdown_after_warmup_finished():
+    """Shutdown completes when the warm-up already returned."""
+    warmup = AsyncMock()
+    with (
+        patch("vector_api.app.connect_to_db", new=AsyncMock()),
+        patch("vector_api.app.register_collection_catalog", new=AsyncMock()),
+        patch("vector_api.app.close_db_connection", new=AsyncMock()),
+        patch("vector_api.app.warm_schema_cache", new=warmup),
+    ):
+        with TestClient(app) as client:
+            assert client.get("/").status_code == 200
+
+    warmup.assert_awaited_once()
+
+
 # --- MountRootPathMiddleware ---
 
 
@@ -137,11 +282,16 @@ def _run_middleware(middleware, body: bytes, content_type: bytes = b"application
     sent = []
 
     async def stub_app(scope, receive, send):
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", content_type), (b"content-length", b"999")],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", content_type),
+                    (b"content-length", b"999"),
+                ],
+            }
+        )
         await send({"type": "http.response.body", "body": body})
 
     async def capture(message):
@@ -181,12 +331,34 @@ def test_rewrite_is_a_no_op_without_an_external_prefix():
 
 
 @pytest.mark.unit
-def test_non_json_responses_are_not_rewritten():
-    """Only JSON bodies are touched; tiles and HTML pass through."""
+def test_external_prefix_is_inserted_into_html_pages():
+    """TiPg's HTML pages link with absolute URLs, which must carry the prefix."""
     middleware = MountRootPathMiddleware(None, "/postgis", "/vector-api")
-    body = b"\x89PNG\r\n/postgis/not-a-link"
+    body = (
+        b'<a href="https://example.org/postgis/collections">Collections</a>'
+        b'<script>var currentURL = "https://example.org/postgis/items"</script>'
+    )
 
-    sent = _run_middleware(middleware, body, content_type=b"image/png")
+    sent = _run_middleware(middleware, body, content_type=b"text/html; charset=utf-8")
+
+    assert b'href="https://example.org/vector-api/postgis/collections"' in (
+        sent[-1]["body"]
+    )
+    assert b'"https://example.org/vector-api/postgis/items"' in sent[-1]["body"]
+    assert b'"https://example.org/postgis/' not in sent[-1]["body"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "content_type",
+    [b"image/png", b"application/vnd.mapbox-vector-tile"],
+)
+def test_binary_responses_are_not_rewritten(content_type):
+    """Tiles and images pass through byte for byte."""
+    middleware = MountRootPathMiddleware(None, "/postgis", "/vector-api")
+    body = b"\x89PNG\r\nhttps://example.org/postgis/not-a-link"
+
+    sent = _run_middleware(middleware, body, content_type=content_type)
 
     assert sent[-1]["body"] == body
 
@@ -244,6 +416,22 @@ def test_postgis_mount_is_wired_with_the_external_prefix():
 
 
 @pytest.mark.unit
+def test_mount_root_path_middleware_routes_url_for_to_the_sub_app():
+    """request.url_for inside TiPg must resolve TiPg's own route names."""
+    captured = []
+
+    async def capture_app(scope, receive, send):
+        captured.append(scope)
+
+    capture_app.router = tipg_app.router
+    middleware = MountRootPathMiddleware(capture_app, "/postgis")
+    scope = {"type": "http", "router": app.router, "headers": []}
+    asyncio.run(middleware(scope, None, None))
+
+    assert captured[0]["router"] is tipg_app.router
+
+
+@pytest.mark.unit
 def test_mount_root_path_middleware_passes_non_http_scope_unchanged():
     """Non-HTTP scopes (e.g. lifespan) are forwarded without modification."""
     captured = []
@@ -256,3 +444,14 @@ def test_mount_root_path_middleware_passes_non_http_scope_unchanged():
     asyncio.run(middleware(scope, None, None))
 
     assert captured[0]["root_path"] == ""
+
+
+@pytest.mark.unit
+def test_tipg_sub_app_has_no_cors_middleware_of_its_own():
+    """The parent app must be the only CORS layer on /postgis/*.
+
+    TiPg ships its own CORSMiddleware (allow_origins=*, allow_credentials=True).
+    Left in place, it reflects any Origin the parent refuses, so
+    VECTOR_API_CORS_ORIGINS has no effect on PostGIS routes.
+    """
+    assert not any(m.cls is CORSMiddleware for m in tipg_app.user_middleware)

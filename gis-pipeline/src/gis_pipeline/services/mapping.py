@@ -142,10 +142,23 @@ class QGISInternalLayers(Enum):
     QGIS_PROJECTS = "qgis_projects"
 
 
+class EsriSystemLayerPatterns(Enum):
+    """Name patterns of ESRI system tables to skip during ingestion."""
+
+    GEOMETRIC_NETWORK_TABLE = r"N_\d+_\w+"
+
+
 # ---------------------------------------------------------------
 # Pipeline processing limits
 # ---------------------------------------------------------------
 CHUNK_SIZE = 50_000
+
+# Largest polygonal feature stored whole. A larger one is cut into pieces of at
+# most this many vertices, so no single feature is too heavy to serve (#292).
+SPLIT_MAX_VERTICES: int = 100_000
+# Columns a layer gains when at least one of its features is split.
+SPLIT_SOURCE_GID_COLUMN: str = "split_source_gid"
+SPLIT_PART_COLUMN: str = "split_part"
 
 
 # ---------------------------------------------------------------
@@ -278,7 +291,7 @@ class SqlAlchemyTypes(Enum):
 # ---------------------------------------------------------------
 STAC_ITEM_TEMPLATE = {
     "type": "Feature",
-    "stac_version": "1.0.0",
+    "stac_version": "1.1.0",
     "stac_extensions": [],
     "id": None,
     "geometry": None,
@@ -288,7 +301,6 @@ STAC_ITEM_TEMPLATE = {
         "created": None,
         "updated": None,
         "title": None,
-        "data_type": None,
         "source": None,
     },
     "links": [],
@@ -309,7 +321,7 @@ STAC_COLLECTION_TEMPLATE = {
         },
     },
     "title": None,
-    "license": "na",
+    "license": "other",
 }
 
 

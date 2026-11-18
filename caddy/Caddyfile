@@ -132,8 +132,24 @@
 		X-Frame-Options           "SAMEORIGIN"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		Referrer-Policy           "strict-origin-when-cross-origin"
-		Content-Security-Policy   "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' https://planetarycomputer.microsoft.com; frame-src 'self'; font-src 'self' https://cdn.jsdelivr.net"
 		-Server
+	}
+
+	# ── Content-Security-Policy, split by path ───────────────────────────────
+	# The API paths serve TiPg/TiTiler HTML pages whose upstream templates load
+	# Bootstrap JS from files.dnr.state.mn.us, Leaflet/Bootstrap CSS from cdnjs,
+	# Mapbox Assembly (with its fonts) and d3 (TiTiler viewers), and OSM tiles
+	# fetched by MapLibre from blob: workers. Those origins stay off every other
+	# page. The two matchers are exclusive, so directive order cannot pick the
+	# wrong policy.
+	# make smoke-browser-pages checks the API policy against the live pages.
+	@api_pages path /stac-api/* /vector-api/* /raster-api/* /process-api/*
+	@site_pages not path /stac-api/* /vector-api/* /raster-api/* /process-api/*
+	header @site_pages {
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; connect-src 'self' https://planetarycomputer.microsoft.com; frame-src 'self'; font-src 'self' https://cdn.jsdelivr.net"
+	}
+	header @api_pages {
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://files.dnr.state.mn.us https://d3js.org https://api.mapbox.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://api.mapbox.com; img-src 'self' data: blob: https:; connect-src 'self' https://planetarycomputer.microsoft.com https://tile.openstreetmap.org; worker-src 'self' blob:; frame-src 'self'; font-src 'self' https://cdn.jsdelivr.net https://api.mapbox.com"
 	}
 
 	reverse_proxy home:8080

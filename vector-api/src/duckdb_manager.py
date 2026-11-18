@@ -7,14 +7,20 @@ PostGIS collections.
 Adapted from gis-pipeline/src/gis_pipeline/modules/db/duckdb_utils.py
 """
 
+import json
 import logging
 import os
 import re
 import threading
+import time
+from collections import OrderedDict
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, TypeVar
 
+import anyio
 import duckdb
 
 from .materialize import MATERIALIZED_TABLE_NAME
@@ -23,6 +29,83 @@ logger = logging.getLogger(__name__)
 
 # Strict pattern for collection IDs to prevent path traversal
 COLLECTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+DEFAULT_MEMORY_LIMIT: str = "819MB"
+DEFAULT_MAX_OPEN_DUCKDB: int = 2
+DEFAULT_MAX_DUCKDB_QUERIES: int = 1
+DEFAULT_RAW_PARQUET_WARN_MB: int = 50
+DEFAULT_MAX_PAGE_VERTICES: int = 1500000
+BYTES_PER_MB: int = 1024 * 1024
+
+MaterializedEntry = tuple[duckdb.DuckDBPyConnection, threading.Lock]
+T = TypeVar("T")
+
+
+class FeatureTooLargeError(RuntimeError):
+    """Raised when one feature alone holds more vertices than a page may (#292).
+
+    Deliberately not a ValueError (mapped to 400) nor a duckdb.Error (which
+    get_item_by_id() turns into "not found"): the router maps it to 413.
+    """
+
+    def __init__(self, collection_id: str, vertices: int, budget: int) -> None:
+        super().__init__(
+            f"Feature in {collection_id} holds {vertices} vertices, "
+            f"above the page budget of {budget}"
+        )
+        self.collection_id = collection_id
+        self.vertices = vertices
+        self.budget = budget
+
+
+class DuckDBConfigError(RuntimeError):
+    """Raised when a DuckDB manager setting is invalid.
+
+    Deliberately not a ValueError: the router maps ValueError from manager
+    calls to 400 "Invalid collection ID".
+    """
+
+
+def _positive_int_setting(name: str, value: int | None, default: int) -> int:
+    """Return value, else the env var name, else default, as a positive int.
+
+    Raises:
+        DuckDBConfigError: If the resolved value is not a positive integer.
+    """
+    raw = value if value is not None else os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    error = DuckDBConfigError(f"{name} must be a positive integer, got {raw!r}")
+    try:
+        resolved = int(raw)
+    except (TypeError, ValueError):
+        raise error from None
+    if resolved < 1:
+        raise error
+    return resolved
+
+
+def open_materialized(db_path: Path, memory_limit: str) -> duckdb.DuckDBPyConnection:
+    """Open a materialized .duckdb file read-only and check its table answers.
+
+    Shared by the service and the check_materialized operator check, so both
+    agree on what a usable index is.
+
+    Raises:
+        duckdb.Error: If the file cannot be opened or queried; nothing is
+            left open.
+    """
+    conn = duckdb.connect(
+        database=str(db_path), read_only=True, config={"memory_limit": memory_limit}
+    )
+    try:
+        conn.execute("INSTALL spatial")
+        conn.execute("LOAD spatial")
+        conn.execute(f"SELECT 1 FROM {MATERIALIZED_TABLE_NAME} LIMIT 1")
+    except duckdb.Error:
+        conn.close()
+        raise
+    return conn
 
 
 class DuckDBDescribeColumn(IntEnum):
@@ -61,6 +144,36 @@ class ParquetSchemaInfo(TypedDict):
     has_geometry: bool
     feature_count: int
     bbox: Optional[List[float]]  # [minx, miny, maxx, maxy]
+    binary_columns: list[str]
+
+
+BINARY_TYPE_PREFIXES: tuple[str, ...] = ("BLOB", "GEOMETRY")
+
+
+@dataclass(frozen=True, slots=True)
+class RawGeoJSON:
+    """A geometry kept as the GeoJSON text DuckDB produced, not parsed (#292)."""
+
+    text: str
+
+
+def is_binary_type(duckdb_type: str) -> bool:
+    """Return True for a DuckDB column type whose values DuckDB returns as bytes.
+
+    GEOMETRY carries its CRS as a parameter (``GEOMETRY('EPSG:4326')``), hence
+    a prefix test.
+    """
+    return duckdb_type.upper().startswith(BINARY_TYPE_PREFIXES)
+
+
+def property_columns(schema: ParquetSchemaInfo) -> list[ColumnInfo]:
+    """Return the columns a feature serves as properties.
+
+    Leaves out the geometry column, served as the feature geometry, and the
+    binary columns, which have no JSON form (#289).
+    """
+    hidden = {schema["geometry_column"], *schema["binary_columns"]}
+    return [column for column in schema["columns"] if column["name"] not in hidden]
 
 
 class DuckDBSpatialExtensionError(duckdb.Error):
@@ -84,36 +197,96 @@ class DuckDBManager:
         "wkb_geometry",
     ]
 
-    def __init__(self, data_dir: Optional[str] = None):
+    def __init__(
+        self,
+        data_dir: Optional[str] = None,
+        memory_limit: str | None = None,
+        max_open: int | None = None,
+        max_queries: int | None = None,
+        raw_parquet_warn_mb: int | None = None,
+        max_page_vertices: int | None = None,
+    ) -> None:
         """Initialize the DuckDBManager with an in-memory connection.
 
         Args:
             data_dir: Directory containing Parquet files. Defaults to DUCKDB_DATA_DIR env var.
+            memory_limit: DuckDB memory_limit applied to every connection this
+                manager opens (each one is a separate DuckDB instance).
+                Defaults to the DUCKDB_MEMORY_LIMIT env var, then
+                DEFAULT_MEMORY_LIMIT.
+            max_open: Most materialized connections kept open at once.
+                Defaults to VECTOR_API_MAX_OPEN_DUCKDB, then
+                DEFAULT_MAX_OPEN_DUCKDB.
+            max_queries: Most queries running on materialized connections at
+                once. Defaults to VECTOR_API_MAX_DUCKDB_QUERIES, then
+                DEFAULT_MAX_DUCKDB_QUERIES.
+            raw_parquet_warn_mb: Parquet size in MB above which serving a
+                collection without its .duckdb file is logged. Defaults to
+                VECTOR_API_RAW_PARQUET_WARN_MB, then
+                DEFAULT_RAW_PARQUET_WARN_MB.
+            max_page_vertices: Most geometry vertices one items page or item
+                may hold. Defaults to VECTOR_API_MAX_PAGE_VERTICES, then
+                DEFAULT_MAX_PAGE_VERTICES.
+
+        Raises:
+            DuckDBConfigError: If max_open, max_queries, raw_parquet_warn_mb
+                or max_page_vertices (or their env var) is not a positive
+                integer.
         """
         self.data_dir = Path(data_dir or os.getenv("DUCKDB_DATA_DIR", "/data/duckdb"))
-        self.conn = duckdb.connect(database=":memory:")
+        self.memory_limit: str = (
+            memory_limit or os.getenv("DUCKDB_MEMORY_LIMIT") or DEFAULT_MEMORY_LIMIT
+        )
+        self.max_open: int = _positive_int_setting(
+            "VECTOR_API_MAX_OPEN_DUCKDB", max_open, DEFAULT_MAX_OPEN_DUCKDB
+        )
+        self.max_queries: int = _positive_int_setting(
+            "VECTOR_API_MAX_DUCKDB_QUERIES", max_queries, DEFAULT_MAX_DUCKDB_QUERIES
+        )
+        self.raw_parquet_warn_mb: int = _positive_int_setting(
+            "VECTOR_API_RAW_PARQUET_WARN_MB",
+            raw_parquet_warn_mb,
+            DEFAULT_RAW_PARQUET_WARN_MB,
+        )
+        self.max_page_vertices: int = _positive_int_setting(
+            "VECTOR_API_MAX_PAGE_VERTICES",
+            max_page_vertices,
+            DEFAULT_MAX_PAGE_VERTICES,
+        )
+        self.conn = duckdb.connect(
+            database=":memory:", config={"memory_limit": self.memory_limit}
+        )
         # DuckDB in-memory connections are not thread-safe; a single shared
         # connection requires serialised access.
         self._lock = threading.Lock()
         # Schema cache: collection_id -> ParquetSchemaInfo.
         # Parquet files are immutable so entries never need invalidation.
-        # Populated lazily on first access; protected by self._lock.
+        # Filled at start-up by warm_schema_cache() and on any later miss;
+        # protected by self._lock.
         self._schema_cache: Dict[str, ParquetSchemaInfo] = {}
         # Lazily-opened read-only connections to materialized, RTree-indexed
-        # collections (see materialize.py). A collection becomes materialized
-        # purely by having a <collection_id>.duckdb file in data_dir -- there
-        # is no allowlist. Keyed by collection_id; each entry pairs a
-        # connection with its own lock since it is a distinct DuckDB
-        # connection object from self.conn.
-        self._materialized_conns: Dict[
-            str, Tuple[duckdb.DuckDBPyConnection, threading.Lock]
-        ] = {}
+        # collections (see materialize.py), in least-recently-used order and
+        # capped at max_open: each one is a separate DuckDB instance with its
+        # own block cache, so an unbounded cache OOM-kills the process (#288).
+        # Each entry pairs a connection with its own lock.
+        self._materialized_conns: OrderedDict[str, MaterializedEntry] = OrderedDict()
         # Collection IDs whose .duckdb file exists but failed to open or
         # failed the validity probe during this process's lifetime -- avoids
         # retrying (and re-logging) on every request for a persistently
         # broken file. Cleared per-collection by invalidate_materialized()
         # after an external rebuild.
-        self._failed_materialized: set = set()
+        self._failed_materialized: set[str] = set()
+        # Collections already checked for a missing .duckdb, so each is
+        # stat()-ed and reported at most once (#282). Cleared per-collection
+        # by invalidate_materialized().
+        self._raw_parquet_checked: set[str] = set()
+        # Guards _materialized_conns, _failed_materialized and
+        # _raw_parquet_checked. Separate from
+        # self._lock, which is held for whole queries on the in-memory
+        # connection and would make every cache lookup wait behind them.
+        self._cache_lock = threading.Lock()
+        self._query_slots = threading.BoundedSemaphore(self.max_queries)
+        self._warned_position_collisions: set[str] = set()
         self._init_extensions()
 
     def __enter__(self):
@@ -129,10 +302,13 @@ class DuckDBManager:
     def close(self) -> None:
         """Explicitly close the DuckDB connection(s). Use only on shutdown."""
         self.conn.close()
-        for conn, _ in self._materialized_conns.values():
-            conn.close()
-        self._materialized_conns.clear()
-        self._failed_materialized.clear()
+        with self._cache_lock:
+            entries = list(self._materialized_conns.values())
+            self._materialized_conns.clear()
+            self._failed_materialized.clear()
+        for conn, conn_lock in entries:
+            with conn_lock:
+                conn.close()
 
     def _init_extensions(self) -> None:
         """Install and load spatial extension."""
@@ -254,25 +430,29 @@ class DuckDBManager:
 
     @staticmethod
     def _extract_geometry_from_row(
-        row_dict: Dict[str, Any], has_geometry: bool, geometry_column: Optional[str]
-    ) -> Optional[Dict[str, Any]]:
-        """Extract and parse geometry from a row dictionary.
+        row_dict: Dict[str, Any],
+        has_geometry: bool,
+        geometry_column: Optional[str],
+        raw_geometry: bool = False,
+    ) -> dict[str, Any] | RawGeoJSON | None:
+        """Extract the geometry from a row dictionary.
 
         Args:
             row_dict: Row dictionary (will be modified in-place).
             has_geometry: Whether the row should contain geometry.
             geometry_column: Name of the geometry column to remove from properties.
+            raw_geometry: Return the GeoJSON text unparsed, as RawGeoJSON.
 
         Returns:
-            Parsed GeoJSON geometry dict, or None if no geometry.
+            The GeoJSON geometry, parsed or raw, or None if no geometry.
         """
-        geometry = None
+        geometry: dict[str, Any] | RawGeoJSON | None = None
         if has_geometry and "__geojson__" in row_dict:
-            import json
-
             geojson_str = row_dict.pop("__geojson__")
             if geojson_str:
-                geometry = json.loads(geojson_str)
+                geometry = (
+                    RawGeoJSON(geojson_str) if raw_geometry else json.loads(geojson_str)
+                )
             # Remove original geometry column from properties
             row_dict.pop(geometry_column, None)
         return geometry
@@ -379,7 +559,7 @@ class DuckDBManager:
 
     def _get_materialized_connection(
         self, collection_id: str
-    ) -> Optional[Tuple[duckdb.DuckDBPyConnection, threading.Lock]]:
+    ) -> MaterializedEntry | None:
         """Return the (connection, lock) for a materialized collection, if available.
 
         A collection is materialized purely by having a valid
@@ -388,21 +568,21 @@ class DuckDBManager:
         or fails now; callers must fall back to querying the Parquet file
         directly in that case.
 
+        Opening one more than max_open closes the least recently used ones.
+        Run queries through _run_materialized(), never on the returned pair
+        directly: it may be closed by an eviction at any time.
+
         Args:
             collection_id: The collection identifier.
 
         Returns:
             (connection, lock) tuple, or None.
         """
-        if collection_id in self._materialized_conns:
-            return self._materialized_conns[collection_id]
-
-        if collection_id in self._failed_materialized:
-            return None
-
-        with self._lock:
-            if collection_id in self._materialized_conns:
-                return self._materialized_conns[collection_id]
+        with self._cache_lock:
+            entry = self._materialized_conns.get(collection_id)
+            if entry is not None:
+                self._materialized_conns.move_to_end(collection_id)
+                return entry
 
             if collection_id in self._failed_materialized:
                 return None
@@ -412,23 +592,96 @@ class DuckDBManager:
                 return None
 
             try:
-                conn = duckdb.connect(database=str(db_path), read_only=True)
-                conn.execute("INSTALL spatial")
-                conn.execute("LOAD spatial")
-                conn.execute(f"SELECT 1 FROM {MATERIALIZED_TABLE_NAME} LIMIT 1")
+                conn = open_materialized(db_path, self.memory_limit)
             except duckdb.Error as e:
                 logger.warning(
-                    f"Failed to open materialized connection for {collection_id}: {e}"
+                    "Failed to open materialized connection for %s: %s",
+                    collection_id,
+                    e,
                 )
-                if "conn" in locals():
-                    conn.close()
                 self._failed_materialized.add(collection_id)
                 return None
 
             entry = (conn, threading.Lock())
             self._materialized_conns[collection_id] = entry
-            logger.info(f"Opened materialized DuckDB connection for {collection_id}.")
-            return entry
+            evicted: list[tuple[str, MaterializedEntry]] = []
+            while len(self._materialized_conns) > self.max_open:
+                evicted.append(self._materialized_conns.popitem(last=False))
+
+        logger.info("Opened materialized DuckDB connection for %s.", collection_id)
+        for evicted_id, (evicted_conn, evicted_lock) in evicted:
+            # Closed outside _cache_lock: waiting here for the evicted
+            # connection's running query would otherwise block every cache
+            # lookup behind it.
+            with evicted_lock:
+                evicted_conn.close()
+            logger.info("Evicted materialized DuckDB connection for %s.", evicted_id)
+        return entry
+
+    def _run_materialized(
+        self, collection_id: str, work: Callable[[duckdb.DuckDBPyConnection], T]
+    ) -> T | None:
+        """Run work on a collection's materialized connection, if it has one.
+
+        Holds a query slot, then the connection's lock, for the whole of
+        work. An entry is always removed from the cache before it is closed,
+        and closed only under its lock, so finding the same entry still
+        cached while holding the lock means the connection is open. A
+        connection evicted or invalidated between lookup and lock is reopened
+        once; if it is closed again, the caller falls back to read_parquet,
+        which returns the same rows, more slowly.
+
+        Args:
+            collection_id: The collection identifier.
+            work: Runs the queries; must not return None.
+
+        Returns:
+            work's result, or None when the collection has no usable
+            materialized connection (callers then query read_parquet).
+        """
+        for _ in range(2):
+            entry = self._get_materialized_connection(collection_id)
+            if entry is None:
+                return None
+            conn, conn_lock = entry
+            with self._query_slots, conn_lock:
+                with self._cache_lock:
+                    still_cached = self._materialized_conns.get(collection_id) is entry
+                if not still_cached:
+                    continue
+                return work(conn)
+        logger.warning(
+            "Materialized connection for %s was closed twice before a query "
+            "could use it; falling back to read_parquet",
+            collection_id,
+        )
+        return None
+
+    def _warn_if_large_raw_parquet(
+        self, collection_id: str, has_geometry: bool
+    ) -> None:
+        """Log once when a large geometry collection has no .duckdb file.
+
+        A collection without geometry can never be materialized, and one whose
+        .duckdb exists but failed to open is already logged when it fails.
+        """
+        if not has_geometry or collection_id in self._raw_parquet_checked:
+            return
+        try:
+            missing = not (self.data_dir / f"{collection_id}.duckdb").exists()
+            size_bytes = (self.data_dir / f"{collection_id}.parquet").stat().st_size
+        except OSError:
+            missing, size_bytes = False, 0
+        with self._cache_lock:
+            if collection_id in self._raw_parquet_checked:
+                return
+            self._raw_parquet_checked.add(collection_id)
+        if missing and size_bytes > self.raw_parquet_warn_mb * BYTES_PER_MB:
+            logger.warning(
+                "Serving %s from raw Parquet (%.1f MB, no .duckdb)",
+                collection_id,
+                size_bytes / BYTES_PER_MB,
+            )
 
     def invalidate_materialized(self, collection_id: str) -> bool:
         """Drop any cached materialized connection/failure state for a collection.
@@ -444,8 +697,9 @@ class DuckDBManager:
         Returns:
             True if a cached connection was found and closed, False otherwise.
         """
-        with self._lock:
+        with self._cache_lock:
             self._failed_materialized.discard(collection_id)
+            self._raw_parquet_checked.discard(collection_id)
             entry = self._materialized_conns.pop(collection_id, None)
 
         if entry is None:
@@ -454,14 +708,15 @@ class DuckDBManager:
         conn, conn_lock = entry
         with conn_lock:
             conn.close()
-        logger.info(f"Invalidated materialized connection for {collection_id}.")
+        logger.info("Invalidated materialized connection for %s.", collection_id)
         return True
 
     def get_parquet_schema(self, collection_id: str) -> ParquetSchemaInfo:
         """Get schema information for a Parquet file.
 
-        Results are cached per collection_id. Parquet files are immutable so
-        the cache is valid for the lifetime of the process.
+        Results are cached per collection_id for the lifetime of the process,
+        except a schema whose bbox scan failed: it is returned with bbox None
+        and computed again on the next call.
 
         Args:
             collection_id: The collection identifier.
@@ -471,6 +726,8 @@ class DuckDBManager:
             - columns: List of column info (name, type)
             - id_column: Detected ID column name
             - geometry_column: Detected geometry column name
+            - binary_columns: BLOB and non-served GEOMETRY columns, left out
+              of feature properties and queryables
             - has_geometry: Whether file has geometry column
             - feature_count: Total number of features
             - bbox: Bounding box [minx, miny, maxx, maxy] if spatial
@@ -481,7 +738,9 @@ class DuckDBManager:
         if collection_id in self._schema_cache:
             return self._schema_cache[collection_id]
 
-        schema = self._compute_parquet_schema(collection_id)
+        schema, bbox_failed = self._compute_parquet_schema(collection_id)
+        if bbox_failed:
+            return schema
 
         # Cache under the lock so concurrent first-time callers for the same
         # collection_id don't both write (harmless, but avoids redundant work).
@@ -490,8 +749,16 @@ class DuckDBManager:
 
         return schema
 
-    def _compute_parquet_schema(self, collection_id: str) -> ParquetSchemaInfo:
-        """Compute schema by introspecting the Parquet file. Called by get_parquet_schema on cache miss."""
+    def _compute_parquet_schema(
+        self, collection_id: str
+    ) -> tuple[ParquetSchemaInfo, bool]:
+        """Compute schema by introspecting the Parquet file.
+
+        Called by get_parquet_schema on cache miss.
+
+        Returns:
+            The schema, and whether its bbox query raised (bbox is then None).
+        """
         parquet_path = self._get_validated_parquet_path(collection_id)
         path_str = str(parquet_path)
 
@@ -537,6 +804,11 @@ class DuckDBManager:
                 )
 
         has_geometry = geometry_column is not None
+        binary_columns = [
+            col["name"]
+            for col in columns
+            if col["name"] != geometry_column and is_binary_type(col["type"])
+        ]
 
         # Get feature count
         count_query = f"SELECT COUNT(*) FROM read_parquet('{escaped_path}')"
@@ -549,9 +821,10 @@ class DuckDBManager:
             "has_geometry": has_geometry,
             "feature_count": feature_count,
             "bbox": None,
+            "binary_columns": binary_columns,
         }
 
-        # Compute bounding box if spatial
+        bbox_failed = False
         if has_geometry:
             try:
                 escaped_geom_col = self.escape_identifier(geometry_column)
@@ -568,9 +841,136 @@ class DuckDBManager:
                 if bbox_result and all(v is not None for v in bbox_result):
                     schema_info["bbox"] = list(bbox_result)
             except duckdb.Error as e:
-                logger.warning(f"Could not compute bbox for {collection_id}: {e}")
+                bbox_failed = True
+                logger.warning(
+                    "Could not compute bbox for %s, will retry: %s", collection_id, e
+                )
 
-        return schema_info
+        return schema_info, bbox_failed
+
+    def _can_page_by_position(
+        self, schema: ParquetSchemaInfo, position_column: str, collection_id: str
+    ) -> bool:
+        """Return False when a source column would shadow the row-position column.
+
+        Warns once per collection and position column, not on every page.
+        """
+        column_names = {column["name"].lower() for column in schema["columns"]}
+        if position_column not in column_names:
+            return True
+        warning_key = f"{collection_id}:{position_column}"
+        with self._lock:
+            first_time = warning_key not in self._warned_position_collisions
+            self._warned_position_collisions.add(warning_key)
+        if first_time:
+            logger.warning(
+                "Collection %s has a column named %s; paging with the "
+                "single-statement query, which sorts full rows",
+                collection_id,
+                position_column,
+            )
+        return False
+
+    @staticmethod
+    def _vertices_sql(geometry_sql: str) -> str:
+        """Return the vertex count of a geometry expression, 0 for a null geometry."""
+        return f"COALESCE(ST_NPoints({geometry_sql}), 0) AS __vertices__"
+
+    @staticmethod
+    def _rows_within_budget(vertex_counts: list[int], budget: int) -> int:
+        """Return how many leading rows fit together within budget vertices."""
+        total = 0
+        for kept, vertices in enumerate(vertex_counts):
+            total += vertices
+            if total > budget:
+                return kept
+        return len(vertex_counts)
+
+    def _page_size_within_budget(
+        self, collection_id: str, vertex_counts: list[int]
+    ) -> int:
+        """Return the page size the budget allows for these rows.
+
+        Raises:
+            FeatureTooLargeError: If the first row alone exceeds the budget.
+        """
+        kept = self._rows_within_budget(vertex_counts, self.max_page_vertices)
+        if kept == 0 and vertex_counts:
+            raise FeatureTooLargeError(
+                collection_id, vertex_counts[0], self.max_page_vertices
+            )
+        return kept
+
+    @staticmethod
+    def _columns_left_out(schema: ParquetSchemaInfo) -> list[str]:
+        """Return the columns an item query leaves out of ``*``.
+
+        The binary columns, and the served geometry, which the query already
+        returns as GeoJSON text: selecting it too sent a second, unused copy
+        of every geometry to Python as WKB bytes (#292).
+        """
+        served = [schema["geometry_column"]] if schema["has_geometry"] else []
+        return [*schema["binary_columns"], *served]
+
+    @staticmethod
+    def _star_sql(excluded_columns: list[str], alias: str = "") -> str:
+        """Return ``<alias>*``, with an EXCLUDE clause naming excluded_columns."""
+        star = f"{alias}*"
+        if not excluded_columns:
+            return star
+        escaped = ", ".join(
+            DuckDBManager.escape_identifier(name) for name in excluded_columns
+        )
+        return f"{star} EXCLUDE ({escaped})"
+
+    @staticmethod
+    def _position_paged_select_sql(
+        *,
+        from_sql: str,
+        position_column: str,
+        excluded_columns: list[str],
+        escaped_id_col: str,
+        escaped_geom_col: str | None,
+        where_sql: str,
+        limit: int,
+        offset: int,
+        vertices_only: bool = False,
+    ) -> str:
+        """Build a page query that sorts only (id, row position), then joins full rows.
+
+        A single ``SELECT * ... ORDER BY id LIMIT n OFFSET k`` makes DuckDB keep
+        the top ``k + n`` full rows, geometry included, which exhausts memory
+        on deep offsets of large collections (#279). Sorting the narrow
+        (id, position) pair keeps memory proportional to the key width, and
+        the position tie-break gives duplicate ids a fixed order, so every page
+        holds exactly ``limit`` rows and pages never overlap.
+
+        With vertices_only, the same rows are selected in the same order, but
+        each one returns only its geometry's vertex count (the sizing query).
+        """
+        if vertices_only:
+            select_sql = DuckDBManager._vertices_sql(f"t.{escaped_geom_col}")
+        else:
+            star_sql = DuckDBManager._star_sql(excluded_columns, alias="t.")
+            geojson_sql = (
+                f", ST_AsGeoJSON(t.{escaped_geom_col}) AS __geojson__"
+                if escaped_geom_col
+                else ""
+            )
+            select_sql = f"{star_sql}{geojson_sql}"
+        return f"""
+            WITH page AS (
+                SELECT {position_column} AS __pos__, {escaped_id_col} AS __id__
+                FROM {from_sql}
+                {where_sql}
+                ORDER BY {escaped_id_col}, {position_column}
+                LIMIT {limit} OFFSET {offset}
+            )
+            SELECT {select_sql}
+            FROM {from_sql} t
+            JOIN page p ON t.{position_column} = p.__pos__
+            ORDER BY p.__id__, p.__pos__
+        """
 
     def query_items(
         self,
@@ -578,6 +978,7 @@ class DuckDBManager:
         limit: int = 10,
         offset: int = 0,
         bbox: Optional[Tuple[float, float, float, float]] = None,
+        raw_geometry: bool = False,
     ) -> Dict[str, Any]:
         """Query items from a Parquet file.
 
@@ -586,12 +987,18 @@ class DuckDBManager:
             limit: Maximum number of items to return.
             offset: Number of items to skip.
             bbox: Optional bounding box filter [minx, miny, maxx, maxy].
+            raw_geometry: Return each geometry as RawGeoJSON instead of a dict.
 
         Returns:
             Dictionary containing:
             - features: List of feature dictionaries
             - numberMatched: Total count matching filter
-            - numberReturned: Number returned in this response
+            - numberReturned: Number returned in this response, fewer than
+              limit when the page's geometry exceeds max_page_vertices
+
+        Raises:
+            FeatureTooLargeError: If the first feature of the page alone holds
+                more than max_page_vertices vertices.
         """
         parquet_path = self._get_validated_parquet_path(collection_id)
         path_str = str(parquet_path)
@@ -603,14 +1010,6 @@ class DuckDBManager:
             self.escape_identifier(geometry_column) if geometry_column else None
         )
         id_column = schema["id_column"]
-
-        materialized = self._get_materialized_connection(collection_id)
-        if materialized:
-            conn, lock = materialized
-            from_sql = self.escape_identifier(MATERIALIZED_TABLE_NAME)
-        else:
-            conn, lock = None, None
-            from_sql = f"read_parquet('{escaped_path}')"
 
         # Build WHERE clause
         where_clauses = []
@@ -626,47 +1025,113 @@ class DuckDBManager:
             )
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        order_sql = f"ORDER BY {self.escape_identifier(id_column)}" if id_column else ""
+        binary_columns = self._columns_left_out(schema)
+        star_sql = self._star_sql(binary_columns)
 
-        # Build ORDER BY for stable pagination
-        if id_column:
-            order_sql = f"ORDER BY {self.escape_identifier(id_column)}"
+        def count_query(materialized: bool) -> str:
+            from_sql = (
+                self.escape_identifier(MATERIALIZED_TABLE_NAME)
+                if materialized
+                else f"read_parquet('{escaped_path}')"
+            )
+            return f"SELECT COUNT(*) FROM {from_sql} {where_sql}"
+
+        def build(
+            materialized: bool, page_limit: int, vertices_only: bool = False
+        ) -> str:
+            from_sql = (
+                self.escape_identifier(MATERIALIZED_TABLE_NAME)
+                if materialized
+                else f"read_parquet('{escaped_path}')"
+            )
+            position_column = "rowid" if materialized else "file_row_number"
+            page_by_position = id_column is not None and self._can_page_by_position(
+                schema, position_column, collection_id
+            )
+            if page_by_position:
+                select_sql = self._position_paged_select_sql(
+                    from_sql=(
+                        from_sql
+                        if materialized
+                        else f"read_parquet('{escaped_path}', file_row_number = true)"
+                    ),
+                    position_column=position_column,
+                    excluded_columns=(
+                        binary_columns
+                        if materialized
+                        else [*binary_columns, position_column]
+                    ),
+                    escaped_id_col=self.escape_identifier(id_column),
+                    escaped_geom_col=escaped_geom_col if has_geometry else None,
+                    where_sql=where_sql,
+                    limit=page_limit,
+                    offset=offset,
+                    vertices_only=vertices_only,
+                )
+            elif vertices_only:
+                select_sql = f"""
+                    SELECT {self._vertices_sql(escaped_geom_col)}
+                    FROM {from_sql}
+                    {where_sql}
+                    {order_sql}
+                    LIMIT {page_limit} OFFSET {offset}
+                """
+            elif has_geometry:
+                select_sql = f"""
+                    SELECT {star_sql}, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
+                    FROM {from_sql}
+                    {where_sql}
+                    {order_sql}
+                    LIMIT {page_limit} OFFSET {offset}
+                """
+            else:
+                select_sql = f"""
+                    SELECT {star_sql}
+                    FROM {from_sql}
+                    {where_sql}
+                    {order_sql}
+                    LIMIT {page_limit} OFFSET {offset}
+                """
+            return select_sql
+
+        def run_page(
+            materialized: bool,
+            fetchone: Callable[[str], tuple | None],
+            fetchall: Callable[[str], tuple[list[tuple], list[str]]],
+        ) -> tuple[int, list[tuple], list[str]]:
+            """Count, size the page within the vertex budget, then fetch it."""
+            matched = fetchone(count_query(materialized))[0]
+            page_limit = limit
+            if has_geometry:
+                sizes, _ = fetchall(build(materialized, limit, vertices_only=True))
+                if not sizes:
+                    return matched, [], []
+                page_limit = self._page_size_within_budget(
+                    collection_id, [row[0] for row in sizes]
+                )
+            rows, row_columns = fetchall(build(materialized, page_limit))
+            return matched, rows, row_columns
+
+        page = (
+            self._run_materialized(
+                collection_id,
+                lambda conn: run_page(
+                    True,
+                    lambda query: self._fetchone_unlocked(conn, query),
+                    lambda query: self._fetchall_unlocked(conn, query),
+                ),
+            )
+            if (self.data_dir / f"{collection_id}.duckdb").exists()
+            else None
+        )
+        if page is None:
+            self._warn_if_large_raw_parquet(collection_id, has_geometry)
+            number_matched, result, columns = run_page(
+                False, self._fetchone, self._fetchall
+            )
         else:
-            order_sql = ""
-
-        count_query = f"SELECT COUNT(*) FROM {from_sql} {where_sql}"
-
-        # Build SELECT with geometry conversion
-        if has_geometry:
-            select_sql = f"""
-                SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
-                FROM {from_sql}
-                {where_sql}
-                {order_sql}
-                LIMIT {limit} OFFSET {offset}
-            """
-        else:
-            select_sql = f"""
-                SELECT *
-                FROM {from_sql}
-                {where_sql}
-                {order_sql}
-                LIMIT {limit} OFFSET {offset}
-            """
-
-        if materialized:
-            # Hold the lock for the entire count+select sequence so a
-            # concurrent invalidate_materialized() can't close conn between
-            # the two calls (see invalidate_materialized's docstring for the
-            # race this avoids). Only needed for materialized connections --
-            # invalidate_materialized never touches self.conn, so the
-            # fallback path below is safe with independent lock acquisitions,
-            # same as before this fix.
-            with lock:
-                number_matched = self._fetchone_unlocked(conn, count_query)[0]
-                result, columns = self._fetchall_unlocked(conn, select_sql)
-        else:
-            number_matched = self._fetchone(count_query)[0]
-            result, columns = self._fetchall(select_sql)
+            number_matched, result, columns = page
 
         # Convert to GeoJSON features
         features = []
@@ -675,7 +1140,7 @@ class DuckDBManager:
 
             # Extract geometry
             geometry = self._extract_geometry_from_row(
-                row_dict, has_geometry, geometry_column
+                row_dict, has_geometry, geometry_column, raw_geometry
             )
 
             # Determine feature ID
@@ -699,16 +1164,21 @@ class DuckDBManager:
         }
 
     def get_item_by_id(
-        self, collection_id: str, item_id: Any
+        self, collection_id: str, item_id: Any, raw_geometry: bool = False
     ) -> Optional[Dict[str, Any]]:
         """Get a single item by ID from a Parquet file.
 
         Args:
             collection_id: The collection identifier.
             item_id: The item ID to retrieve.
+            raw_geometry: Return the geometry as RawGeoJSON instead of a dict.
 
         Returns:
             Feature dictionary, or None if not found.
+
+        Raises:
+            FeatureTooLargeError: If the feature holds more than
+                max_page_vertices vertices.
         """
         if item_id is None:
             return None
@@ -724,56 +1194,71 @@ class DuckDBManager:
         )
         id_column = schema["id_column"]
 
-        materialized = self._get_materialized_connection(collection_id)
-        if materialized:
-            conn, lock = materialized
-            from_sql = self.escape_identifier(MATERIALIZED_TABLE_NAME)
+        if id_column:
+            # Parameterized to prevent SQL injection
+            where_sql = f"WHERE {self.escape_identifier(id_column)} = $1"
+            offset_sql = ""
+            params: list | None = [item_id]
         else:
-            conn, lock = None, None
-            from_sql = f"read_parquet('{escaped_path}')"
-
-        if not id_column:
             # Fall back to row number (1-indexed)
             try:
                 row_num = int(item_id)
-                if has_geometry:
-                    query = f"""
-                        SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
-                        FROM {from_sql}
-                        LIMIT 1 OFFSET {row_num - 1}
-                    """
-                else:
-                    query = f"""
-                        SELECT *
-                        FROM {from_sql}
-                        LIMIT 1 OFFSET {row_num - 1}
-                    """
-                params = None
             except ValueError:
                 return None
-        else:
-            # Use ID column with parameterized query to prevent SQL injection
-            escaped_id_col = self.escape_identifier(id_column)
+            where_sql = ""
+            offset_sql = f"OFFSET {row_num - 1}"
+            params = None
+        geojson_sql = (
+            f", ST_AsGeoJSON({escaped_geom_col}) as __geojson__" if has_geometry else ""
+        )
+        star_sql = self._star_sql(self._columns_left_out(schema))
+
+        def build(materialized: bool, vertices_only: bool = False) -> str:
+            from_sql = (
+                self.escape_identifier(MATERIALIZED_TABLE_NAME)
+                if materialized
+                else f"read_parquet('{escaped_path}')"
+            )
+            select_sql = (
+                self._vertices_sql(escaped_geom_col)
+                if vertices_only
+                else f"{star_sql}{geojson_sql}"
+            )
+            return f"""
+                SELECT {select_sql}
+                FROM {from_sql}
+                {where_sql}
+                LIMIT 1 {offset_sql}
+            """
+
+        def run_item(
+            materialized: bool,
+            fetchall: Callable[[str, list | None], tuple[list[tuple], list[str]]],
+        ) -> tuple[list[tuple], list[str]]:
+            """Size the item within the vertex budget, then fetch it."""
             if has_geometry:
-                query = f"""
-                    SELECT *, ST_AsGeoJSON({escaped_geom_col}) as __geojson__
-                    FROM {from_sql}
-                    WHERE {escaped_id_col} = $1
-                    LIMIT 1
-                """
-            else:
-                query = f"""
-                    SELECT *
-                    FROM {from_sql}
-                    WHERE {escaped_id_col} = $1
-                    LIMIT 1
-                """
-            params = [item_id]
+                sizes, _ = fetchall(build(materialized, vertices_only=True), params)
+                self._page_size_within_budget(collection_id, [row[0] for row in sizes])
+            return fetchall(build(materialized), params)
 
         try:
-            rows, columns = self._fetchall(query, params, conn=conn, lock=lock)
+            found = self._run_materialized(
+                collection_id,
+                lambda conn: run_item(
+                    True,
+                    lambda query, query_params: self._fetchall_unlocked(
+                        conn, query, query_params
+                    ),
+                ),
+            )
+            if found is None:
+                self._warn_if_large_raw_parquet(collection_id, has_geometry)
+                found = run_item(False, self._fetchall)
+            rows, columns = found
         except duckdb.Error as e:
-            logger.warning(f"Error querying item {item_id} from {collection_id}: {e}")
+            logger.warning(
+                "Error querying item %s from %s: %s", item_id, collection_id, e
+            )
             return None
 
         if not rows:
@@ -783,7 +1268,7 @@ class DuckDBManager:
 
         # Extract geometry
         geometry = self._extract_geometry_from_row(
-            row_dict, has_geometry, geometry_column
+            row_dict, has_geometry, geometry_column, raw_geometry
         )
 
         return {
@@ -819,3 +1304,62 @@ def get_shared_manager() -> DuckDBManager:
                 _shared_manager = DuckDBManager()
                 logger.info("DuckDB shared manager singleton created.")
     return _shared_manager
+
+
+# ---------------------------------------------------------------------------
+# Request gate
+# ---------------------------------------------------------------------------
+
+_REQUEST_GATE = anyio.CapacityLimiter(1)
+
+
+async def run_duckdb_request(func: Callable[..., T], *args: Any) -> T:
+    """Run a request's DuckDB work and response building in a worker thread.
+
+    Every request-time DuckDB call goes through here, so it never blocks the
+    event loop (#280). The gate admits one request at a time across the
+    in-memory and the materialized connections, keeping the one-heavy-query
+    memory envelope measured for #279 and #288. A request waiting for the gate
+    holds no worker thread.
+
+    Args:
+        func: Synchronous callable doing the DuckDB work.
+        *args: Positional arguments passed to func.
+
+    Returns:
+        func's result. Exceptions raised by func propagate unchanged.
+    """
+    return await anyio.to_thread.run_sync(func, *args, limiter=_REQUEST_GATE)
+
+
+async def warm_schema_cache() -> None:
+    """Compute every Parquet collection's schema once, right after start-up.
+
+    Each collection takes the request gate on its own, so a request arriving
+    meanwhile waits for one schema scan, not for the whole warm-up (#281).
+    Failures are logged and never raised: a broken collection is skipped, and
+    a manager that cannot start leaves the /parquet routes answering 503.
+    """
+    started = time.monotonic()
+    try:
+        manager = await run_duckdb_request(get_shared_manager)
+        parquet_files = await run_duckdb_request(manager.list_parquet_files)
+    except Exception as e:
+        logger.warning("Parquet schema warm-up skipped: %s", e)
+        return
+
+    failed = 0
+    for parquet_file in parquet_files:
+        collection_id = parquet_file["id"]
+        try:
+            await run_duckdb_request(manager.get_parquet_schema, collection_id)
+        except Exception as e:
+            failed += 1
+            logger.warning("Parquet schema warm-up failed for %s: %s", collection_id, e)
+
+    logger.info(
+        "Parquet schema warm-up: %d of %d collections scanned in %.1f s",
+        len(parquet_files) - failed,
+        len(parquet_files),
+        time.monotonic() - started,
+    )

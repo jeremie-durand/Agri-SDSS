@@ -28,6 +28,11 @@ RUN apk upgrade --no-cache \
 RUN --mount=type=bind,source=vector-api/requirements-vector-api.txt,target=/tmp/requirements-vector-api.txt \
     python -m pip install --no-cache-dir -r /tmp/requirements-vector-api.txt
 
+# Ship DuckDB's spatial extension (HOME=/tmp → /tmp/.duckdb) so containers never
+# download it at run time and start without network access (#281)
+RUN python -c "import duckdb; duckdb.connect().install_extension('spatial')" \
+    && chown -R 1000:1000 /tmp/.duckdb
+
 # Copy canonical wait-for-it script and entrypoint
 COPY --chmod=755 scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
 COPY --chmod=755 vector-api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh

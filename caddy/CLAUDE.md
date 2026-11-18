@@ -98,11 +98,25 @@ the `Caddyfile` needs a restart, not a rebuild.
 
 - HSTS (1 year, `includeSubDomains`), `X-Frame-Options SAMEORIGIN`,
   `nosniff`, `Referrer-Policy`, and the `Server` header removed.
-- **CSP** allows scripts only from `'self'`, unpkg, cdnjs and jsdelivr, and
-  `connect-src` only `'self'` plus Planetary Computer. A new CDN library or a
-  new browser-side API origin in any UI must be added here, or the browser
-  blocks it silently. Caddy's headers apply on top of the chatbot nginx's own
-  headers.
+- **CSP comes in two policies**, picked by the exclusive `@api_pages` and
+  `@site_pages` matchers.
+  - **Site policy** (everything except the API paths): scripts only from
+    `'self'`, unpkg, cdnjs and jsdelivr; `connect-src` only `'self'` plus
+    Planetary Computer.
+  - **API policy** (`/stac-api/*`, `/vector-api/*`, `/raster-api/*`,
+    `/process-api/*`): the site policy plus what the upstream TiPg and TiTiler
+    HTML templates load. That is `files.dnr.state.mn.us` (Bootstrap JS),
+    `d3js.org` and `api.mapbox.com` (TiTiler viewers) in `script-src`, cdnjs
+    and `api.mapbox.com` in `style-src`, `api.mapbox.com` in `font-src`
+    (Assembly's Open Sans), `tile.openstreetmap.org` in `connect-src`, and
+    `worker-src 'self' blob:` for MapLibre.
+  - A new CDN library or browser-side API origin must be added to the policy
+    of the paths that use it, or the browser blocks it silently. When a TiPg or
+    TiTiler bump stops loading one of the API-only origins, remove it.
+    `make smoke-browser-pages` (CI) fails when an API page loads a script or
+    stylesheet its policy does not allow; it cannot see `connect-src` or
+    `worker-src` gaps, so check those in a browser console.
+  - Caddy's headers apply on top of the chatbot nginx's own headers.
 - STAC Browser's validation badge needs `'unsafe-eval'` and stays broken on
   purpose. Its COGs render through raster-api tiles, so no `worker-src` is
   needed for its in-browser GeoTIFF decoder.
@@ -126,3 +140,7 @@ the `Caddyfile` needs a restart, not a rebuild.
   production file. Nothing checks that automatically.
 - The `RATE_LIMIT_*` variables the Makefile passes only tell the tests the
   limits `Caddyfile.test` sets. They configure nothing.
+- `test_dockerfile_version_consistency.py` is the one `unit` test here. It runs
+  in `make test-repo-consistency` (CI), not `make test-caddy`, and fails when
+  the two `FROM caddy:` lines pin different versions. The builder stage is the
+  Caddy that ships, and Dependabot has bumped the two lines apart (#305).

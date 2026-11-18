@@ -26,9 +26,7 @@ def test_invalidate_returns_true_when_connection_was_cached(
 
 
 def test_invalidate_returns_false_when_nothing_was_cached(parquet_app_client):
-    response = parquet_app_client.post(
-        "/parquet/collections/never_queried/invalidate"
-    )
+    response = parquet_app_client.post("/parquet/collections/never_queried/invalidate")
 
     assert response.status_code == 200
     assert response.json() == {

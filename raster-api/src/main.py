@@ -4,6 +4,7 @@ Extends the stock TiTiler application with a /collections endpoint so the
 frontend data catalog can discover locally-mounted COG files, which TiTiler
 itself has no mechanism to list (it only serves a COG given its exact path).
 """
+
 from titiler.application.main import app
 
 from .collections_router import router as collections_router

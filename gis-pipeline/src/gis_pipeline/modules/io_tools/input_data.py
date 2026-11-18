@@ -1,21 +1,116 @@
+import re
 import sqlite3
 from difflib import get_close_matches
 from pathlib import Path
 from typing import Dict, List
 
+import geopandas as gpd
 import pandas as pd
+import pyogrio
 import structlog
 from gis_pipeline.core.config import Config
 from gis_pipeline.core.utils import harmonize_name
 from gis_pipeline.services.mapping import (
     ColumnMappings,
     CSVDataRegistryForSourceCRS,
+    EsriSystemLayerPatterns,
     NamingPatterns,
+    QGISInternalLayers,
     SupportedRasterFormats,
     SupportedVectorFormats,
 )
 
 logger = structlog.get_logger()
+
+
+def _is_esri_network_table(vector_file: Path, layer: str) -> bool:
+    """Tell whether a layer is a table ESRI stores for a geometric network.
+
+    These are the non-spatial ``N_<number>_<name>`` tables of a file
+    geodatabase. The layer metadata is read only for a matching name, and a
+    layer whose metadata cannot be read is not treated as one, so the caller
+    meets the read error on the normal path and reports it.
+    """
+    if vector_file.suffix.lower() != SupportedVectorFormats.GDB.value:
+        return False
+    pattern = EsriSystemLayerPatterns.GEOMETRIC_NETWORK_TABLE.value
+    if not re.fullmatch(pattern, layer, flags=re.IGNORECASE):
+        return False
+    try:
+        return pyogrio.read_info(vector_file, layer=layer)["geometry_type"] is None
+    except Exception as e:
+        logger.warning(
+            "layer_metadata_unreadable",
+            file=vector_file.name,
+            layer=layer,
+            error=str(e),
+        )
+        return False
+
+
+def is_ingested_layer(vector_file: Path, layer: str) -> bool:
+    """Tell whether a layer of a vector source is ingested.
+
+    QGIS internal layers and ESRI geometric-network system tables are left
+    out, and each skip is logged.
+
+    Args:
+        vector_file: Path to the vector file.
+        layer: Layer name inside the file.
+
+    Returns:
+        False for a layer the pipeline must skip.
+    """
+    if layer.lower() in {e.value for e in QGISInternalLayers}:
+        reason = "qgis_internal_layer"
+    elif _is_esri_network_table(vector_file, layer):
+        reason = "esri_network_table"
+    else:
+        return True
+    logger.info("layer_skipped", file=vector_file.name, layer=layer, reason=reason)
+    return False
+
+
+def read_source_dtypes(vector_file: Path, layer: str) -> dict[str, str]:
+    """Read the field types a vector layer declares, regardless of its values.
+
+    Args:
+        vector_file: Path to the vector file.
+        layer: Layer name inside the file.
+
+    Returns:
+        Mapping of field name to the dtype name reported by pyogrio.
+    """
+    info = pyogrio.read_info(vector_file, layer=layer)
+    return {
+        field: str(dtype)
+        for field, dtype in zip(info["fields"], info["dtypes"], strict=True)
+    }
+
+
+def apply_source_dtypes(
+    gdf: gpd.GeoDataFrame, source_dtypes: dict[str, str]
+) -> gpd.GeoDataFrame:
+    """Give a chunk the types its layer declares, so that all chunks share a schema.
+
+    Without this, pandas infers types from each chunk's values: an integer field
+    with NULLs becomes float64, and a float field can look like an integer.
+
+    Args:
+        gdf: Chunk read from the layer.
+        source_dtypes: Mapping returned by read_source_dtypes.
+
+    Returns:
+        The same GeoDataFrame with its columns cast.
+    """
+    for col, dtype in source_dtypes.items():
+        if col not in gdf.columns:
+            continue
+        if dtype.startswith(("int", "uint")):
+            gdf[col] = gdf[col].astype("Int64")
+        elif dtype.startswith("float"):
+            gdf[col] = gdf[col].astype("float64")
+    return gdf
 
 
 def discover_geodata(input_path: Path) -> Dict[str, List[Path]]:

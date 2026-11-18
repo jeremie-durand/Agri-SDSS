@@ -9,9 +9,12 @@ training data changes (detected via a cheap file-stat fingerprint).
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import logging
 import math
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,12 +77,13 @@ class SOMModelStore:
     """Loads a cached, trained model bundle per scenario, or trains and
     persists a new one when missing or the training data has changed.
 
-    Concurrency assumption (not enforced in code): process-api runs gunicorn
-    with the default sync worker class and WEB_CONCURRENCY unset (a single
-    worker process handling one request at a time), so two requests can't
-    race to train the same scenario concurrently. If WEB_CONCURRENCY or the
-    worker class ever changes for process-api, this needs revisiting — e.g.
-    a file lock around the train-and-persist path in get_or_train().
+    Concurrency: get_or_train() holds an exclusive flock on
+    som_model_<scenario>.lock beside the bundle for the whole load, check,
+    train and persist sequence. Processes sharing the model directory (web
+    workers, process-worker replicas on the same host) therefore train a
+    scenario once; the others wait, then load the bundle it persisted.
+    Different scenarios use different lock files and never wait on each
+    other. flock does not hold across hosts or on NFS.
 
     Sklearn version tracking: each bundle records the scikit-learn version it
     was trained under (SOMModelBundle.sklearn_version). A mismatch on load is
@@ -97,12 +101,29 @@ class SOMModelStore:
     def _bundle_path(self, scenario: str) -> Path:
         return self._model_dir / f"som_model_{scenario}.joblib"
 
+    @contextmanager
+    def _scenario_lock(self, scenario: str) -> Iterator[None]:
+        self._model_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self._model_dir / f"som_model_{scenario}.lock"
+        with lock_path.open("a") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
     def get_or_train(
         self, scenario: str, all_data: pd.DataFrame, data_dir: Path
     ) -> SOMModelBundle:
         """Return a valid cached bundle for `scenario`, training and
         persisting a fresh one if missing or the training data has changed
         since it was last trained."""
+        with self._scenario_lock(scenario):
+            return self._load_or_train(scenario, all_data, data_dir)
+
+    def _load_or_train(
+        self, scenario: str, all_data: pd.DataFrame, data_dir: Path
+    ) -> SOMModelBundle:
         fingerprint = compute_fingerprint(data_dir)
         bundle_path = self._bundle_path(scenario)
 

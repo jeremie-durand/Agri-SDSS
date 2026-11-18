@@ -104,10 +104,37 @@ Keep these invariants when changing processing code.
 - `insert_table_data()` mutates `gid` in place to apply the offset. The
   GeoParquet export relies on that, so do not add a defensive `.copy()`.
 - Per-table steps, in order: `validate_vector_data` → `harmonize_gdf` →
-  `clean_geometries_gdf` → `harmonize_crs_gdf` → PostGIS → GeoParquet →
+  `clean_geometries_gdf` → `harmonize_crs_gdf` →
+  `split_large_geometries_gdf` → PostGIS → GeoParquet →
   `trigger_materialize_and_notify`.
-- QGIS internal layers (`QGISInternalLayers`) are skipped. GPKG foreign keys
-  are re-applied after all layers of the file are loaded.
+- `split_large_geometries_gdf` cuts each Polygon or MultiPolygon above
+  `SPLIT_MAX_VERTICES` (100 000, `services/mapping.py`) into pieces of at most
+  that many vertices (#292). It halves the bounds with `clip_by_rect`, so
+  every source vertex and the source area are kept, and only the cut lines
+  add vertices. A layer with at least one split gets `split_source_gid` (the
+  gid the feature would have had) and `split_part` (1 for an unsplit
+  feature), its attributes are copied to every piece, and `gid` is dropped so
+  `insert_table_data()` numbers the rows again. Layers read in chunks are
+  never split, only logged (`feature_not_split`, reason `chunked`): generated
+  gids are offset by the source row (`gid_offset`), so pieces would collide
+  with the next chunk's gids. A layer that already has one of the two column
+  names is left unsplit too (reason `column_conflict`). For both reasons the
+  logged `feature` is the gid stored for it, `gid_offset` included. Lines and
+  points are never split. Pieces copy every attribute, so a GPKG parent layer
+  that gets split loses its unique key. A foreign key that targets one of its
+  attribute columns is then skipped (`gpkg_fk_unique_skipped_duplicate_data`).
+  One that targets `gid` is still applied, but against the renumbered gids,
+  so child rows that point at a split parent reach the wrong rows; clients
+  must use `split_source_gid`. Recursion stops at `MAX_SPLIT_DEPTH`; a piece still above
+  the threshold then is kept and logged as `feature_split_incomplete`.
+- `is_ingested_layer()` (`io_tools/input_data.py`) decides which layers are
+  skipped, for `main.py` and `convert_vector_files_to_gdf()` alike. It leaves
+  out QGIS internal layers (`QGISInternalLayers`) and ESRI geometric-network
+  system tables: non-spatial `N_<number>_<name>` layers of a `.gdb`
+  (`EsriSystemLayerPatterns`). They carry no geometry, and their `BLOB`
+  pages broke vector-api (#289). A skipped layer is logged as `layer_skipped`
+  and changes no report counter. Add a new rule there, not at a call site.
+- GPKG foreign keys are re-applied after all layers of the file are loaded.
 - After all vectors, `stamp_gee_flags_on_field_boundaries()` sets `gee_field_id`
   and `has_gee_data` on `som_field_boundaries` and rewrites its GeoParquet so
   both stores agree. GEE `FIELD_ID` is **not** the platform `gid`: the two are
@@ -198,8 +225,15 @@ This overrides the root rule on log formatting.
 
 ## Testing
 
-- Tests are unit tests with mocked I/O: no live PostGIS or STAC API calls.
-  DuckDB runs in-process against temp files.
+- Tests are unit tests with mocked I/O: no live STAC API calls. DuckDB runs
+  in-process against temp files.
+- The one exception is `test/modules/db/test_pg_utils_integration.py`
+  (`integration`): it runs `PostGISManager` writes against the live database
+  on throwaway `zz_it_*` tables and skips when PostgreSQL is unreachable. It
+  is what catches SQLAlchemy / GeoAlchemy2 / pandas / geopandas
+  incompatibilities, which the mocked engine hides (SQLAlchemy 2.1 needs
+  GeoAlchemy2 ≥ 0.20). Bump those libraries together and run it. Add a case
+  there when a new write path reaches PostGIS; keep everything else mocked.
 - Mock with `unittest.mock.patch`/`MagicMock` and `monkeypatch`. Use in-memory
   GeoDataFrames and `tmp_path` rasters. `responses` is used only for STAC HTTP
   tests.

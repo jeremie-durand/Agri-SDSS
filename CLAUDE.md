@@ -46,9 +46,32 @@ Branches and commit prefixes are in
 - **Claude never commits, pushes or opens PRs.** Leave changes uncommitted in the
   working tree and let the developer do it; create a branch only when asked in
   that turn.
+- **The issue workflow is the one exception.** `/github-issues <number or link>` syncs
+  `develop`, creates the issue branch and writes an OpenSpec proposal.
+  `/github-issues-apply` implements the accepted proposal and commits each task
+  group once `agri-reviewer` passes. Pushing and opening the PR stay with the
+  developer. Both skills live in `.claude/skills/` and need the `openspec` CLI
+  and a local `openspec/` root (`openspec init`).
 
-CI (`.github/workflows/action.yml`) checks `ARGS.md` sync, i18n catalogs, nginx
-configs, image builds, the stac-browser smoke test and `make test-all`.
+CI (`.github/workflows/action.yml`) runs `pre-commit run --all-files` and checks
+`ARGS.md` sync, i18n catalogs, nginx configs, image builds, the stac-browser smoke
+test and `make test-all`.
+
+## Review Before Handoff
+
+After changing any file that is not Markdown documentation, Claude **MUST** run
+the `agri-reviewer` subagent ([.claude/agents/agri-reviewer.md](.claude/agents/agri-reviewer.md))
+on the uncommitted changes before reporting the work as done. Run the tests
+first. The reviewer judges them but never runs them.
+
+- Fix every `blocking` finding, then run `agri-reviewer` once more.
+- Do not loop beyond that second pass. List any finding still open in the
+  handoff message, and the developer decides before committing.
+- A diff that touches only Markdown documentation is exempt.
+- `/github-issues-apply` reviews each task group separately and allows three
+  passes per group. It commits a group once a pass has no `blocking` finding and
+  nothing but Markdown was changed after that pass. Markdown-only groups skip
+  the review.
 
 ## Common Commands
 
@@ -61,6 +84,13 @@ docker compose build              # Rebuild images (make build also creates data
 docker compose logs -f <service>  # Follow logs
 make smoke-entrypoints            # Verify every service entrypoint still imports
 make smoke-stac-browser           # Start stac-browser and probe /stac/, its config and bundle
+make smoke-browser-pages          # API HTML pages via home: one CORS header, prefixed links, CSP
+make smoke-catalogs               # Open every listed PostGIS/Parquet/STAC collection and process via home
+                                  # (Parquet: 25 spread out plus known heavy requests; ALL=1 walks all)
+make check-materialized           # List large GeoParquet collections whose .duckdb index is missing
+                                  # or unreadable (exits 1 if any; above VECTOR_API_RAW_PARQUET_WARN_MB)
+make check-parquet-memory         # Peak RSS of each known heavy Parquet/PostGIS request, inside the
+                                  # running vector-api (exits 1 above 950 MB, on a failure or on swap)
 
 # home has no published port — reach it from inside the Docker network
 docker run --rm --network eoapi-network curlimages/curl:latest -sI http://home:8080/
@@ -81,7 +111,8 @@ afterwards. This includes containers recreated as dependencies, for example by
 make test-all             # Everything CI runs
 make test-<service>       # gis-pipeline | stac-api | vector-api | raster-api |
                           # process-api | chatbot | i18n
-make test-repo-consistency  # Guards the /cog route duplicated across 4 files
+make test-repo-consistency  # Guards the /cog route (4 files), the vector-api memory defaults (compose vs code),
+                            # the Caddy builder/runtime versions (Dockerfile.caddy) and the database PGDATA pin
 make test-caddy           # Rate-limit integration tests (hot-reloads Caddyfile.test)
 
 # Single test file or test (inside the service container)

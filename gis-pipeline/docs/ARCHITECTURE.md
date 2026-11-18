@@ -107,7 +107,8 @@ graph TD
    V5 --> V6[rename_gdf_columns]
    V6 --> V7[handle_null_values]
    V7 --> V8[reproject]
-   V8 --> V9[insert_table_data]
+   V8 --> V8b[split_large_geometries]
+   V8b --> V9[insert_table_data]
    V9 --> V10[PostGIS table + spatial index]
    V9 --> V11[Post in API]
 ```

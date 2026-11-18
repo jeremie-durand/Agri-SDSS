@@ -16,6 +16,8 @@ import numpy as np
 from pydantic import ValidationError
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 
+from agri_i18n import _
+
 from .climate_backend import (
     ClimateIndicatorsFeature,
     ClimateIndicatorsInput,
@@ -35,7 +37,6 @@ from .climate_backend.models import ClimateIndicatorsProperties, GeoJSONGeometry
 from .climate_indicators_metadata import PROCESS_METADATA
 from .location_utils import resolve_location
 from .weather_backend import PAVICSBackend, WeatherTimeseriesFeature
-from agri_i18n import _
 
 logger = logging.getLogger(__name__)
 

@@ -5,6 +5,7 @@ pydantic-settings classes so that missing or mis-typed values are caught at
 startup rather than at the first affected request.
 """
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +46,17 @@ class FarmConfig(BaseSettings):
     FARM_ID_COLUMN: str = "gid"
 
 
+class SpatialTablesConfig(BaseSettings):
+    """PostGIS tables read by the spatial utility processes."""
+
+    model_config = SettingsConfigDict(env_prefix="")
+
+    WATER_TABLE_NAME: str = "public.grhq_water_union"
+    PEDO_TABLE_NAME: str = "public.couverture_pedologique_2026_01_couverture_p_cbc3c8"
+    PEDO_2022_TABLE_NAME: str = "public.couverture_pedo_2022"
+    SOM_TABLE_NAME: str = "public.som_field_boundaries"
+
+
 class ApiConfig(BaseSettings):
     """URLs for downstream internal service APIs."""
 
@@ -75,3 +87,14 @@ class StorageConfig(BaseSettings):
 
     DUCKDB_DATA_DIR: str = "/data/duckdb"
     LIDAR_OUTPUT_DIR: str = "/data"
+
+
+class JobQueueConfig(BaseSettings):
+    """Async job execution: worker time budget, polling and retention."""
+
+    model_config = SettingsConfigDict(env_prefix="")
+
+    PROCESS_JOB_TIMEOUT_SECONDS: int = Field(default=1800, gt=0)
+    PROCESS_JOB_RETENTION_DAYS: int = Field(default=7, gt=0)
+    PROCESS_WORKER_POLL_SECONDS: float = Field(default=5, gt=0)
+    PROCESS_WORKER_SWEEP_SECONDS: float = Field(default=60, gt=0)

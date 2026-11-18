@@ -9,6 +9,7 @@ import multiprocessing
 import os
 import signal
 import time
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -19,7 +20,11 @@ import requests
 import requests.exceptions
 from openeo.rest.datacube import DataCube
 from processes.asset_url_utils import cog_href
-from processes.eo_sentinel_fetch import PROCESS_METADATA, SentinelFetchProcessor
+from processes.eo_sentinel_fetch import (
+    PROCESS_METADATA,
+    SentinelFetchProcessor,
+    _extract_cog_stats,
+)
 from pygeoapi.process.base import ProcessorExecuteError
 from rasterio.transform import from_origin
 from shapely.geometry import shape
@@ -38,6 +43,13 @@ def _english_messages():
     """
     with agri_i18n.use_locale("en"):
         yield
+
+
+def _bands_with_ranges(*ranges: tuple[float, float]) -> list[dict[str, Any]]:
+    return [
+        {"nodata": -9999, "statistics": {"minimum": low, "maximum": high}}
+        for low, high in ranges
+    ]
 
 
 def _write_sentinel_test_raster(path: str) -> None:
@@ -699,56 +711,82 @@ def test_get_product_title_unknown_falls_back_to_upper(processor_instance):
     assert title == "MYSTERY_PRODUCT"
 
 
-def test_get_raster_bands_metadata_ndvi(processor_instance):
-    """Test raster bands metadata for NDVI."""
-    bands = processor_instance._get_raster_bands_metadata("ndvi")
+def test_get_bands_metadata_ndvi(processor_instance):
+    bands = processor_instance._get_bands_metadata("ndvi")
 
-    assert len(bands) == 1
-    assert bands[0]["nodata"] == -9999
-    assert bands[0]["data_type"] == "float32"
-    assert "normalized difference" in bands[0]["unit"]
-
-
-def test_get_raster_bands_metadata_true_color(processor_instance):
-    """Test raster bands metadata for true color."""
-    bands = processor_instance._get_raster_bands_metadata("true_color")
-
-    assert len(bands) == 3  # RGB
-    assert bands[0]["name"] == "red"
-    assert bands[1]["name"] == "green"
-    assert bands[2]["name"] == "blue"
+    assert bands == [
+        {
+            "name": "ndvi",
+            "description": "NDVI values ranging from -1 to 1",
+            "nodata": -9999,
+            "data_type": "float32",
+        }
+    ]
 
 
-def test_get_raster_bands_metadata_evi(processor_instance):
-    """_get_raster_bands_metadata returns EVI-specific unit for evi."""
-    bands = processor_instance._get_raster_bands_metadata("evi")
-    assert len(bands) == 1
-    assert bands[0]["nodata"] == -9999
-    assert "enhanced vegetation index" in bands[0]["unit"]
+def test_get_bands_metadata_true_color_uses_eo_common_names(processor_instance):
+    bands = processor_instance._get_bands_metadata("true_color")
+
+    assert [b["name"] for b in bands] == ["red", "green", "blue"]
+    assert [b["eo:common_name"] for b in bands] == ["red", "green", "blue"]
+    assert all("common_name" not in b for b in bands)
 
 
-def test_get_raster_bands_metadata_savi(processor_instance):
-    """_get_raster_bands_metadata returns SAVI-specific unit for savi."""
-    bands = processor_instance._get_raster_bands_metadata("savi")
-    assert len(bands) == 1
-    assert bands[0]["nodata"] == -9999
-    assert "soil adjusted vegetation index" in bands[0]["unit"]
+@pytest.mark.parametrize("product", ["evi", "savi"])
+def test_get_bands_metadata_other_indices(processor_instance, product):
+    [band] = processor_instance._get_bands_metadata(product)
+
+    assert band["name"] == product
+    assert band["nodata"] == -9999
+    assert "unit" not in band
+    assert "scale" not in band and "offset" not in band
 
 
-def test_get_raster_bands_metadata_raw_bands(processor_instance):
-    """_get_raster_bands_metadata returns the default band entry for raw_bands."""
-    bands = processor_instance._get_raster_bands_metadata("raw_bands")
-    assert isinstance(bands, list)
-    assert len(bands) == 1
-    assert bands[0]["nodata"] == -9999
+@pytest.mark.parametrize("product", ["raw_bands", "nonexistent_product"])
+def test_get_bands_metadata_default_entry(processor_instance, product):
+    assert processor_instance._get_bands_metadata(product) == [{"nodata": -9999}]
 
 
-def test_get_raster_bands_metadata_unknown_product(processor_instance):
-    """_get_raster_bands_metadata returns default nodata entry for unknown products."""
-    bands = processor_instance._get_raster_bands_metadata("nonexistent_product")
-    assert isinstance(bands, list)
-    assert len(bands) == 1
-    assert bands[0]["nodata"] == -9999
+def test_build_bands_adds_statistics_and_follows_the_cog_band_count(
+    processor_instance,
+):
+    stats = [{"minimum": 1.0, "maximum": 2.0, "mean": 1.5, "stddev": 0.1}, {}]
+
+    bands = processor_instance._build_bands("raw_bands", stats)
+
+    assert len(bands) == 2
+    assert bands[0]["statistics"] == stats[0]
+    assert bands[1] == {"nodata": -9999}
+
+
+def test_product_asset_has_bands_and_no_legacy_fields(processor_instance, tmp_path):
+    cog_path = str(tmp_path / "ndvi.tif")
+    _write_sentinel_test_raster(cog_path)
+
+    asset = processor_instance._product_asset("ndvi", cog_path)
+
+    assert "raster:bands" not in asset
+    assert "statistics" not in asset
+    [band] = asset["bands"]
+    assert band["statistics"]["minimum"] == pytest.approx(0.1)
+    assert band["statistics"]["maximum"] == pytest.approx(0.4)
+    assert set(band["statistics"]) == {"minimum", "maximum", "mean", "stddev"}
+
+
+def test_render_params_of_a_real_cog_rescale_to_its_value_range(
+    processor_instance, tmp_path
+):
+    cog_path = str(tmp_path / "ndvi.tif")
+    _write_sentinel_test_raster(cog_path)
+
+    bidx, rescale = processor_instance._render_params(
+        processor_instance._product_asset("ndvi", cog_path)
+    )
+
+    assert bidx is None
+    low, high = (float(value) for value in rescale.split(","))
+    assert low == pytest.approx(0.1)
+    assert high == pytest.approx(0.4)
 
 
 # ------------------------------------------
@@ -764,7 +802,7 @@ def test_create_stac_item_structure(
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
             "roles": ["data"],
             "title": "NDVI",
-            "raster:bands": [{"nodata": -9999}],
+            "bands": [{"nodata": -9999}],
         }
     }
 
@@ -779,14 +817,17 @@ def test_create_stac_item_structure(
     )
 
     assert item["type"] == "Feature"
-    assert item["stac_version"] == "1.0.0"
+    assert item["stac_version"] == "1.1.0"
+    assert item["properties"]["proj:code"] == "EPSG:4326"
+    assert "proj:epsg" not in item["properties"]
     assert item["id"] == "test_item"
     assert "geometry" in item
     assert "bbox" in item
     assert "properties" in item
     assert "assets" in item
     assert "datetime" in item["properties"]
-    assert "eo:cloud_cover" in item["properties"]
+    assert "eo:cloud_cover" not in item["properties"]
+    assert item["properties"]["agri_sdss:cloud_cover_max"] == 20
     assert item["properties"]["platform"] == "sentinel-2"
 
 
@@ -843,7 +884,7 @@ def test_create_stac_item_temporal_properties(
 def test_create_stac_item_stac_extensions(
     processor_instance, sample_farm_geometry, tmp_path
 ):
-    """_create_stac_item includes the proj, raster, and eo extension URIs."""
+    """_create_stac_item declares exactly the extensions whose fields it uses."""
     item = processor_instance._create_stac_item(
         item_id="test_ext",
         geometry=sample_farm_geometry,
@@ -854,10 +895,33 @@ def test_create_stac_item_stac_extensions(
         marker_path=str(tmp_path / "test_ext.stac.json"),
     )
 
-    extensions = item["stac_extensions"]
-    assert any("projection" in e for e in extensions), "Missing projection extension"
-    assert any("raster" in e for e in extensions), "Missing raster extension"
-    assert any("/eo/" in e for e in extensions), "Missing eo extension"
+    assert item["stac_extensions"] == [
+        "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/processing/v1.2.0/schema.json",
+    ]
+
+
+def test_create_stac_item_declares_eo_when_a_band_has_a_common_name(
+    processor_instance, sample_farm_geometry, tmp_path
+):
+    assets = _make_assets(("true_color",))
+    assets["true_color"]["bands"] = processor_instance._get_bands_metadata("true_color")
+
+    item = processor_instance._create_stac_item(
+        item_id="test_ext_eo",
+        geometry=sample_farm_geometry,
+        bbox=(-71.5, 45.5, -71.4, 45.6),
+        temporal_extent=["2024-06-01", "2024-08-31"],
+        assets=assets,
+        cloud_cover_max=20,
+        marker_path=str(tmp_path / "test_ext_eo.stac.json"),
+    )
+
+    assert item["stac_extensions"] == [
+        "https://stac-extensions.github.io/projection/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/eo/v2.0.0/schema.json",
+        "https://stac-extensions.github.io/processing/v1.2.0/schema.json",
+    ]
 
 
 def test_create_stac_item_calls_post_to_stac_api(
@@ -938,12 +1002,30 @@ def test_load_cached_stac_item_missing_returns_none(processor_instance, tmp_path
 def test_write_and_load_stac_marker_round_trip(processor_instance, tmp_path):
     """A written marker can be read back as the same STAC item dict."""
     marker_path = str(tmp_path / "roundtrip.stac.json")
-    stac_item = {"id": "sentinel2_farm_test", "type": "Feature"}
+    stac_item = {
+        "id": "sentinel2_farm_test",
+        "type": "Feature",
+        "stac_version": "1.1.0",
+    }
 
     processor_instance._write_stac_marker(marker_path, stac_item)
     loaded = processor_instance._load_cached_stac_item(marker_path)
 
     assert loaded == stac_item
+
+
+@pytest.mark.unit
+def test_load_cached_stac_item_ignores_a_marker_from_an_older_stac_version(
+    processor_instance, tmp_path
+):
+    """A 1.0.0 marker describes an item in the legacy shape; it must be
+    republished, not served."""
+    marker_path = str(tmp_path / "legacy.stac.json")
+    processor_instance._write_stac_marker(
+        marker_path, {"id": "legacy", "type": "Feature", "stac_version": "1.0.0"}
+    )
+
+    assert processor_instance._load_cached_stac_item(marker_path) is None
 
 
 @pytest.mark.unit
@@ -982,7 +1064,11 @@ def test_execute_skips_stac_publish_when_all_products_cached_and_assets_match(
     # plus the raster-api siblings built for it.
     seeded_assets = _make_assets(("ndvi",))
     seeded_assets.update(processor_instance._render_assets(seeded_assets))
-    seeded_item = {"id": stac_item_id, "assets": seeded_assets}
+    seeded_item = {
+        "id": stac_item_id,
+        "stac_version": "1.1.0",
+        "assets": seeded_assets,
+    }
     processor_instance._write_stac_marker(marker_path, seeded_item)
 
     with (
@@ -1019,7 +1105,11 @@ def test_execute_republishes_when_marker_asset_set_differs(
     stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
     marker_path = processor_instance._stac_marker_path(stac_item_id)
     # Marker only has "ndvi" published; this call also wants "true_color".
-    seeded_item = {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+    seeded_item = {
+        "id": stac_item_id,
+        "stac_version": "1.1.0",
+        "assets": _make_assets(("ndvi",)),
+    }
     processor_instance._write_stac_marker(marker_path, seeded_item)
 
     with (
@@ -1171,7 +1261,7 @@ def test_generate_preview_url(processor_instance):
     """Test preview URL generation for TiTiler."""
     asset = {
         "href": "/data/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31_abc123.tif",
-        "statistics": {1: {"min": 0.1, "max": 0.9}},
+        "bands": _bands_with_ranges((0.1, 0.9)),
     }
 
     preview_url = processor_instance._generate_preview_url(asset)
@@ -2078,7 +2168,7 @@ def test_multiple_products_combination(processor_instance):
         assert title is not None
         assert len(title) > 0
 
-        bands = processor_instance._get_raster_bands_metadata(product)
+        bands = processor_instance._get_bands_metadata(product)
         assert isinstance(bands, list)
         assert len(bands) > 0
 
@@ -2093,14 +2183,14 @@ def test_stac_item_with_multiple_assets(
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
             "roles": ["data"],
             "title": "NDVI",
-            "raster:bands": [{"nodata": -9999}],
+            "bands": [{"nodata": -9999}],
         },
         "evi": {
             "href": "/data/test_evi.tif",
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
             "roles": ["data"],
             "title": "EVI",
-            "raster:bands": [{"nodata": -9999}],
+            "bands": [{"nodata": -9999}],
         },
     }
 
@@ -2295,7 +2385,7 @@ def sample_stac_item():
     """Sample STAC item for testing."""
     return {
         "type": "Feature",
-        "stac_version": "1.0.0",
+        "stac_version": "1.1.0",
         "id": "sentinel2_farm_4_2024-06-01_2024-08-31",
         "geometry": {
             "type": "Polygon",
@@ -2359,6 +2449,9 @@ def test_ensure_collection_exists_creates_new(processor_instance):
 
                 # Check the collection payload
                 assert "sentinel2_eo_products" in str(call_args)
+                body = call_args.kwargs["json"]
+                assert body["license"] == "other"
+                assert body["stac_version"] == "1.1.0"
                 assert SentinelFetchProcessor._collection_checked is True
 
 
@@ -2871,8 +2964,17 @@ def _make_assets(products: tuple) -> dict:
             "type": "image/tiff; application=geotiff; profile=cloud-optimized",
             "roles": ["data"],
             "title": p.upper(),
-            "raster:bands": [],
-            "statistics": {1: {"min": 0.0, "max": 1.0, "mean": 0.4, "std": 0.1}},
+            "bands": [
+                {
+                    "nodata": -9999,
+                    "statistics": {
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "mean": 0.4,
+                        "stddev": 0.1,
+                    },
+                }
+            ],
         }
         for p in products
     }
@@ -3023,7 +3125,7 @@ def test_generate_preview_url_is_public(monkeypatch):
     url = processor._generate_preview_url(
         {
             "href": "/data/sentinel2_farm_4_ndvi.tif",
-            "statistics": {1: {"min": 0.0, "max": 1.0}},
+            "bands": _bands_with_ranges((0.0, 1.0)),
         }
     )
 
@@ -3188,16 +3290,14 @@ def test_render_assets_carry_roles_and_media_types(
 
 
 @pytest.mark.unit
-def test_render_assets_rescale_comes_from_the_asset_statistics(
+def test_render_assets_rescale_comes_from_the_band_statistics(
     processor_instance, tmp_path, monkeypatch
 ):
     """A float index renders flat unless TiTiler is given its value range."""
     monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
 
     assets = _make_assets(("ndvi",))
-    assets["ndvi"]["statistics"] = {
-        1: {"min": -0.2, "max": 0.9, "mean": 0.4, "std": 0.1}
-    }
+    assets["ndvi"]["bands"] = _bands_with_ranges((-0.2, 0.9))
 
     rendered = _render_assets_item(processor_instance, assets, tmp_path)
 
@@ -3213,11 +3313,9 @@ def test_render_assets_of_a_visual_product_are_not_rescaled(
     monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
 
     assets = _make_assets(("true_color",))
-    assets["true_color"]["statistics"] = {
-        1: {"min": 0.0, "max": 255.0, "mean": 100.0, "std": 10.0},
-        2: {"min": 0.0, "max": 255.0, "mean": 100.0, "std": 10.0},
-        3: {"min": 0.0, "max": 255.0, "mean": 100.0, "std": 10.0},
-    }
+    assets["true_color"]["bands"] = _bands_with_ranges(
+        (0.0, 255.0), (0.0, 255.0), (0.0, 255.0)
+    )
 
     rendered = _render_assets_item(processor_instance, assets, tmp_path)
 
@@ -3227,45 +3325,28 @@ def test_render_assets_of_a_visual_product_are_not_rescaled(
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "statistics",
+    "bands",
     [
-        {},
-        {1: {"min": None, "max": None, "mean": None, "std": None}},
-        {1: {"min": 0.5, "max": 0.5, "mean": 0.5, "std": 0.0}},
-        {1: {"min": float("nan"), "max": float("nan"), "mean": 0.0, "std": 0.0}},
+        [],
+        [{"nodata": -9999}],
+        _bands_with_ranges((0.5, 0.5)),
+        _bands_with_ranges((float("nan"), float("nan"))),
     ],
     ids=["missing", "empty-band", "constant", "not-finite"],
 )
 def test_render_assets_skip_an_unusable_rescale(
-    processor_instance, tmp_path, monkeypatch, statistics
+    processor_instance, tmp_path, monkeypatch, bands
 ):
     """An unusable range must leave the href unrescaled, never publish junk."""
     monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
 
     assets = _make_assets(("ndvi",))
-    assets["ndvi"]["statistics"] = statistics
+    assets["ndvi"]["bands"] = bands
 
     rendered = _render_assets_item(processor_instance, assets, tmp_path)
 
     assert "rescale=" not in rendered["ndvi_preview"]["href"]
     assert "rescale=" not in rendered["ndvi_tilejson"]["href"]
-
-
-@pytest.mark.unit
-def test_render_assets_survive_statistics_read_back_from_json(
-    processor_instance, tmp_path, monkeypatch
-):
-    """A cached marker round-trips band indices to strings; rescale must hold."""
-    monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
-
-    assets = _make_assets(("ndvi",))
-    assets["ndvi"]["statistics"] = {
-        "1": {"min": 0.1, "max": 0.8, "mean": 0.4, "std": 0.1}
-    }
-
-    rendered = _render_assets_item(processor_instance, assets, tmp_path)
-
-    assert "&rescale=0.1,0.8" in rendered["ndvi_preview"]["href"]
 
 
 @pytest.mark.unit
@@ -3292,10 +3373,9 @@ def test_render_assets_select_a_band_on_a_multiband_product(
     monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
 
     assets = _make_assets(("raw_bands",))
-    assets["raw_bands"]["statistics"] = {
-        band: {"min": float(band), "max": float(band) * 10, "mean": 1.0, "std": 0.1}
-        for band in range(1, 7)
-    }
+    assets["raw_bands"]["bands"] = _bands_with_ranges(
+        *[(float(b), float(b) * 10) for b in range(1, 7)]
+    )
 
     rendered = _render_assets_item(processor_instance, assets, tmp_path)
 
@@ -3323,8 +3403,6 @@ def test_render_assets_of_a_single_band_product_select_no_band(
 def test_extract_cog_stats_ignores_unmasked_nan(tmp_path):
     """A single NaN pixel must not turn every statistic into NaN, which is
     not valid JSON and would poison the published item."""
-    from processes.eo_sentinel_fetch import _extract_cog_stats
-
     cog_path = tmp_path / "partial_nan.tif"
     array = np.asarray([[float("nan"), 0.2], [0.4, 0.6]], dtype="float32")
     with rasterio.open(
@@ -3342,8 +3420,28 @@ def test_extract_cog_stats_ignores_unmasked_nan(tmp_path):
 
     stats = _extract_cog_stats(str(cog_path))
 
-    assert stats[1]["min"] == pytest.approx(0.2)
-    assert stats[1]["max"] == pytest.approx(0.6)
+    assert stats[0]["minimum"] == pytest.approx(0.2)
+    assert stats[0]["maximum"] == pytest.approx(0.6)
+
+
+@pytest.mark.unit
+def test_extract_cog_stats_all_masked_band_has_empty_statistics(tmp_path):
+    """STAC statistics fields must be numbers, so an empty band gets none."""
+    cog_path = tmp_path / "all_nan.tif"
+    with rasterio.open(
+        cog_path,
+        "w",
+        driver="GTiff",
+        height=1,
+        width=1,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_origin(-73.5, 45.6, 0.1, 0.1),
+    ) as dst:
+        dst.write(np.asarray([[float("nan")]], dtype="float32"), 1)
+
+    assert _extract_cog_stats(str(cog_path)) == [{}]
 
 
 @pytest.mark.unit
@@ -3354,7 +3452,7 @@ def test_response_preview_url_matches_the_published_preview_asset(
     monkeypatch.setenv("HOST_URL", "agri-sdss.duckdns.org")
 
     assets = _make_assets(("ndvi",))
-    assets["ndvi"]["statistics"] = {1: {"min": -0.3, "max": 0.85}}
+    assets["ndvi"]["bands"] = _bands_with_ranges((-0.3, 0.85))
 
     rendered = _render_assets_item(processor_instance, assets, tmp_path)
 
@@ -3384,7 +3482,12 @@ def test_execute_republishes_when_marker_predates_the_render_assets(
     marker_path = processor_instance._stac_marker_path(stac_item_id)
     # Pre-fix marker: products only, no preview/tilejson siblings.
     processor_instance._write_stac_marker(
-        marker_path, {"id": stac_item_id, "assets": _make_assets(("ndvi",))}
+        marker_path,
+        {
+            "id": stac_item_id,
+            "stac_version": "1.1.0",
+            "assets": _make_assets(("ndvi",)),
+        },
     )
 
     with (
@@ -3403,3 +3506,48 @@ def test_execute_republishes_when_marker_predates_the_render_assets(
     published = mock_post.call_args[0][0]
     assert "ndvi_preview" in published["assets"]
     assert "ndvi_tilejson" in published["assets"]
+
+
+@pytest.mark.mocked
+def test_execute_republishes_when_marker_is_from_an_older_stac_version(
+    processor_instance, sample_farm_geometry_small, _reset_collection_cache, tmp_path
+):
+    """A legacy marker with a matching asset set still describes a 1.0.0 item,
+    so a fully cached call must republish it rather than serve it."""
+    processor_instance.output_dir = str(tmp_path)
+    data = {
+        "farm_geometry": sample_farm_geometry_small,
+        "temporal_extent": ["2024-06-01", "2024-08-31"],
+        "output_products": ["ndvi"],
+    }
+
+    geom_shape = shape(sample_farm_geometry_small)
+    bbox_key = "_".join(f"{v:.4f}" for v in geom_shape.bounds)
+    farm_identifier = f"geom_{hashlib.md5(bbox_key.encode()).hexdigest()[:8]}_scl"
+    stac_item_id = f"sentinel2_{farm_identifier}_2024-06-01_2024-08-31"
+    marker_path = processor_instance._stac_marker_path(stac_item_id)
+    processor_instance._write_stac_marker(
+        marker_path,
+        {
+            "id": stac_item_id,
+            "stac_version": "1.0.0",
+            "assets": _render_assets_item(
+                processor_instance, _make_assets(("ndvi",)), tmp_path
+            ),
+        },
+    )
+
+    with (
+        patch.object(
+            processor_instance,
+            "_process_sentinel_data",
+            return_value=(_make_assets(("ndvi",)), True),
+        ),
+        patch.object(
+            processor_instance, "_post_to_stac_api", return_value=True
+        ) as mock_post,
+    ):
+        processor_instance.execute(data)
+
+    mock_post.assert_called_once()
+    assert mock_post.call_args[0][0]["stac_version"] == "1.1.0"
