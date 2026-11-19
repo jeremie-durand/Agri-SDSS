@@ -158,6 +158,35 @@ def test_async_job_is_polled_on_the_internal_url_until_results(job_client):
 
 
 @pytest.mark.mocked
+def test_lidar_flowpath_runs_as_a_job_and_returns_the_asset_hrefs(job_client):
+    ls_href = "https://example.org/cog/lidar_flowpath_ls_farm_7_m300_v1.tif"
+    results = {
+        "stac_items": ["lidar_flowpath_ls_farm_7_m300_v1"],
+        "assets": {"ls": {"href": ls_href}},
+        "summary": {"ls": {"mean": 0.82}},
+    }
+    job_client.answers = [
+        _JobResponse(201, location=PUBLIC_LOCATION),
+        _JobResponse(200, {"status": "successful"}),
+        _JobResponse(200, results),
+    ]
+    inputs = {"location_type": "farm_id", "farm_id": "7"}
+
+    result = asyncio.run(execute_pygeoapi_process("lidar-flowpath", inputs))
+
+    assert result == results
+    assert job_client.calls[0] == (
+        "POST",
+        "http://process-api:5000/processes/lidar-flowpath/execution",
+        {"Prefer": "respond-async"},
+    )
+    assert [url for _, url, _ in job_client.calls[1:]] == [
+        "http://process-api:5000/jobs/abc?f=json",
+        "http://process-api:5000/jobs/abc/results?f=json",
+    ]
+
+
+@pytest.mark.mocked
 def test_failed_job_raises_with_its_message(job_client):
     job_client.answers = [
         _JobResponse(201, location=PUBLIC_LOCATION),
