@@ -156,6 +156,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 | `state.js` | Shared Leaflet map instance and layer registry |
 | `vector.js` | BDPPAD parcel years from PostGIS `public.bdppad*` collections, drawn as MVT tiles; the exact clicked-parcel geometry comes from `/vector-api/parquet/collections/<id>/items` |
 | `som.js` + `som_layers.js` | SOM analysis panel and boundary layers |
+| `flowpath.js` | Flow-path and LS overlay in the SOM panel (`lidar-flowpath` process) |
 | `aac.js` | Agriculture Canada crop layer (proxied via `/aac-identify/`) |
 | `grhq.js` | GRHQ hydrological network layer |
 | `data-catalog.js` | `/data` page: renders `catalog.json` (curated metadata) joined with live API collection lists |
@@ -202,11 +203,11 @@ The main page. Modules loaded via ES imports from `html/js/`:
 | `/aac-identify/` | `agriculture.canada.ca` | CORS proxy for AAC imagery service |
 | `/cog/<file>.tif` | static file, `./data/output/raster_cog` | STAC asset hrefs published by process-api and gis-pipeline. Raster extensions only (`.tif`/`.tiff`) — the same directory holds `*.stac.json` publish markers, which the regex excludes. Byte-range capable (native nginx `Range` handling, so GDAL `/vsicurl` reads only the tiles it needs); `Cache-Control: public, max-age=0, must-revalidate` |
 
-The map runs `sentinel-fetch`, `lidar-fetch` and `som-predict-soil` as async
-jobs through `runProcessJob(processId, body)` in `js/utils.js`. It posts with
-`Prefer: respond-async`, polls the same-origin `/process-api/jobs/<id>` path
-from the `Location` header every 3 s, then fetches `…/results` and resolves to
-the same body as a sync call. A failed job throws its message, and polling
+The map runs `sentinel-fetch`, `lidar-fetch`, `lidar-flowpath` and
+`som-predict-soil` as async jobs through `runProcessJob(processId, body)` in
+`js/utils.js`. It posts with `Prefer: respond-async`, polls the same-origin
+`/process-api/jobs/<id>` path from the `Location` header every 3 s, then
+fetches `…/results` and resolves to the same body as a sync call. A failed job throws its message, and polling
 stops after 35 min. A `429`, `502`, `503` or `504` while polling is retried
 (after `Retry-After` when given), since the job keeps running. A sync `200`
 answer is returned as is. Water, pedo, field-match and precipitation

@@ -771,3 +771,9 @@ main {
   .chat-panel__close,
   .stac-item { transition: none; }
 }
+
+.som-flowpath-legend { display:flex; flex-direction:column; gap:.3rem; font-size:.75rem; color:var(--muted); }
+.som-flowpath-legend[hidden] { display:none; }
+.som-flowpath-classes { display:flex; flex-wrap:wrap; gap:.5rem; }
+.som-flowpath-class { display:inline-flex; align-items:center; gap:.25rem; }
+.som-flowpath-swatch { width:12px; height:12px; border-radius:2px; display:inline-block; }

@@ -6,6 +6,7 @@ import { initAacSection, deselectAac, setAacActivateCallback } from './aac.js';
 import { initGrhqSection, deselectGrhq, setGrhqActivateCallback } from './grhq.js';
 import { closeSomModal, somAutoGenCorg, somAutoGenPh, somAutoGenSable, somAutoGenLimon, somAutoGenArgile, somAutoGenCec, somAutoGenScenes, somAutoGenElevation, somAutoGenPrecip, somAutoGenPedo, somAutoGenWater, somRunAnalysis, somShowPreview, somClosePreview, somSavePdf, somPredictRun } from './som.js';
 import { initSomBoundaryLayer } from './som_layers.js';
+import { initFlowpathSection } from './flowpath.js';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const coordsEl = document.getElementById("coords");
@@ -87,6 +88,7 @@ setGrhqActivateCallback(() => { deselectBdppadCollection(); deselectAac(); });
 
 initAacSection();
 initGrhqSection();
+initFlowpathSection();
 const somBoundaryToggle = document.getElementById('somBoundaryToggle');
 somBoundaryToggle.checked = true;
 initSomBoundaryLayer(somBoundaryToggle);
