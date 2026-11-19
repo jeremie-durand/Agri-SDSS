@@ -1073,19 +1073,27 @@ export async function somAutoGenCec() {
     } finally { btn.disabled = false; }
 }
 
-// Search STAC by bbox intersection, optionally filter by start/end date prefix.
-// The datetime query param is not supported on the pgSTAC items endpoint, so we
-// fetch up to 20 intersecting items and match dates client-side.
-async function _searchStacItem(collection, bb, startDate, endDate, sentinelParcel) {
-    var bboxKey = bb.map(function(v) { return (+v).toFixed(4); }).join(',');
+const CACHED_ITEM_STAC_VERSION = '1.1.0';
+
+function _bboxKey(bb) {
+    return (bb || []).map(function(v) { return (+v).toFixed(4); }).join(',');
+}
+
+// Find a STAC 1.1 item for exactly this rounded bbox; with dates, match start/end client-side.
+async function _searchStacItem(collection, bb, startDate, endDate, sentinelParcel, assetKey) {
+    var bboxKey = _bboxKey(bb);
     var url = '/stac-api/collections/' + collection + '/items?bbox=' + bboxKey
         + (startDate ? '&datetime=' + startDate + 'T00:00:00Z/' + endDate + 'T23:59:59Z' : '')
         + '&limit=100';
     var r = await apiFetch(url);
     if (!r.ok) return null;
     var fc = await r.json();
-    var items = fc.features || [];
-    if (!startDate) return items.length > 0 ? items[0] : null;
+    var items = (fc.features || []).filter(function(item) {
+        return item.stac_version === CACHED_ITEM_STAC_VERSION;
+    });
+    if (!startDate) return items.find(function(item) {
+        return _bboxKey(item.bbox) === bboxKey && item.assets && item.assets[assetKey];
+    }) || null;
     return items.find(function(item) {
         var p = item.properties || {};
         if (sentinelParcel) {
@@ -1094,8 +1102,7 @@ async function _searchStacItem(collection, bb, startDate, endDate, sentinelParce
             // sentinel-fetch names a parcel by its bbox rounded to 4 decimals, so
             // an equal rounded bbox is the same parcel; a mere intersection can
             // be a neighbour.
-            var itemKey = (item.bbox || []).map(function(v) { return (+v).toFixed(4); }).join(',');
-            if (itemKey !== bboxKey) return false;
+            if (_bboxKey(item.bbox) !== bboxKey) return false;
         }
         return p.start_datetime && p.start_datetime.startsWith(startDate)
             && p.end_datetime   && p.end_datetime.startsWith(endDate);
@@ -1164,7 +1171,7 @@ export async function somAutoGenElevation() {
     status.className = 'som-field__status';
     try {
         var b = somContext.layer.getBounds();
-        var cachedItem = await _searchStacItem('lidar_quebec', [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], null, null);
+        var cachedItem = await _searchStacItem('lidar_quebec', [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], null, null, false, 'dtm');
         var mean;
         if (cachedItem) {
             mean = _firstBandMean(cachedItem.assets && cachedItem.assets.dtm);
