@@ -110,7 +110,7 @@ afterwards. This includes containers recreated as dependencies, for example by
 ```bash
 make test-all             # Everything CI runs
 make test-<service>       # gis-pipeline | stac-api | vector-api | raster-api |
-                          # process-api | chatbot | i18n
+                          # process-api | chatbot | i18n | home
 make test-repo-consistency  # Guards the /cog route (4 files), the vector-api memory defaults (compose vs code),
                             # the Caddy builder/runtime versions (Dockerfile.caddy) and the database PGDATA pin
 make test-caddy           # Rate-limit integration tests (hot-reloads Caddyfile.test)

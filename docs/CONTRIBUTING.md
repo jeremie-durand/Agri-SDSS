@@ -125,6 +125,7 @@ make test-vector-api
 make test-raster-api
 make test-process-api
 make test-chatbot
+make test-home        # map JS: every non-minified html/js file links as a module
 
 # Single test file (inside container)
 docker compose run --rm stac-api pytest stac_api/test/test_foo.py::test_bar -v

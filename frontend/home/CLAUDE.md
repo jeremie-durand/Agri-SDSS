@@ -31,6 +31,7 @@ Run from the repo root.
 ```bash
 make lint-nginx               # Renders entrypoint.sh's config and runs nginx -t
 make test-repo-consistency    # /cog route guard (reads entrypoint.sh + compose)
+make test-home                # Links every non-minified html/js file as a module (Node, no npm)
 
 docker compose up -d --build home            # After editing entrypoint.sh or index.html
 docker compose up -d --force-recreate home   # After changing only env vars
@@ -145,8 +146,18 @@ What needs a rebuild:
 
 ## Testing
 
-There is no JS test suite. Verification is:
+`make test-home` runs `test/` with Node's test runner in a pinned
+`node:24.22.2-alpine` container (no `package.json`). It links every
+non-minified `.js` file of `html/js` with the real ES module linker without
+running any of them, so an import of a missing export or module fails the test
+the way it blanks the map in the browser. It does not check behaviour.
+`make test-all` (CI) runs it. The classic scripts in `html/js` (loaded with a
+plain `<script src>`, injected by `sub_filter`, or the service worker) are
+parsed as modules too, so they must also be valid module code (strict mode).
 
+Verification:
+
+- `make test-home` for every change under `html/js/`;
 - `make lint-nginx` for every `entrypoint.sh` change (CI runs it);
 - `make test-repo-consistency` when `/cog` or its mount changes;
 - a probe of each touched route from inside `eoapi-network` (status codes
