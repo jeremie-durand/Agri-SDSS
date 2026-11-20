@@ -114,8 +114,8 @@ What needs a rebuild:
   service host or port.
 - `chart.umd.min.js` and `turf.min.js` are vendored minified builds. Replace
   them wholesale; never edit them.
-- `catalog.js` is dead code (nothing imports it). `data-catalog.js` drives
-  `/data` from `catalog.json` plus the live collection lists.
+- `data-catalog.js` drives `/data` from `catalog.json` plus the live
+  collection lists.
 - `leaflet-offline-sw.js` caches only `/raster-api/` tiles. Keep other APIs out
   of its cache.
 - `somRasterBasenames` in `config.js` must match the SIIGSOL COG file names
