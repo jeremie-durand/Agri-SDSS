@@ -275,6 +275,7 @@ _BAD_PROPERTIES = {
     [
         {"location_type": "point", "point": [-72.95, 45.62]},
         {"location_type": "polygon"},
+        _inputs(point=[]),
         _inputs(upstream_margin_m=5000),
         _inputs(zones=_zones(*[_feature(_square(0, 0, 10)) for _ in range(51)])),
         _inputs(zones=_zones(_feature(_LINE))),
@@ -283,6 +284,7 @@ _BAD_PROPERTIES = {
     ids=[
         "point",
         "missing-polygon",
+        "empty-point",
         "margin",
         "too-many-zones",
         "line-zone",

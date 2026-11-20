@@ -21,7 +21,7 @@ class FlowpathInputs(LocationValidatorMixin):
 
     location_type: LocationType
     farm_id: str | None = None
-    point: list[float] | None = None
+    point: list[float] | None = Field(default=None, min_length=2, max_length=2)
     bbox: list[float] | None = Field(default=None, min_length=4, max_length=4)
     polygon: dict[str, Any] | None = None
     upstream_margin_m: int = Field(
