@@ -125,6 +125,28 @@ let _bdppadActivateCb = null;
 
 export function setBdppadActivateCallback(cb) { _bdppadActivateCb = cb; }
 
+let _bdppadStatus = null;
+
+function _setBdppadStatus(key, count, detail) {
+    _bdppadStatus = { key, count, detail };
+    _renderBdppadStatus();
+}
+
+function _renderBdppadStatus() {
+    if (!bdppadStatusEl || !_bdppadStatus) return;
+    const { key, count, detail } = _bdppadStatus;
+    const t = _tL();
+    if (key === 'bdppad-available') {
+        bdppadStatusEl.textContent = count + ' ' + (t[key] || 'jeu(x) disponible(s)');
+    } else if (key === 'bdppad-error') {
+        bdppadStatusEl.textContent = (t[key] || 'Erreur : ') + detail;
+    } else {
+        bdppadStatusEl.textContent = t[key] || 'Aucun jeu BDPPAD trouvé.';
+    }
+}
+
+window.addEventListener('sdss-lang-change', _renderBdppadStatus);
+
 function _extractYear(id) {
     var m = id.match(/_an_(\d{4})/);
     if (m) return m[1];
@@ -163,6 +185,7 @@ function _renderBdppadList(collections) {
     if (!collections.length) {
         const p = document.createElement('p');
         p.className = 'legend';
+        p.setAttribute('data-i18n', 'bdppad-none');
         p.textContent = _tL()['bdppad-none'] || 'Aucun jeu BDPPAD disponible.';
         bdppadListEl.appendChild(p);
         return;
@@ -201,8 +224,7 @@ export async function loadBdppadCollections() {
         });
         vectorState.collections = others.concat(bdppads);
         _renderBdppadList(bdppads);
-        if (bdppadStatusEl) bdppadStatusEl.textContent =
-            bdppads.length + ' ' + (tL()['bdppad-available'] || 'jeu(x) disponible(s)');
+        _setBdppadStatus('bdppad-available', bdppads.length);
         _selectBdppadCollection(bdppads[0].id);
         _refreshBdppadList(); // silent background refresh, no await
         return;
@@ -213,18 +235,18 @@ export async function loadBdppadCollections() {
         bdppadListEl.innerHTML = '';
         const loadingHint = document.createElement('p');
         loadingHint.className = 'legend';
+        loadingHint.setAttribute('data-i18n', 'bdppad-loading');
         loadingHint.textContent = tL()['bdppad-loading'] || 'Chargement…';
         bdppadListEl.appendChild(loadingHint);
     }
     try {
         await _refreshBdppadList();
     } catch(e) {
-        if (bdppadStatusEl) bdppadStatusEl.textContent = (tL()['bdppad-error'] || 'Erreur : ') + e.message;
+        _setBdppadStatus('bdppad-error', 0, e.message);
     }
 }
 
 async function _refreshBdppadList() {
-    const tL = function() { return (window.T && window.T[window.lang]) || (window.T && window.T.fr) || {}; };
     const r = await apiFetch('/vector-api/postgis/collections?f=json&limit=500');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
@@ -244,9 +266,8 @@ async function _refreshBdppadList() {
 
     const prevActiveId = _bdppadActiveId;
     _renderBdppadList(bdppads);
-    if (bdppadStatusEl) bdppadStatusEl.textContent = bdppads.length
-        ? bdppads.length + ' ' + (tL()['bdppad-available'] || 'jeu(x) disponible(s)')
-        : (tL()['bdppad-none'] || 'Aucun jeu BDPPAD trouvé.');
+    if (bdppads.length) _setBdppadStatus('bdppad-available', bdppads.length);
+    else _setBdppadStatus('bdppad-none');
 
     const autoId = bdppads.length ? bdppads[0].id : null;
     if (autoId && autoId !== prevActiveId) {
