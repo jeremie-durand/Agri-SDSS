@@ -11,7 +11,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-UNREACHABLE_REPOSITORY = "http://127.0.0.1:9"
+UNREACHABLE_PROXY = "127.0.0.1:9"
 
 
 def test_spatial_loads_without_install() -> None:
@@ -43,10 +43,22 @@ def test_spatial_was_installed_before_the_test_session(
     assert Path(install_path[0]).stat().st_mtime < session_start_time
 
 
+def test_unreachable_proxy_blocks_extension_downloads(tmp_path: Path) -> None:
+    """Keeps test_runtime_install_needs_no_network from passing vacuously."""
+    conn = duckdb.connect()
+    try:
+        conn.execute(f"SET extension_directory = '{tmp_path}'")
+        conn.execute(f"SET http_proxy = '{UNREACHABLE_PROXY}'")
+        with pytest.raises(duckdb.IOException):
+            conn.execute("INSTALL spatial")
+    finally:
+        conn.close()
+
+
 def test_runtime_install_needs_no_network() -> None:
     conn = duckdb.connect()
     try:
-        conn.execute(f"SET custom_extension_repository = '{UNREACHABLE_REPOSITORY}'")
+        conn.execute(f"SET http_proxy = '{UNREACHABLE_PROXY}'")
         conn.execute("INSTALL spatial")
         conn.execute("LOAD spatial")
     finally:
