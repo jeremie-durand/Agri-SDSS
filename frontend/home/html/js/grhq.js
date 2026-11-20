@@ -113,4 +113,5 @@ export function initGrhqSection() {
     btn.addEventListener('click', _toggle);
     listEl.appendChild(btn);
     _updateUI();
+    window.addEventListener('sdss-lang-change', _updateUI);
 }

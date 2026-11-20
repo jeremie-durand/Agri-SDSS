@@ -8,6 +8,10 @@ export function currentLang() {
     return window.lang || localStorage.getItem("sdss-lang") || "fr";
 }
 
+export function formatZoom(zoom) {
+    return String(Number(zoom.toFixed(2)));
+}
+
 // Wrapper around fetch() for same-origin Agri-SDSS APIs: carries the active UI
 // language so backends can localise their error messages. Accept-Language is a
 // CORS-safelisted header, so this adds no preflight.

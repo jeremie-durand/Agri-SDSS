@@ -1,4 +1,5 @@
 (function () {
+  var NAV_HEIGHT = '42px';
   var T = {
     en: { map: 'Map', services: 'Services', data: 'Data',     stac: 'STAC', chatbot: 'AI Assistant', reportBug: 'Report a bug', about: 'About' },
     fr: { map: 'Carte', services: 'Services', data: 'Données', stac: 'STAC', chatbot: 'Assistant IA', reportBug: 'Signaler un bug', about: 'À propos' }
@@ -25,7 +26,7 @@
     s.setProperty('left', '0', 'important');
     s.setProperty('right', '0', 'important');
     s.setProperty('width', '100%', 'important');
-    s.setProperty('height', '42px', 'important');
+    s.setProperty('height', NAV_HEIGHT, 'important');
     s.setProperty('box-sizing', 'border-box', 'important');
     s.setProperty('padding', '0 1.5rem', 'important');
     s.setProperty('margin', '0', 'important');
@@ -96,7 +97,8 @@
 
     renderNav(lang);
     document.documentElement.insertBefore(host, document.body);
-    document.body.style.paddingTop = '42px';
+    document.documentElement.style.setProperty('--sdss-nav-height', NAV_HEIGHT);
+    document.body.style.paddingTop = NAV_HEIGHT;
   }
 
   if (document.readyState === 'loading') {

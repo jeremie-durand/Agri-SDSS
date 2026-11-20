@@ -105,13 +105,26 @@ async function _identify(dataset, latlng) {
     return r.json();
 }
 
+const _AAC_STATUS_FALLBACK = {
+    'aac-active':           'Couche active',
+    'aac-inactive':         'Couche inactive',
+    'aac-identify-loading': 'Identification…',
+    'aac-identify-error':   'Aucune donnée à cet emplacement.',
+};
+let _aacStatusKey = null;
+
+function _setAacStatus(key) {
+    _aacStatusKey = key;
+    const statusEl = document.getElementById('aacStatus');
+    if (statusEl) statusEl.textContent = _tL()[key] || _AAC_STATUS_FALLBACK[key];
+}
+
 async function _onMapClick(e) {
     if (!_aacActive || !_activeYear) return;
-    const statusEl = document.getElementById('aacStatus');
     const dataset = AAC_DATASETS.find((d) => d.year === _activeYear);
     if (!dataset) return;
 
-    if (statusEl) statusEl.textContent = _tL()['aac-identify-loading'] || 'Identification…';
+    _setAacStatus('aac-identify-loading');
     try {
         const data   = await _identify(dataset, e.latlng);
         const rawVal = data && data.value != null ? String(data.value) : null;
@@ -122,11 +135,11 @@ async function _onMapClick(e) {
         const geometry   = { type: 'Polygon', coordinates: [[[_b.getWest(), _b.getSouth()], [_b.getEast(), _b.getSouth()], [_b.getEast(), _b.getNorth()], [_b.getWest(), _b.getNorth()], [_b.getWest(), _b.getSouth()]]] };
         const feature    = { properties: { GROPRO: groProCode, aac_code: rawVal }, type: 'Feature', geometry };
         const mockLayer  = { getBounds: () => _b };
-        if (statusEl) statusEl.textContent = _tL()['aac-active'] || 'Couche active';
+        _setAacStatus('aac-active');
         // sendFeatureContext('aac_' + _activeYear, feature, { lat: e.latlng.lat, lon: e.latlng.lng });
         openSomModal('aac_' + _activeYear, feature, mockLayer);
     } catch (_e) {
-        if (statusEl) statusEl.textContent = _tL()['aac-identify-error'] || 'Aucune donnée à cet emplacement.';
+        _setAacStatus('aac-identify-error');
     }
 }
 
@@ -161,15 +174,13 @@ function _deactivateAac() {
 
 function _updateAacUI() {
     const listEl    = document.getElementById('aacList');
-    const statusEl  = document.getElementById('aacStatus');
     if (!listEl) return;
     listEl.querySelectorAll('.bdppad-item').forEach((el) => {
         el.classList.toggle('active', el.dataset.year === _activeYear);
     });
-    if (statusEl && statusEl.textContent === (_tL()['aac-identify-loading'] || 'Identification…')) return;
-    if (statusEl) statusEl.textContent = _aacActive
-        ? (_tL()['aac-active']   || 'Couche active')
-        : (_tL()['aac-inactive'] || 'Couche inactive');
+    if (_aacStatusKey === 'aac-identify-loading') return;
+    if (_aacActive) _setAacStatus('aac-active');
+    else _setAacStatus('aac-inactive');
 }
 
 export function initAacSection() {
@@ -187,4 +198,7 @@ export function initAacSection() {
         listEl.appendChild(item);
     });
     _updateAacUI();
+    window.addEventListener('sdss-lang-change', () => {
+        if (_aacStatusKey) _setAacStatus(_aacStatusKey);
+    });
 }
