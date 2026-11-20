@@ -177,6 +177,10 @@ Before merging:
 3. `docker compose build chatbot-backend` succeeds
 4. `make test-chatbot` passes
 5. All chatbot tools resolve correctly against internal APIs
+6. Open `/chatbot/` and confirm the page has no scrollbar: `chatbot-bridge.js`
+   overrides the heights of `#root`, `.app-container`, `.app`, `.right`,
+   `.center` and `.landing-container` and assumes the 64 px `.top-header`, so an
+   upstream layout change can break it
 
 To upgrade manually: bump `CHATBOT_VERSION` in the four files above plus `.env`, then
 rebuild. Diff the upstream counterpart of `nginx.conf`, the only file an override

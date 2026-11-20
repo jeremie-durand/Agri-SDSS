@@ -161,7 +161,10 @@ What needs a rebuild:
 non-minified `.js` file of `html/js` with the real ES module linker without
 running any of them, so an import of a missing export or module fails the test
 the way it blanks the map in the browser. It does not check behaviour, apart
-from two small tests: `map-i18n.test.mjs` (see [Language](#language-fren)) and `map-zoom.test.mjs` (`formatZoom`).
+from three small tests: `map-i18n.test.mjs` (see [Language](#language-fren)),
+`map-zoom.test.mjs` (`formatZoom`) and `chatbot-layout.test.mjs`
+(`nav-inject.js` publishes `--sdss-nav-height`, and `chatbot-bridge.js` reads
+it and overrides the six upstream full-height containers).
 `make test-all` (CI) runs it. The classic scripts in `html/js` (loaded with a
 plain `<script src>`, injected by `sub_filter`, or the service worker) are
 parsed as modules too, so they must also be valid module code (strict mode).
