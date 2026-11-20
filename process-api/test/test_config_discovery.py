@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 import yaml
+from pygeoapi.api import evaluate_limit
 
 CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "pygeoapi-config.yaml"
 
@@ -50,6 +51,22 @@ def test_sentinel_fetch_resource_registered(config):
 @pytest.mark.unit
 def test_config_registers_processes() -> None:
     assert PROCESS_RESOURCES, "no type: process resource in pygeoapi-config.yaml"
+
+
+@pytest.mark.unit
+def test_default_process_list_limit_covers_every_process(
+    config: dict[str, Any],
+) -> None:
+    limit = evaluate_limit(None, config["server"]["limits"], {})
+    assert limit >= len(PROCESS_RESOURCES)
+
+
+@pytest.mark.unit
+def test_requested_limit_is_capped_by_the_configured_maximum(
+    config: dict[str, Any],
+) -> None:
+    limits = config["server"]["limits"]
+    assert evaluate_limit("5000", limits, {}) == limits["max_items"]
 
 
 @pytest.mark.unit
