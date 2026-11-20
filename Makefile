@@ -2,7 +2,7 @@ build:
 	mkdir -p data/input data/duckdb/duckdb_extensions data/output/raster_cog
 	docker compose build || docker compose build
 
-test-all: test-i18n test-gis-pipeline test-stac-api test-vector-api test-raster-api test-process-api test-repo-consistency test-chatbot
+test-all: test-i18n test-home test-gis-pipeline test-stac-api test-vector-api test-raster-api test-process-api test-repo-consistency test-chatbot
 	docker compose up -d --force-recreate --wait vector-api raster-api process-api
 	docker compose restart home
 
@@ -41,6 +41,10 @@ test-process-api:
 
 test-chatbot:
 	docker compose run --build --rm chatbot-backend pytest chatbot/test/ -v
+
+test-home:
+	docker run --rm -v $(CURDIR)/frontend/home:/home:ro -w /home node:24.22.2-alpine \
+		node --experimental-vm-modules --disable-warning=ExperimentalWarning --test 'test/*.test.mjs'
 
 test-i18n:
 	docker compose run --build --rm --no-deps process-api pytest agri_i18n/test/ -v
@@ -95,7 +99,7 @@ test-caddy:
 
 .PHONY: build lint-dockerfiles lint-md lint-nginx scan-secrets test-caddy generate-args \
 	smoke-entrypoints smoke-stac-browser smoke-browser-pages smoke-catalogs check-materialized \
-	check-parquet-memory test-i18n i18n-extract i18n-update i18n-compile i18n-check
+	check-parquet-memory test-i18n test-home i18n-extract i18n-update i18n-compile i18n-check
 
 # Ignored rules, and why (hadolint exits non-zero on any warning, so each must be
 # listed explicitly rather than blanket-suppressed

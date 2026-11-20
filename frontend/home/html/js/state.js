@@ -2,7 +2,6 @@ import { config } from './config.js';
 
 // ── Default API endpoints (must come before state objects that reference them) ─
 export const defaultStacEndpoint = `${window.location.origin}/stac-api/`;
-export const defaultVectorEndpoint = `${window.location.origin}/vector-api/parquet/collections`;
 export const defaultRasterApiBase = `${window.location.origin}/raster-api`;
 export const defaultView = { center: config.mapCenter, zoom: config.mapZoom };
 
@@ -26,7 +25,6 @@ export const layers = {
 L.control.scale({ imperial: false }).addTo(map);
 
 export const stacSelectionLayer = L.featureGroup().addTo(map);
-export const vectorSelectionLayer = L.featureGroup().addTo(map);
 
 // ── Shared mutable state ──────────────────────────────────────────────────────
 export const stacState = {
@@ -34,7 +32,7 @@ export const stacState = {
 };
 
 export const vectorState = {
-    collectionsEndpoint: defaultVectorEndpoint, collections: [], layers: new Map(), visible: new Set()
+    collections: [], layers: new Map()
 };
 
 export const rasterState = {
