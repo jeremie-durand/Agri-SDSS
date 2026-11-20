@@ -149,8 +149,8 @@ server:
     - fr-CA
     - en-US
   limits:
-    default_items: 10
-    maximum_items: 1000
+    default_items: 50
+    max_items: 1000
   manager:
     name: processes.jobs.manager.AgriJobManager
     connection: null
