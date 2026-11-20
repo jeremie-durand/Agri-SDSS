@@ -908,3 +908,9 @@ main {
 
 .catalog-status { font-size: 0.75rem; color: var(--muted); margin: 0; }
 .catalog-status--error { color: var(--warning); }
+
+.som-flowpath-legend { display:flex; flex-direction:column; gap:.3rem; font-size:.75rem; color:var(--muted); }
+.som-flowpath-legend[hidden] { display:none; }
+.som-flowpath-classes { display:flex; flex-wrap:wrap; gap:.5rem; }
+.som-flowpath-class { display:inline-flex; align-items:center; gap:.25rem; }
+.som-flowpath-swatch { width:12px; height:12px; border-radius:2px; display:inline-block; }

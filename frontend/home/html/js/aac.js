@@ -120,7 +120,7 @@ async function _onMapClick(e) {
         const groProCode = (entry && entry.gropro) || 'AUT';
         const _b = L.latLng(e.latlng).toBounds(500);
         const geometry   = { type: 'Polygon', coordinates: [[[_b.getWest(), _b.getSouth()], [_b.getEast(), _b.getSouth()], [_b.getEast(), _b.getNorth()], [_b.getWest(), _b.getNorth()], [_b.getWest(), _b.getSouth()]]] };
-        const feature    = { properties: { GROPRO: groProCode, aac_code: rawVal }, type: 'Feature', geometry };
+        const feature    = { properties: { GROPRO: groProCode, aac_code: rawVal }, type: 'Feature', geometry, approximate: true };
         const mockLayer  = { getBounds: () => _b };
         if (statusEl) statusEl.textContent = _tL()['aac-active'] || 'Couche active';
         // sendFeatureContext('aac_' + _activeYear, feature, { lat: e.latlng.lat, lon: e.latlng.lng });

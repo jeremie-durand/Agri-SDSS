@@ -105,7 +105,7 @@ function buildVectorTileLayer(collectionId, color) {
         if (!parcelBounds) parcelBounds = L.latLng(e.latlng).toBounds(500);
 
         const parcelGeom = { type: 'Polygon', coordinates: [[[parcelBounds.getWest(), parcelBounds.getSouth()], [parcelBounds.getEast(), parcelBounds.getSouth()], [parcelBounds.getEast(), parcelBounds.getNorth()], [parcelBounds.getWest(), parcelBounds.getNorth()], [parcelBounds.getWest(), parcelBounds.getSouth()]]] };
-        const feature = { id: featureId, properties: props, type: 'Feature', geometry: parcelGeom };
+        const feature = { id: featureId, properties: props, type: 'Feature', geometry: parcelGeom, approximate: true };
         const layer = { getBounds: function() { return parcelBounds; } };
 
         // sendFeatureContext(collectionId, feature, center);
