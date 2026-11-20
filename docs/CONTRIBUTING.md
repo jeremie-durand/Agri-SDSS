@@ -99,6 +99,8 @@ We follow **Git Flow**:
 - **`main`** — production releases
 - **`feature/*`** — new features (from `develop`)
 - **`bugfix/*`** — bug fixes (from `develop`)
+- **`test/*`** — test-only changes: new tests or test isolation fixes, no
+  source change (from `develop`)
 
 ```bash
 git checkout develop
