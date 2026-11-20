@@ -1,75 +1,11 @@
-import { map, vectorState, vectorSelectionLayer, somContext } from './state.js';
-import { normalizeUrl, getColorForCollection, apiFetch } from './utils.js';
+import { map, vectorState, somContext } from './state.js';
+import { getColorForCollection, apiFetch } from './utils.js';
 import { openSomModal } from './som.js';
 import { showHoverHint, hideHoverHint } from './hover-hint.js';
 import { config } from './config.js';
 
 function _tL() { return (window.T && window.T[window.lang]) || {}; }
 // import { sendFeatureContext } from './chat.js'; // disabled: farm context auto-population
-
-const vectorEndpointEl = document.getElementById("vectorEndpoint");
-const vectorStatusEl = document.getElementById("vectorStatus");
-const vectorListEl = document.getElementById("vectorList");
-
-
-function absoluteVectorUrl(href, baseUrl) {
-    if (!href) return null;
-    try { return new URL(href, baseUrl || vectorState.collectionsEndpoint || window.location.origin).toString(); }
-    catch (_) { return null; }
-}
-
-function getCollectionItemsUrl(collection) {
-    if (!collection) return null;
-    const links = Array.isArray(collection.links) ? collection.links : [];
-    const itemsLink = links.find((l) => l && l.rel === "items" && l.href);
-    if (itemsLink) return absoluteVectorUrl(itemsLink.href, vectorState.collectionsEndpoint);
-    const selfLink = links.find((l) => l && l.rel === "self" && l.href);
-    if (selfLink) {
-        const resolved = absoluteVectorUrl(selfLink.href, vectorState.collectionsEndpoint);
-        return resolved ? `${resolved.replace(/\/+$/, "")}/items` : null;
-    }
-    if (!collection.id) return null;
-    return `${vectorState.collectionsEndpoint.replace(/\/+$/, "")}/${encodeURIComponent(collection.id)}/items`;
-}
-
-async function fetchCollectionFeatures(itemsUrl) {
-    const merged = [];
-    let nextUrl = itemsUrl;
-    const maxFeatures = 10000;
-    while (nextUrl && merged.length < maxFeatures) {
-        const pagedUrl = new URL(nextUrl, window.location.origin);
-        if (!pagedUrl.searchParams.has("f")) pagedUrl.searchParams.set("f", "json");
-        pagedUrl.searchParams.set("limit", "2000");
-        const response = await apiFetch(pagedUrl.toString(), { headers: { Accept: "application/geo+json,application/json" } });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        const features = Array.isArray(data.features) ? data.features : [];
-        merged.push(...features);
-        const links = Array.isArray(data.links) ? data.links : [];
-        const nextLink = links.find((l) => l && l.rel === "next" && l.href);
-        nextUrl = nextLink ? absoluteVectorUrl(nextLink.href, pagedUrl.toString()) : null;
-    }
-    return { type: "FeatureCollection", features: merged.slice(0, maxFeatures) };
-}
-
-function buildVectorLayer(collectionId, featureCollection) {
-    const color = getColorForCollection(collectionId);
-    return L.geoJSON(featureCollection, {
-        style: { color, weight: 1.6, fillColor: color, fillOpacity: 0.14 },
-        pointToLayer: (_feature, latlng) => L.circleMarker(latlng, { radius: 5, color, weight: 1.4, fillColor: color, fillOpacity: 0.7 }),
-        onEachFeature: (feature, layer) => {
-            layer.on('click', function() {
-                var center = null;
-                try {
-                    if (layer.getBounds) { var b = layer.getBounds(); center = { lat: b.getCenter().lat, lon: b.getCenter().lng }; }
-                    else if (layer.getLatLng) { var ll = layer.getLatLng(); center = { lat: ll.lat, lon: ll.lng }; }
-                } catch (_) {}
-                // sendFeatureContext(collectionId, feature, center);
-                openSomModal(collectionId, feature, layer);
-            });
-        }
-    });
-}
 
 function buildVectorTileLayer(collectionId, color) {
     const postgisId = 'public.' + collectionId;
@@ -159,133 +95,25 @@ function buildVectorTileLayer(collectionId, color) {
         showHoverHint(e.originalEvent.clientX, e.originalEvent.clientY, _tL()['bdppad-hover-hint'] || 'Click to explore this parcel');
     });
     vtLayer.on('mouseout', hideHoverHint);
-    vtLayer._isTileLayer = true;
     return vtLayer;
 }
 
-function _setVectorStatus(msg) { if (vectorStatusEl) vectorStatusEl.textContent = msg; }
-
-export async function setVectorCollectionVisible(collectionId, shouldShow, zoomToLayer = false, skipTileProbe = false) {
+export function setVectorCollectionVisible(collectionId, shouldShow) {
     const collection = vectorState.collections.find((item) => item.id === collectionId);
-    if (!collection) { _setVectorStatus(_tL()['vector-collection-missing'] || 'Vector : collection introuvable.'); return; }
+    if (!collection) return;
 
     if (!shouldShow) {
         const existingLayer = vectorState.layers.get(collectionId);
         if (existingLayer) map.removeLayer(existingLayer);
-        vectorState.visible.delete(collectionId);
         return;
     }
 
     let layer = vectorState.layers.get(collectionId);
     if (!layer) {
-        _setVectorStatus(`${_tL()['vector-loading-collection'] || 'Vector : chargement'} ${collectionId}…`);
-        const itemsUrl = getCollectionItemsUrl(collection);
-        if (!itemsUrl) { _setVectorStatus(`${_tL()['vector-items-url-missing'] || 'Vector : URL items introuvable pour'} ${collectionId}.`); return; }
-
-        const postgisId = 'public.' + collectionId;
-        const tileJsonUrl = '/vector-api/postgis/collections/' + encodeURIComponent(postgisId) + '/tiles/WebMercatorQuad/tilejson.json';
-        let useTiles = skipTileProbe;
-        if (!useTiles) {
-            try { const probe = await apiFetch(tileJsonUrl); useTiles = probe.ok; } catch(_) {}
-        }
-
-        const color = getColorForCollection(collectionId);
-        if (useTiles) {
-            layer = buildVectorTileLayer(collectionId, color);
-            _setVectorStatus(`Vector: ${collectionId} (${_tL()['vector-mvt'] || 'tuiles MVT'}).`);
-        } else {
-            const featureCollection = await fetchCollectionFeatures(itemsUrl);
-            layer = buildVectorLayer(collectionId, featureCollection);
-            _setVectorStatus(`Vector: ${collectionId} ${_tL()['vector-loaded'] || 'chargé'} (${featureCollection.features.length} ${_tL()['vector-features'] || 'entité(s)'}).`);
-        }
+        layer = buildVectorTileLayer(collectionId, getColorForCollection(collectionId));
         vectorState.layers.set(collectionId, layer);
     }
-
-    if (layer._isTileLayer) { layer.addTo(map); }
-    else { layer.addTo(vectorSelectionLayer); }
-    vectorState.visible.add(collectionId);
-
-    if (zoomToLayer) {
-        if (typeof layer.getBounds === "function") {
-            const bounds = layer.getBounds();
-            if (bounds && bounds.isValid()) map.fitBounds(bounds, { padding: [20, 20], maxZoom: 13 });
-        } else {
-            const collectionBbox = collection && collection.extent && collection.extent.spatial
-                && Array.isArray(collection.extent.spatial.bbox) && Array.isArray(collection.extent.spatial.bbox[0])
-                ? collection.extent.spatial.bbox[0] : null;
-            if (collectionBbox) {
-                let minLon, minLat, maxLon, maxLat;
-                if (collectionBbox.length >= 6) { minLon = collectionBbox[0]; minLat = collectionBbox[1]; maxLon = collectionBbox[3]; maxLat = collectionBbox[4]; }
-                else if (collectionBbox.length >= 4) { minLon = collectionBbox[0]; minLat = collectionBbox[1]; maxLon = collectionBbox[2]; maxLat = collectionBbox[3]; }
-                if ([minLon, minLat, maxLon, maxLat].every((v) => Number.isFinite(v))) {
-                    map.fitBounds(L.latLngBounds([minLat, minLon], [maxLat, maxLon]), { padding: [20, 20], maxZoom: 13 });
-                }
-            }
-        }
-    }
-}
-
-export function renderVectorCollectionsList() {
-    vectorListEl.innerHTML = "";
-    if (!vectorState.collections.length) {
-        const empty = document.createElement("p");
-        empty.className = "legend";
-        empty.textContent = _tL()['vector-none'] || "Aucune collection vectorielle.";
-        vectorListEl.appendChild(empty);
-        return;
-    }
-    vectorState.collections.forEach((collection) => {
-        const row = document.createElement("div");
-        row.className = "vector-row";
-        const label = document.createElement("label");
-        label.className = "vector-label";
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = vectorState.visible.has(collection.id);
-        checkbox.addEventListener("change", async () => {
-            try { await setVectorCollectionVisible(collection.id, checkbox.checked, checkbox.checked); }
-            catch (error) { vectorStatusEl.textContent = `Vector: ${_tL()['vector-error'] || 'erreur'} (${error.message}).`; checkbox.checked = false; }
-        });
-        const title = document.createElement("span");
-        title.className = "vector-title";
-        title.textContent = collection.title || collection.id;
-        label.appendChild(checkbox);
-        label.appendChild(title);
-        const zoomBtn = document.createElement("button");
-        zoomBtn.type = "button";
-        zoomBtn.className = "btn";
-        zoomBtn.textContent = "Zoom";
-        zoomBtn.style.padding = "0.28rem 0.5rem";
-        zoomBtn.style.fontSize = "0.7rem";
-        zoomBtn.addEventListener("click", async () => {
-            try { checkbox.checked = true; await setVectorCollectionVisible(collection.id, true, true); }
-            catch (error) { vectorStatusEl.textContent = `Vector: ${_tL()['vector-error'] || 'erreur'} (${error.message}).`; }
-        });
-        row.appendChild(label);
-        row.appendChild(zoomBtn);
-        vectorListEl.appendChild(row);
-    });
-}
-
-export async function loadVectorCollections() {
-    const endpoint = normalizeUrl(vectorEndpointEl.value);
-    if (!endpoint) { vectorStatusEl.textContent = _tL()['vector-endpoint-invalid'] || "Vector : endpoint invalide."; return; }
-    vectorStatusEl.textContent = _tL()['vector-loading'] || "Vector : chargement des collections…";
-    vectorState.collectionsEndpoint = endpoint;
-    vectorState.layers.forEach((layer) => { if (map.hasLayer(layer)) map.removeLayer(layer); });
-    vectorState.visible.clear();
-    try {
-        const url = new URL(endpoint);
-        if (!url.searchParams.has("f")) url.searchParams.set("f", "json");
-        const response = await apiFetch(url.toString(), { headers: { Accept: "application/json,application/geo+json" } });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        vectorState.collections = Array.isArray(data.collections) ? data.collections : [];
-        vectorStatusEl.textContent = `Vector: ${vectorState.collections.length} ${_tL()['vector-detected'] || 'collection(s) détectée(s).'}`;
-        renderVectorCollectionsList();
-    } catch (error) {
-        _setVectorStatus(`Vector: ${_tL()['vector-load-error'] || 'erreur de chargement'} (${error.message}).`);
-    }
+    layer.addTo(map);
 }
 
 // ── BDPPAD section ────────────────────────────────────────────────────────────
@@ -319,7 +147,7 @@ function _selectBdppadCollection(id) {
         setVectorCollectionVisible(_bdppadActiveId, false);
     }
     _bdppadActiveId = id;
-    setVectorCollectionVisible(id, true, false, true); // skipTileProbe: BDPPAD always PostGIS
+    setVectorCollectionVisible(id, true);
     _updateBdppadUI();
 }
 
@@ -368,7 +196,6 @@ export async function loadBdppadCollections() {
     } catch(_) {}
 
     if (bdppads && bdppads.length) {
-        vectorState.collectionsEndpoint = '/vector-api/parquet/collections';
         const others = vectorState.collections.filter(function(c) {
             return !c.id.startsWith(config.primaryCollectionPrefix);
         });
@@ -382,7 +209,6 @@ export async function loadBdppadCollections() {
     }
 
     // Phase 2 — first load: show "Chargement…" then fetch list and select most recent year
-    vectorState.collectionsEndpoint = '/vector-api/parquet/collections';
     if (bdppadListEl) {
         bdppadListEl.innerHTML = '';
         const loadingHint = document.createElement('p');
@@ -411,7 +237,6 @@ async function _refreshBdppadList() {
     bdppads.sort(function(a, b) { return _extractYear(b.id).localeCompare(_extractYear(a.id)); });
     try { sessionStorage.setItem(_BDPPAD_CACHE_KEY, JSON.stringify(bdppads)); } catch(_) {}
 
-    vectorState.collectionsEndpoint = '/vector-api/parquet/collections';
     const others = vectorState.collections.filter(function(c) {
         return !c.id.startsWith(config.primaryCollectionPrefix);
     });

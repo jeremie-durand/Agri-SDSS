@@ -77,14 +77,6 @@ export async function runProcessJob(processId, body) {
 
 // ── URLs ──────────────────────────────────────────────────────────────────────
 
-export function normalizeUrl(value) {
-    if (!value || !value.trim()) return null;
-    const raw = value.trim();
-    try { return new URL(raw).toString(); } catch (_) {}
-    try { return new URL(raw, window.location.origin).toString(); } catch (_) {}
-    return null;
-}
-
 export function getColorForCollection(collectionId) {
     const palette = ["#22d3ee", "#34d399", "#f59e0b", "#60a5fa", "#f87171", "#a78bfa", "#4ade80", "#fbbf24"];
     const text = String(collectionId || "collection");
