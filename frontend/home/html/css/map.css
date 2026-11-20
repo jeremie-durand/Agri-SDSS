@@ -361,6 +361,11 @@ main {
     font-size: 0.73rem;
     color: var(--muted);
     backdrop-filter: blur(3px);
+    white-space: nowrap;
+}
+
+.leaflet-bottom.leaflet-left .leaflet-control-scale {
+    margin-bottom: 2.75rem;
 }
 
 .map-controls {
