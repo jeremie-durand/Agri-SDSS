@@ -8,7 +8,7 @@ requests==2.34.2
 SQLAlchemy==2.1.9
 stac-fastapi.api==7.1.1
 stac-fastapi.extensions==7.1.1
-stac-fastapi.pgstac==7.2.2
+stac-fastapi.pgstac==7.3.0
 stac-fastapi.types==7.1.1
 stac-pydantic==3.7.2
 starlette_cramjam==0.6.0
