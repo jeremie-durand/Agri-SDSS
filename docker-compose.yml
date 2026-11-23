@@ -460,7 +460,7 @@ services:
           cpus: "0.25"
 
   database:
-    image: ghcr.io/stac-utils/pgstac:v0.10.1
+    image: ghcr.io/stac-utils/pgstac:v0.10.2
     environment:
       - PGDATA=/var/lib/postgresql/data
       # Admin superuser — used only for Docker init, healthcheck, and pg_dump backups
