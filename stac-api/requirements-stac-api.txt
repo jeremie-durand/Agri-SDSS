@@ -3,7 +3,7 @@ fastapi==0.162.7
 orjson==3.13.0
 psycopg[binary]==3.3.9
 pydantic==2.11.9
-pydantic_core==2.33.2
+pydantic_core==2.50.5
 requests==2.34.2
 SQLAlchemy==2.1.8
 stac-fastapi.api==7.1.1
