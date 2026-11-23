@@ -10,7 +10,7 @@ colorama==0.4.6
 duckdb==2.0.0
 fiona==1.10.1
 geoalchemy2==0.21.0
-geopandas==1.1.2
+geopandas==1.2.0
 greenlet==3.5.6
 idna==3.20
 numpy==2.5.4 # numpy version here must match Dockerfile.gis-pipeline
