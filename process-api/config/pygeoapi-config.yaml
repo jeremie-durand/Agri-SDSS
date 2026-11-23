@@ -89,6 +89,13 @@ resources:
     processor:
       name: processes.quebec_lidar_fetch.LidarFetchProcessor
 
+  lidar-flowpath:
+    type: process
+    title: Quebec LiDAR Flow Paths and LS Factor
+    description: Computes field-scale flow-path layers (filled DTM, specific catchment area, slope, RUSLE LS) from the MRNF LiDAR DTM at 2 m in EPSG:32198, as COGs published to STAC
+    processor:
+      name: processes.lidar_flowpath.LidarFlowpathProcessor
+
   som-predict-soil:
     type: process
     title: SOM Soil Prediction
@@ -142,8 +149,8 @@ server:
     - fr-CA
     - en-US
   limits:
-    default_items: 10
-    maximum_items: 1000
+    default_items: 50
+    max_items: 1000
   manager:
     name: processes.jobs.manager.AgriJobManager
     connection: null

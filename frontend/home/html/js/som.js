@@ -1,6 +1,7 @@
 import { somContext, somChartInstance, setSomChartInstance, vectorState, layers } from './state.js';
 import { bboxAreaHa, apiFetch, runProcessJob } from './utils.js';
 import { somRasterUrl } from './config.js';
+import { resetFlowpathPanel } from './flowpath.js';
 
 function _tL() { return (window.T && window.T[window.lang]) || {}; }
 
@@ -399,6 +400,7 @@ export function openSomModal(collectionId, feature, layer) {
     somContext.collectionId = collectionId;
     somContext.feature = feature;
     somContext.layer = layer;
+    resetFlowpathPanel();
 
     var b = layer.getBounds ? layer.getBounds() : null;
     document.getElementById('somExtent').value = b

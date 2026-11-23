@@ -249,6 +249,20 @@
         </div>
       </div>
 
+      <div class="som-section som-flowpath">
+        <p class="som-section__title" id="somFlowpathTitle">Écoulement et LS</p>
+        <div class="som-field__row">
+          <button class="btn som-autogen-btn" id="somFlowpathRun">Calculer</button>
+          <button class="btn som-autogen-btn" id="somFlowpathRemove" hidden>Retirer</button>
+        </div>
+        <span class="som-field__status" id="somFlowpathStatus" aria-live="polite"></span>
+        <div id="somFlowpathLegend" class="som-flowpath-legend" hidden>
+          <span id="somFlowpathLegendTitle"></span>
+          <div id="somFlowpathClasses" class="som-flowpath-classes"></div>
+          <span id="somFlowpathSummary"></span>
+        </div>
+      </div>
+
       <div class="som-results" id="somResults" hidden>
         <h3 class="som-results__title" data-i18n="som-results-title">Projected SOM</h3>
         <p class="som-results__note" data-i18n="som-illustrative-note">Illustrative only: placeholder values, not computed from the form inputs.</p>

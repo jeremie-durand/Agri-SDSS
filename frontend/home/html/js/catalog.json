@@ -246,9 +246,9 @@
           "source": { "label": "donneesquebec.ca", "url": "https://www.donneesquebec.ca/recherche/dataset/produits-derives-de-base-du-lidar", "kind": "download", "formats": ["GeoTIFF"] },
           "formats": [ { "label": "GeoTIFF", "tag": "tif" } ],
           "match": [
-            { "api": "process", "idPattern": "^lidar-fetch$" },
-            { "api": "stac", "idPattern": "^lidar_quebec$" },
-            { "api": "raster", "idPattern": "^lidar_(dtm|mnt|chm|mhc|slope|aspect|hillshade)_" }
+            { "api": "process", "idPattern": "^lidar-(fetch|flowpath)$" },
+            { "api": "stac", "idPattern": "^(lidar_quebec|lidar_flowpath)$" },
+            { "api": "raster", "idPattern": "^lidar_(dtm|mnt|chm|mhc|slope|aspect|hillshade|flowpath)_" }
           ]
         },
         {
