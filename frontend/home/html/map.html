@@ -45,8 +45,8 @@
             <label for="basemap" data-i18n="lbl-basemap">Basemap</label>
             <select id="basemap" name="basemap">
                 <option value="osm">OpenStreetMap</option>
-                <option value="esri">Satellite (Esri)</option>
-                <option value="hot">OSM Humanitarian</option>
+                <option value="esri" data-i18n="basemap-esri">Satellite (Esri)</option>
+                <option value="hot" data-i18n="basemap-hot">OSM Humanitarian</option>
             </select>
         </section>
 
@@ -80,12 +80,12 @@
     </aside>
 
     <section class="map-wrap">
-        <div id="map" aria-label="Leaflet map"></div>
+        <div id="map" aria-label="Leaflet map" data-i18n-aria-label="aria-map"></div>
         <div id="coords" class="coord-readout">Lat: --, Lon: --, Zoom: --</div>
         <div class="map-controls" id="mapControls">
-            <button class="map-control-btn" id="mapZoomIn" title="Zoom in">+</button>
-            <button class="map-control-btn" id="mapZoomOut" title="Zoom out">−</button>
-            <button class="map-control-btn" id="mapLocate" title="Me localiser">⊙</button>
+            <button class="map-control-btn" id="mapZoomIn" title="Zoom in" aria-label="Zoom in" data-i18n-title="map-zoom-in" data-i18n-aria-label="map-zoom-in">+</button>
+            <button class="map-control-btn" id="mapZoomOut" title="Zoom out" aria-label="Zoom out" data-i18n-title="map-zoom-out" data-i18n-aria-label="map-zoom-out">−</button>
+            <button class="map-control-btn" id="mapLocate" title="Locate me" aria-label="Locate me" data-i18n-title="map-locate" data-i18n-aria-label="map-locate">⊙</button>
         </div>
     </section>
 </main>
@@ -96,7 +96,7 @@
   <div class="som-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="somTitle">
     <div class="som-modal__header">
       <h2 id="somTitle" data-i18n="som-title">SOM Calculator</h2>
-      <button class="som-modal__close" id="somClose" aria-label="Close">&#x2715;</button>
+      <button class="som-modal__close" id="somClose" aria-label="Close" data-i18n-aria-label="aria-close">&#x2715;</button>
     </div>
     <div class="som-tabs" role="tablist">
       <button class="som-tab som-tab--active" id="somTabPoc" role="tab" aria-selected="true" aria-controls="somPanelPoc" data-i18n="som-tab-poc">Proof of Concept</button>
@@ -354,7 +354,7 @@
   <div class="som-report-modal__dialog" role="dialog" aria-modal="true">
     <div class="som-report-modal__header">
       <span data-i18n="som-preview-title">Aperçu du rapport</span>
-      <button class="som-modal__close" id="somReportClose" aria-label="Close">&#x2715;</button>
+      <button class="som-modal__close" id="somReportClose" aria-label="Close" data-i18n-aria-label="aria-close">&#x2715;</button>
     </div>
     <div class="som-report-modal__body" id="somReportBody">
       <!-- populated by somShowPreview() -->
@@ -366,16 +366,16 @@
   </div>
 </div>
 
-<button class="chat-toggle" id="chatToggle" aria-label="Open chatbot">💬</button>
+<button class="chat-toggle" id="chatToggle" aria-label="Open chatbot" data-i18n-aria-label="aria-chat-toggle">💬</button>
 
 <div class="chat-panel" id="chatPanel" hidden>
   <div class="chat-panel__header">
-    <span>Agri-SDSS Assistant</span>
-    <button class="chat-panel__close" id="chatClose" aria-label="Close">&#x2715;</button>
+    <span data-i18n="chat-panel-title">Agri-SDSS Assistant</span>
+    <button class="chat-panel__close" id="chatClose" aria-label="Close" data-i18n-aria-label="aria-close">&#x2715;</button>
   </div>
   <div class="chat-messages" id="chatMessages"></div>
   <form class="chat-input-row" id="chatForm">
-    <textarea id="chatInput" rows="2" placeholder="Ask about the map… (Ctrl+Enter to send)"></textarea>
+    <textarea id="chatInput" rows="2" placeholder="Ask about the map… (Ctrl+Enter to send)" data-i18n-placeholder="placeholder-chat"></textarea>
     <button type="submit" class="chat-send-btn" id="chatSend">&#x2191;</button>
   </form>
 </div>
@@ -417,6 +417,14 @@
       'lbl-basemap':       'Basemap',
       'aria-chat-toggle':  'Open chatbot',
       'placeholder-chat':  'Ask about the map… (Ctrl+Enter to send)',
+      'aria-map':          'Interactive map',
+      'aria-close':        'Close',
+      'map-zoom-in':       'Zoom in',
+      'map-zoom-out':      'Zoom out',
+      'map-locate':        'Locate me',
+      'basemap-esri':      'Satellite (Esri)',
+      'basemap-hot':       'OSM Humanitarian',
+      'chat-panel-title':  'Agri-SDSS Assistant',
       'som-aac-notice': 'Note: Auto-generation may be less accurate than with BDPPAD data.',
       'som-title':    'SOM Calculator',
       'som-extent':   'Farm extent (bbox)',
@@ -564,6 +572,14 @@
       'lbl-basemap':       'Fond de carte',
       'aria-chat-toggle':  'Ouvrir le chatbot',
       'placeholder-chat':  'Posez une question sur la carte… (Ctrl+Entrée pour envoyer)',
+      'aria-map':          'Carte interactive',
+      'aria-close':        'Fermer',
+      'map-zoom-in':       'Zoom avant',
+      'map-zoom-out':      'Zoom arrière',
+      'map-locate':        'Me localiser',
+      'basemap-esri':      'Satellite (Esri)',
+      'basemap-hot':       'OSM humanitaire',
+      'chat-panel-title':  'Assistant Agri-SDSS',
       'som-aac-notice': 'Note : La génération automatique peut être moins précise qu\'avec les données BDPPAD.',
       'som-title':    'Calculateur MOS',
       'som-extent':   'Étendue de la parcelle (bbox)',
@@ -722,12 +738,15 @@
       var k = 'nav-' + el.getAttribute('data-nav');
       if (T[l][k] !== undefined) el.textContent = T[l][k];
     });
-    var chatToggle = document.getElementById('chatToggle');
-    if (chatToggle) chatToggle.setAttribute('aria-label', T[l]['aria-chat-toggle']);
-    var chatInput = document.getElementById('chatInput');
-    if (chatInput) chatInput.setAttribute('placeholder', T[l]['placeholder-chat']);
+    ['title', 'aria-label', 'placeholder'].forEach(function(attr) {
+      document.querySelectorAll('[data-i18n-' + attr + ']').forEach(function(el) {
+        var k = el.getAttribute('data-i18n-' + attr);
+        if (T[l][k] !== undefined) el.setAttribute(attr, T[l][k]);
+      });
+    });
     document.getElementById('langToggle').textContent = l === 'en' ? 'FR' : 'EN';
     localStorage.setItem('sdss-lang', l);
+    window.dispatchEvent(new CustomEvent('sdss-lang-change', { detail: { lang: l } }));
   }
 
   document.getElementById('langToggle').addEventListener('click', function() {

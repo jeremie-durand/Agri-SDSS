@@ -1,4 +1,5 @@
 import { map, layers, defaultView } from './state.js';
+import { formatZoom } from './utils.js';
 import './chat.js';
 import { loadBdppadCollections, deselectBdppadCollection, setBdppadActivateCallback } from './vector.js';
 import { initAacSection, deselectAac, setAacActivateCallback } from './aac.js';
@@ -19,7 +20,7 @@ if ("serviceWorker" in navigator) {
 
 // ── Map utils ─────────────────────────────────────────────────────────────────
 function updateCoords(latlng) {
-    coordsEl.textContent = `Lat: ${latlng.lat.toFixed(5)}, Lon: ${latlng.lng.toFixed(5)}, Zoom: ${map.getZoom()}`;
+    coordsEl.textContent = `Lat: ${latlng.lat.toFixed(5)}, Lon: ${latlng.lng.toFixed(5)}, Zoom: ${formatZoom(map.getZoom())}`;
 }
 
 // ── Map event listeners ───────────────────────────────────────────────────────

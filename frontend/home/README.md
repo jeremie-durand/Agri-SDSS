@@ -180,6 +180,9 @@ The main page. Modules loaded via ES imports from `html/js/`:
 - Intercepts Axios responses from the chatbot backend and forwards map commands to the parent map:
   - `AGRI_SDSS_ZOOM` — zooms the Leaflet map to a bbox or lat/lon
   - `AGRI_SDSS_TILES` — adds a raster tile layer to the Leaflet map
+- Fits the chatbot layout under the shared nav: it subtracts `--sdss-nav-height`
+  (set by `nav-inject.js`) from the upstream full-height containers, so the page
+  itself never scrolls
 
 ---
 
