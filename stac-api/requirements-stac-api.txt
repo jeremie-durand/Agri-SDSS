@@ -5,7 +5,7 @@ psycopg[binary]==3.3.9
 pydantic==2.11.9
 pydantic_core==2.33.2
 requests==2.34.2
-SQLAlchemy==2.1.8
+SQLAlchemy==2.1.9
 stac-fastapi.api==7.1.1
 stac-fastapi.extensions==7.1.1
 stac-fastapi.pgstac==7.2.2
