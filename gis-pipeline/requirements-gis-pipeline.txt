@@ -16,7 +16,7 @@ idna==3.20
 numpy==2.5.4 # numpy version here must match Dockerfile.gis-pipeline
 packaging==26.2
 pandas==3.0.5
-psycopg[binary]==3.3.6
+psycopg[binary]==3.3.9
 pyarrow==26.0.0
 pydantic==2.11.9
 pydantic-settings==2.16.2
