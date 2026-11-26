@@ -282,6 +282,7 @@ docker build --target runtime -f gis-pipeline/Dockerfile.gis-pipeline .
 - [ ] Ports 8081–8085, 5000, 8005, 3001 **not** open on the server firewall — only 80 and 443
 - [ ] Database port `5439` bound to `127.0.0.1` only (already the case in `docker-compose.yml`)
 - [ ] `https://<host>/process-api/jobs` answers `404` and `DELETE https://<host>/process-api/jobs/<id>` answers `405`. home nginx enforces both: a job id is the only key to a job's inputs and results, so jobs are never listed or dismissed publicly.
+- [ ] Every SOM model bundle in `$DUCKDB_DATA_DIR/som_models/` was trained by this deployment, or copied from a trusted source with its SHA-256 checked: a bundle is a pickle, and loading it runs any code it contains. See [How predictions are produced](../process-api/docs/SOM_PREDICT_SOIL_SPECS.md#how-predictions-are-produced).
 
 ---
 

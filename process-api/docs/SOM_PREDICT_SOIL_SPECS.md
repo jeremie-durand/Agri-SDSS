@@ -75,6 +75,10 @@ feature data and cached, keyed on the scenario and a fingerprint of the source
 Parquet files. The fingerprint hashes their names and contents, not their
 modification times, so a bundle stays valid when the same files are copied,
 restored or downloaded again, including a bundle trained on another host.
+A bundle (`som_model_<scenario>.joblib`) is a pickle, and loading one runs any
+code it contains: copy bundles only from a trusted source and check each file's
+SHA-256 against the value that source publishes, or delete them and let the
+process retrain.
 Requested `field_ids` select which fields to *report*, not which
 to hold out — so a requested field is normally part of the training set.
 
