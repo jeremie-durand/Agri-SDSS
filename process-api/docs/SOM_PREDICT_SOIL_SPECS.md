@@ -18,7 +18,7 @@ SOM data first:
 
 | Store | Content | Requirement |
 | --- | --- | --- |
-| PostGIS | `som_field_boundaries` table | Polygon geometries keyed by `gid`; `gee_field_id` holds the GEE `FIELD_ID` of each field with GEE data (stamped by gis-pipeline) |
+| PostGIS | `SOM_TABLE_NAME` (default `public.som_field_boundaries`) | Polygon geometries keyed by `SOM_ID_COLUMN` (default `gid`, sent and returned as `gid`); `gee_field_id` holds the GEE `FIELD_ID` of each field with GEE data (stamped by gis-pipeline) |
 | DuckDB | `BareSoil_TOPCLI_*.parquet` files in `DUCKDB_DATA_DIR` | GEE feature rows (spectral, topographic, climate) queryable by `FIELD_ID` |
 
 `gid` and the GEE `FIELD_ID` are different identifiers: GEE numbered the fields in

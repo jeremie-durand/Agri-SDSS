@@ -19,6 +19,7 @@ def test_spatial_tables_defaults(monkeypatch):
         "PEDO_TABLE_NAME",
         "PEDO_2022_TABLE_NAME",
         "SOM_TABLE_NAME",
+        "SOM_ID_COLUMN",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -31,6 +32,7 @@ def test_spatial_tables_defaults(monkeypatch):
     )
     assert config.PEDO_2022_TABLE_NAME == "public.couverture_pedo_2022"
     assert config.SOM_TABLE_NAME == "public.som_field_boundaries"
+    assert config.SOM_ID_COLUMN == "gid"
 
 
 @pytest.mark.unit

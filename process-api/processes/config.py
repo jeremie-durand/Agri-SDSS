@@ -55,6 +55,7 @@ class SpatialTablesConfig(BaseSettings):
     PEDO_TABLE_NAME: str = "public.couverture_pedologique_2026_01_couverture_p_cbc3c8"
     PEDO_2022_TABLE_NAME: str = "public.couverture_pedo_2022"
     SOM_TABLE_NAME: str = "public.som_field_boundaries"
+    SOM_ID_COLUMN: str = "gid"
 
 
 class ApiConfig(BaseSettings):

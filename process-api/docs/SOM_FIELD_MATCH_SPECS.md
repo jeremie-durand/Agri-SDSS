@@ -16,11 +16,16 @@ backend [spatial_backend/som_fields.py](../processes/spatial_backend/som_fields.
 
 | Store | Content | Requirement |
 | --- | --- | --- |
-| PostGIS | `SOM_TABLE_NAME` (default `public.som_field_boundaries`) | `gid`, `has_gee_data` and a `geometry` column in EPSG:4326, with a GiST index; ingested by gis-pipeline |
+| PostGIS | `SOM_TABLE_NAME` (default `public.som_field_boundaries`) | the `SOM_ID_COLUMN` id column (default `gid`), `has_gee_data` and a `geometry` column in EPSG:4326, with a GiST index; ingested by gis-pipeline |
 | PostGIS | `FARM_TABLE_NAME` | Farm geometries, only for `location_type: "farm_id"` |
 
 Table names come from the environment (`SpatialTablesConfig`) and must match
 `^[a-zA-Z0-9_.]+$`; any other value is refused before the query runs.
+`SOM_ID_COLUMN` names an integer column unique per field and must match
+`^[a-z_][a-z0-9_]*$` (lowercase: it is not quoted in the SQL, and PostgreSQL
+folds unquoted names to lowercase). Its values are returned as `gid` whatever the column is
+called, so a deployment that cannot load a column named `gid` keeps the same
+field ids under another name.
 
 ---
 

@@ -404,6 +404,32 @@ class TestSOMPredictSoilFieldResolution:
         assert "gee_field_id IS NOT NULL" in sql
         assert params == ([195, 999],)
 
+    def test_reads_the_configured_table_and_id_column(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SOM_TABLE_NAME", "geo.som_field_boundaries")
+        monkeypatch.setenv("SOM_ID_COLUMN", "gid_source")
+        proc = _make_processor()
+        with patch("processes.som_predict_soil.psycopg.connect") as mock_connect:
+            cursor = _mock_psycopg_rows(mock_connect, [(853, 391, None)])
+            fields = proc._resolve_fields([853])
+
+        assert fields == {853: (391, None)}
+        sql, _params = cursor.execute.call_args.args
+        assert sql.startswith("SELECT gid_source, gee_field_id,")
+        assert "FROM geo.som_field_boundaries " in sql
+        assert "WHERE gid_source = ANY(%s)" in sql
+
+    def test_unsafe_id_column_refused_before_querying(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SOM_ID_COLUMN", "gid; DROP TABLE x")
+        proc = _make_processor()
+        with patch("processes.som_predict_soil.psycopg.connect") as mock_connect:
+            with pytest.raises(ValueError, match="not a lowercase SQL identifier"):
+                proc._resolve_fields([853])
+        mock_connect.assert_not_called()
+
     def test_no_gid_with_gee_data_raises(self):
         proc = _make_processor()
         with patch("processes.som_predict_soil.psycopg.connect") as mock_connect:

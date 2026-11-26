@@ -181,8 +181,9 @@ Backends that call slow external services cache results in a module-level
   `som_model_<scenario>.lock` beside the bundle, so concurrent web and worker
   processes on the same host train a scenario once. Keep every bundle read
   and write inside that lock.
-  - Callers send `som_field_boundaries.gid`; the process translates it to the
-    GEE `FIELD_ID` through `gee_field_id`, which gis-pipeline stamps. The two
+  - Callers send `som_field_boundaries.gid` (the column `SOM_ID_COLUMN`
+    names, `gid` by default); the process translates it to the GEE
+    `FIELD_ID` through `gee_field_id`, which gis-pipeline stamps. The two
     identifiers differ, so never compare them directly.
   - `som-field-match`, and `som-predict-soil` given a location, rank fields by
     `som_field_boundaries.has_gee_data`, which gis-pipeline stamps at the end
