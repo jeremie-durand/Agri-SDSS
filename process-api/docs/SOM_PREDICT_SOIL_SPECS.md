@@ -72,7 +72,10 @@ the chatbot and API users.
 
 The model for a scenario is trained once on **all** labelled fields in the GEE
 feature data and cached, keyed on the scenario and a fingerprint of the source
-Parquet files. Requested `field_ids` select which fields to *report*, not which
+Parquet files. The fingerprint hashes their names and contents, not their
+modification times, so a bundle stays valid when the same files are copied,
+restored or downloaded again, including a bundle trained on another host.
+Requested `field_ids` select which fields to *report*, not which
 to hold out — so a requested field is normally part of the training set.
 
 To keep the served numbers out-of-sample anyway, each row of a known field is
