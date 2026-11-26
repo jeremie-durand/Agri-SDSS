@@ -23,7 +23,7 @@ Table names come from the environment (`SpatialTablesConfig`) and must match
 `^[a-zA-Z0-9_.]+$`; any other value is refused before the query runs.
 `SOM_ID_COLUMN` names an integer column unique per field and must match
 `^[a-z_][a-z0-9_]*$` (lowercase: it is not quoted in the SQL, and PostgreSQL
-folds unquoted names to lowercase). Its values are returned as `gid` whatever the column is
+folds unquoted names to lowercase); process-api refuses to start otherwise. Its values are returned as `gid` whatever the column is
 called, so a deployment that cannot load a column named `gid` keeps the same
 field ids under another name.
 

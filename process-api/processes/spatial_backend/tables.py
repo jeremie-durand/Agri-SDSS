@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import re
 
+from ..config import COLUMN_NAME_PATTERN
+
 _TABLE_NAME = re.compile(r"^[a-zA-Z0-9_.]+$")
-_COLUMN_NAME = re.compile(r"^[a-z_][a-z0-9_]*$")
+_COLUMN_NAME = re.compile(COLUMN_NAME_PATTERN)
 
 
 def checked_table_name(name: str) -> str:

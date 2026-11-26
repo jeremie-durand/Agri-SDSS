@@ -48,6 +48,27 @@ def test_spatial_tables_read_from_env(monkeypatch):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("value", ["", "GID", "Gid_source", "1gid", "t.gid", "gid;"])
+def test_invalid_som_id_column_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("SOM_ID_COLUMN", value)
+
+    with pytest.raises(ValidationError, match="SOM_ID_COLUMN"):
+        SpatialTablesConfig()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["gid", "gid_source", "_id", "field2"])
+def test_valid_som_id_column_accepted(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("SOM_ID_COLUMN", value)
+
+    assert SpatialTablesConfig().SOM_ID_COLUMN == value
+
+
+@pytest.mark.unit
 def test_job_queue_defaults(monkeypatch):
     for name in JOB_QUEUE_VARIABLES:
         monkeypatch.delenv(name, raising=False)

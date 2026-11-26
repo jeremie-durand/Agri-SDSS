@@ -8,6 +8,8 @@ startup rather than at the first affected request.
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+COLUMN_NAME_PATTERN: str = r"^[a-z_][a-z0-9_]*$"
+
 
 class DatabaseConfig(BaseSettings):
     """PostGIS connection parameters.
@@ -55,7 +57,7 @@ class SpatialTablesConfig(BaseSettings):
     PEDO_TABLE_NAME: str = "public.couverture_pedologique_2026_01_couverture_p_cbc3c8"
     PEDO_2022_TABLE_NAME: str = "public.couverture_pedo_2022"
     SOM_TABLE_NAME: str = "public.som_field_boundaries"
-    SOM_ID_COLUMN: str = "gid"
+    SOM_ID_COLUMN: str = Field(default="gid", pattern=COLUMN_NAME_PATTERN)
 
 
 class ApiConfig(BaseSettings):

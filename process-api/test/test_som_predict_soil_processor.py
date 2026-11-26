@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 from processes.som_predict_soil import SOMPredictSoilProcessor
+from pydantic import ValidationError
 from pygeoapi.process.base import ProcessorExecuteError
 
 import agri_i18n
@@ -426,7 +427,7 @@ class TestSOMPredictSoilFieldResolution:
         monkeypatch.setenv("SOM_ID_COLUMN", "gid; DROP TABLE x")
         proc = _make_processor()
         with patch("processes.som_predict_soil.psycopg.connect") as mock_connect:
-            with pytest.raises(ValueError, match="not a lowercase SQL identifier"):
+            with pytest.raises(ValidationError, match="SOM_ID_COLUMN"):
                 proc._resolve_fields([853])
         mock_connect.assert_not_called()
 
