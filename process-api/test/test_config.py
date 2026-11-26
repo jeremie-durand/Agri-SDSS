@@ -56,6 +56,51 @@ def test_job_queue_defaults(monkeypatch):
 
 
 @pytest.mark.unit
+def test_jobs_table_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PROCESS_JOBS_TABLE", raising=False)
+
+    assert JobQueueConfig().PROCESS_JOBS_TABLE == "public.process_jobs"
+
+
+@pytest.mark.unit
+def test_jobs_table_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROCESS_JOBS_TABLE", "jobs.process_jobs")
+
+    assert JobQueueConfig().PROCESS_JOBS_TABLE == "jobs.process_jobs"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "jobs.",
+        ".process_jobs",
+        "Jobs.process_jobs",
+        "jobs.process-jobs",
+        "a.b.c",
+        "1jobs.process_jobs",
+        "j" * 57,
+    ],
+)
+def test_invalid_jobs_table_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("PROCESS_JOBS_TABLE", value)
+
+    with pytest.raises(ValidationError):
+        JobQueueConfig()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["process_jobs", "jobs.process_jobs", "j" * 56])
+def test_valid_jobs_table_accepted(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("PROCESS_JOBS_TABLE", value)
+
+    assert JobQueueConfig().PROCESS_JOBS_TABLE == value
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("name", JOB_QUEUE_VARIABLES)
 @pytest.mark.parametrize("value", ["0", "-1"])
 def test_job_queue_rejects_non_positive_values(monkeypatch, name, value):

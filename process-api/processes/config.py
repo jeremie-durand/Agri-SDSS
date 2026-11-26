@@ -91,10 +91,17 @@ class StorageConfig(BaseSettings):
 
 
 class JobQueueConfig(BaseSettings):
-    """Async job execution: worker time budget, polling and retention."""
+    """Async job execution: jobs table, worker time budget, polling and retention."""
 
     model_config = SettingsConfigDict(env_prefix="")
 
+    # 56: the NOTIFY channel "<schema>_<name>" must fit PostgreSQL's 63-byte
+    # identifier limit, or every async submission fails while boot succeeds.
+    PROCESS_JOBS_TABLE: str = Field(
+        default="public.process_jobs",
+        pattern=r"^([a-z_][a-z0-9_]*\.)?[a-z_][a-z0-9_]*$",
+        max_length=56,
+    )
     PROCESS_JOB_TIMEOUT_SECONDS: int = Field(default=1800, gt=0)
     PROCESS_JOB_RETENTION_DAYS: int = Field(default=7, gt=0)
     PROCESS_WORKER_POLL_SECONDS: float = Field(default=5, gt=0)

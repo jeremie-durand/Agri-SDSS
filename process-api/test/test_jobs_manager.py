@@ -83,6 +83,16 @@ def _dummy(**processors: str) -> DummyManager:
     return DummyManager(_manager_def(**processors) | {"name": "Dummy"})
 
 
+def test_jobs_table_comes_from_the_environment_without_a_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROCESS_JOBS_TABLE", "jobs.process_jobs")
+
+    manager = AgriJobManager(_manager_def())
+
+    assert manager.store.table == "jobs.process_jobs"
+
+
 def test_loads_as_pygeoapi_process_manager():
     manager = load_plugin("process_manager", _manager_def())
 

@@ -127,8 +127,11 @@ Backends that call slow external services cache results in a module-level
   time, holds the job's advisory lock and runs it in a `spawn` child, which
   writes the result. The parent fails the job when the child crashes, passes
   `PROCESS_JOB_TIMEOUT_SECONDS` or is stopped by SIGTERM, and periodically
-  sweeps orphaned jobs and purges old ones. It reads the processes and the
-  jobs table from the same `pygeoapi-config.yaml`. Scale it with replicas;
+  sweeps orphaned jobs and purges old ones. It reads the processes from the
+  same `pygeoapi-config.yaml`. The jobs table is its
+  `server.manager.connection.table` when set, else `PROCESS_JOBS_TABLE`, for
+  the manager, the worker and the boot step alike
+  (`jobs/schema.py:jobs_table`). Scale it with replicas;
   without a running worker, async jobs stay `accepted`.
 - All job SQL lives in `processes/jobs/store.py`. Job rows are timestamped
   in pygeoapi's format; `/jobs` sorts on `started`, so it is set at

@@ -125,14 +125,26 @@ The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on
 
 ### Process jobs table
 
-process-api creates `public.process_jobs` at every start
-(`python -m processes.jobs.schema`, idempotent) with the app role, which already
-has `CREATE` on `public`. It holds the OGC API – Processes job records and the
-async queue. It has no geometry, so vector-api does not list it.
+process-api creates the jobs table at every start
+(`python -m processes.jobs.schema`, idempotent) with the app role, and every
+worker does the same. The table is `PROCESS_JOBS_TABLE` (default
+`public.process_jobs`); `server.manager.connection.table` in
+`pygeoapi-config.yaml` overrides it when set. At every start, not only the
+first, the app role needs `CREATE` on the table's schema and must own the
+table; owning the schema and letting process-api create the table gives
+both. Owning the schema alone does not make the role owner of a table that
+another role created there (a superuser, or a `pg_restore` keeping the
+original owner). PostgreSQL checks these before it sees
+that the table or its indexes already exist, so a role that owns the table
+but has only `USAGE` on the schema stops process-api at boot. Here the app
+role already has `CREATE` on `public` and owns the table it created. The name
+must be lowercase `schema.name` or `name`, at most 56 characters. The table holds the OGC API – Processes job records and the async
+queue. It has no geometry, so vector-api does not list it.
 
-process-api and its workers must connect to PostgreSQL directly. A running job
-holds a session advisory lock, and a crash is detected when that session ends.
-A connection pooler in transaction mode would break this. The job timeout,
+process-api and its workers must connect to PostgreSQL directly. Workers wait
+for new jobs with `LISTEN`, a running job holds a session advisory lock, and a
+crash is detected when that session ends. A connection pooler in transaction
+mode would break this. The job timeout,
 retention and worker polling are set by the `PROCESS_*` variables in
 `.env.example`.
 
