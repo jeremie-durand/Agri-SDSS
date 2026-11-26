@@ -169,7 +169,9 @@ links is raster-api's internal container path and is not downloadable (404).
 - **Temporal extent:** 2015-01-01 / open
 
 One STAC item is published per product per request. Re-running the process for the
-same farm updates the existing STAC items (HTTP PUT on 409 Conflict).
+same farm updates the existing STAC items (HTTP PUT on 409 Conflict). With
+`STAC_PUBLISH_ENABLED=false` nothing is published: `stac_items` still lists the
+item ids, and the COGs are written to `LIDAR_OUTPUT_DIR` as usual.
 
 ### STAC item properties
 

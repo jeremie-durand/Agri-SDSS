@@ -1,7 +1,12 @@
 """Unit tests for the environment configuration classes."""
 
 import pytest
-from processes.config import JobQueueConfig, SpatialTablesConfig
+from processes.config import (
+    ApiConfig,
+    JobQueueConfig,
+    SpatialTablesConfig,
+    StorageConfig,
+)
 from pydantic import ValidationError
 
 JOB_QUEUE_VARIABLES: tuple[str, ...] = (
@@ -108,3 +113,26 @@ def test_job_queue_rejects_non_positive_values(monkeypatch, name, value):
 
     with pytest.raises(ValidationError):
         JobQueueConfig()
+
+
+@pytest.mark.unit
+def test_stac_publishing_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("STAC_PUBLISH_ENABLED", raising=False)
+
+    assert ApiConfig().STAC_PUBLISH_ENABLED is True
+
+
+@pytest.mark.unit
+def test_stac_publishing_disabled_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STAC_PUBLISH_ENABLED", "false")
+
+    assert ApiConfig().STAC_PUBLISH_ENABLED is False
+
+
+@pytest.mark.unit
+def test_sentinel_output_dir_default_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SENTINEL_OUTPUT_DIR", raising=False)
+    assert StorageConfig().SENTINEL_OUTPUT_DIR == "/data"
+
+    monkeypatch.setenv("SENTINEL_OUTPUT_DIR", "/tmp/cog")
+    assert StorageConfig().SENTINEL_OUTPUT_DIR == "/tmp/cog"

@@ -30,7 +30,7 @@ from shapely.geometry import MultiPolygon, Polygon, shape
 from agri_i18n import _
 
 from .asset_url_utils import cog_href, preview_href, tilejson_href
-from .config import ApiConfig, DatabaseConfig, FarmConfig
+from .config import ApiConfig, DatabaseConfig, FarmConfig, StorageConfig
 from .eo_backend import vegetation_indices as veg_indices
 from .eo_sentinel_fetch_metadata import PROCESS_METADATA
 
@@ -141,9 +141,6 @@ class SentinelFetchProcessor(BaseProcessor):
     # Raster metadata
     RASTER_DATA_TYPE: str = "float32"
 
-    # Output directory
-    DEFAULT_OUTPUT_DIR: str = "/data"
-
     # API service ports
     DEFAULT_STAC_API_PORT: int = 8081
     DEFAULT_RASTER_API_PORT: int = 8082
@@ -157,7 +154,7 @@ class SentinelFetchProcessor(BaseProcessor):
 
     def __init__(self, processor_def: Dict[str, Any]) -> None:
         super().__init__(processor_def, PROCESS_METADATA)
-        self.output_dir: str = self.DEFAULT_OUTPUT_DIR  # Mounted volume in Docker
+        self.output_dir: str = StorageConfig().SENTINEL_OUTPUT_DIR
 
     @classmethod
     def _is_valid_token(cls, token: str) -> bool:
@@ -1104,9 +1101,12 @@ class SentinelFetchProcessor(BaseProcessor):
             stac_item: STAC item to post
 
         Returns:
-            True if successful, False otherwise
+            True if successful, False otherwise, including without any request
+            when STAC_PUBLISH_ENABLED is false
         """
-        # Ensure collection exists first
+        if not ApiConfig().STAC_PUBLISH_ENABLED:
+            logger.info("STAC publishing disabled; item %s not posted", stac_item["id"])
+            return False
         self._ensure_collection_exists()
 
         stac_api_url: str = ApiConfig().STAC_API_URL

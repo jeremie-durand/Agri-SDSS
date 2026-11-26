@@ -169,11 +169,15 @@ Backends that call slow external services cache results in a module-level
 
 ## Outputs and Cross-Service Contracts
 
-- `sentinel-fetch` and `lidar-fetch` write COGs to `/data` (the shared
-  `data/output/raster_cog`). They publish STAC items to
-  `sentinel2_eo_products` / `lidar_quebec` at `ApiConfig.STAC_API_URL`, which
-  is internal (`http://stac-api:8081`). The public `/stac-api/` path is
-  read-only and rejects writes with 403.
+- `sentinel-fetch` and `lidar-fetch` write COGs to `SENTINEL_OUTPUT_DIR` /
+  `LIDAR_OUTPUT_DIR`, both `/data` (the shared `data/output/raster_cog`),
+  which must stay raster-api's mount for the `/cog` and TiTiler hrefs to
+  resolve. They publish STAC items to `sentinel2_eo_products` /
+  `lidar_quebec` at `ApiConfig.STAC_API_URL`, which is internal
+  (`http://stac-api:8081`). The public `/stac-api/` path is read-only and
+  rejects writes with 403. With `STAC_PUBLISH_ENABLED=false` they send
+  nothing to the STAC API and write no publish marker; the results are
+  unchanged.
 - Build every public href with `asset_url_utils.py`. `COG_ROUTE` is one of the
   four `/cog` copies guarded by `test/test_cog_route_consistency.py`, and
   `RASTER_API_DATA_DIR = "/data"` must match raster-api's mount (see

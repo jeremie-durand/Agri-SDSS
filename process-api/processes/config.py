@@ -59,11 +59,12 @@ class SpatialTablesConfig(BaseSettings):
 
 
 class ApiConfig(BaseSettings):
-    """URLs for downstream internal service APIs."""
+    """Downstream internal service APIs, and whether processes publish to STAC."""
 
     model_config = SettingsConfigDict(env_prefix="")
 
     STAC_API_URL: str = "http://stac-api:8081"
+    STAC_PUBLISH_ENABLED: bool = True
     RASTER_API_PORT: int = 8082
 
 
@@ -88,6 +89,7 @@ class StorageConfig(BaseSettings):
 
     DUCKDB_DATA_DIR: str = "/data/duckdb"
     LIDAR_OUTPUT_DIR: str = "/data"
+    SENTINEL_OUTPUT_DIR: str = "/data"
 
 
 class JobQueueConfig(BaseSettings):
