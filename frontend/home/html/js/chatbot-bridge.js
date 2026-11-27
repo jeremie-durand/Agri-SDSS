@@ -2,12 +2,27 @@
  * Injected into the chatbot iframe by the home nginx sub_filter.
  * Listens for AGRI_SDSS_CONTEXT postMessages from the parent map page,
  * shows a sticky context banner, fetches real data from local Agri-SDSS APIs,
- * and injects a data-rich prompt into the chat input.
+ * and injects a data-rich prompt into the chat input. It also fits the chatbot
+ * layout under the shared nav, whose height nav-inject.js publishes as
+ * --sdss-nav-height.
  */
 (function () {
   'use strict';
 
   var ctx = null;
+
+  (function fitUnderNav() {
+    var UPSTREAM_HEADER_HEIGHT = '64px';
+    var full = 'calc(100vh - var(--sdss-nav-height, 0px))';
+    var body = 'calc(100vh - var(--sdss-nav-height, 0px) - ' + UPSTREAM_HEADER_HEIGHT + ')';
+    var style = document.createElement('style');
+    style.id = 'sdss-chatbot-layout';
+    style.textContent =
+      '#root,.app-container{height:' + full + '!important}' +
+      '.app,.right,.landing-container{height:' + body + '!important}' +
+      '.center{min-height:' + body + '!important}';
+    document.head.appendChild(style);
+  }());
 
   /* ── Prompt text (FR/EN) ────────────────────────────────────────────────────
      This script runs inside the chatbot page, where map.html's window.T does not

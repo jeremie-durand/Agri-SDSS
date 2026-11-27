@@ -30,7 +30,6 @@ from processes import worker as worker_module
 from processes.config import JobQueueConfig
 from processes.worker import (
     Worker,
-    jobs_table,
     load_processes,
     stopped_message,
     timeout_message,
@@ -257,11 +256,3 @@ def test_load_processes_keeps_process_resources_only():
     assert load_processes(config) == {
         "lidar-fetch": {"type": "process", "processor": {"name": "a.B"}}
     }
-
-
-def test_jobs_table_follows_the_manager_connection():
-    assert jobs_table({"server": {}}) == "public.process_jobs"
-    assert (
-        jobs_table({"server": {"manager": {"connection": {"table": "public.zz"}}}})
-        == "public.zz"
-    )

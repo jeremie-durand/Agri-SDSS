@@ -1,7 +1,12 @@
 """Unit tests for the environment configuration classes."""
 
 import pytest
-from processes.config import JobQueueConfig, SpatialTablesConfig
+from processes.config import (
+    ApiConfig,
+    JobQueueConfig,
+    SpatialTablesConfig,
+    StorageConfig,
+)
 from pydantic import ValidationError
 
 JOB_QUEUE_VARIABLES: tuple[str, ...] = (
@@ -19,6 +24,7 @@ def test_spatial_tables_defaults(monkeypatch):
         "PEDO_TABLE_NAME",
         "PEDO_2022_TABLE_NAME",
         "SOM_TABLE_NAME",
+        "SOM_ID_COLUMN",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -31,6 +37,7 @@ def test_spatial_tables_defaults(monkeypatch):
     )
     assert config.PEDO_2022_TABLE_NAME == "public.couverture_pedo_2022"
     assert config.SOM_TABLE_NAME == "public.som_field_boundaries"
+    assert config.SOM_ID_COLUMN == "gid"
 
 
 @pytest.mark.unit
@@ -38,6 +45,27 @@ def test_spatial_tables_read_from_env(monkeypatch):
     monkeypatch.setenv("PEDO_TABLE_NAME", "public.other_pedo")
 
     assert SpatialTablesConfig().PEDO_TABLE_NAME == "public.other_pedo"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["", "GID", "Gid_source", "1gid", "t.gid", "gid;"])
+def test_invalid_som_id_column_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("SOM_ID_COLUMN", value)
+
+    with pytest.raises(ValidationError, match="SOM_ID_COLUMN"):
+        SpatialTablesConfig()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["gid", "gid_source", "_id", "field2"])
+def test_valid_som_id_column_accepted(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("SOM_ID_COLUMN", value)
+
+    assert SpatialTablesConfig().SOM_ID_COLUMN == value
 
 
 @pytest.mark.unit
@@ -54,6 +82,51 @@ def test_job_queue_defaults(monkeypatch):
 
 
 @pytest.mark.unit
+def test_jobs_table_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PROCESS_JOBS_TABLE", raising=False)
+
+    assert JobQueueConfig().PROCESS_JOBS_TABLE == "public.process_jobs"
+
+
+@pytest.mark.unit
+def test_jobs_table_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROCESS_JOBS_TABLE", "jobs.process_jobs")
+
+    assert JobQueueConfig().PROCESS_JOBS_TABLE == "jobs.process_jobs"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "jobs.",
+        ".process_jobs",
+        "Jobs.process_jobs",
+        "jobs.process-jobs",
+        "a.b.c",
+        "1jobs.process_jobs",
+        "j" * 57,
+    ],
+)
+def test_invalid_jobs_table_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("PROCESS_JOBS_TABLE", value)
+
+    with pytest.raises(ValidationError):
+        JobQueueConfig()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["process_jobs", "jobs.process_jobs", "j" * 56])
+def test_valid_jobs_table_accepted(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("PROCESS_JOBS_TABLE", value)
+
+    assert JobQueueConfig().PROCESS_JOBS_TABLE == value
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("name", JOB_QUEUE_VARIABLES)
 @pytest.mark.parametrize("value", ["0", "-1"])
 def test_job_queue_rejects_non_positive_values(monkeypatch, name, value):
@@ -61,3 +134,26 @@ def test_job_queue_rejects_non_positive_values(monkeypatch, name, value):
 
     with pytest.raises(ValidationError):
         JobQueueConfig()
+
+
+@pytest.mark.unit
+def test_stac_publishing_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("STAC_PUBLISH_ENABLED", raising=False)
+
+    assert ApiConfig().STAC_PUBLISH_ENABLED is True
+
+
+@pytest.mark.unit
+def test_stac_publishing_disabled_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STAC_PUBLISH_ENABLED", "false")
+
+    assert ApiConfig().STAC_PUBLISH_ENABLED is False
+
+
+@pytest.mark.unit
+def test_sentinel_output_dir_default_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SENTINEL_OUTPUT_DIR", raising=False)
+    assert StorageConfig().SENTINEL_OUTPUT_DIR == "/data"
+
+    monkeypatch.setenv("SENTINEL_OUTPUT_DIR", "/tmp/cog")
+    assert StorageConfig().SENTINEL_OUTPUT_DIR == "/tmp/cog"

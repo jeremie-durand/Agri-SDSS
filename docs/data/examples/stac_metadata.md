@@ -33,7 +33,7 @@ A STAC Item describes a single asset or feature collection:
     "proj:code": "EPSG:4326",
     "dataset:source": "GRHQ",
     "dataset:version": "2.0",
-    "dataset:license": "OGL-Q",
+    "dataset:license": "CC-BY-4.0",
     "dataset:publisher": "MELCCFP",
     "vector:geometry_types": ["LineString", "MultiLineString"]
   },
@@ -122,7 +122,7 @@ Example for SIIGSOL gridded soil properties:
     "proj:transform": [0.0009, 0, -79.75, 0, -0.0009, 51.75],
     "dataset:source": "SIIGSOL-100m",
     "dataset:version": "2.1",
-    "dataset:license": "OGL-Q",
+    "dataset:license": "CC-BY-4.0",
     "dataset:publisher": "MAPAQ",
     "dataset:pixel_size": 100
   },
@@ -376,8 +376,8 @@ A Collection groups related Items:
     },
     {
       "rel": "license",
-      "href": "https://www.donneesquebec.ca/documents/licence/",
-      "title": "Open Government License - Quebec"
+      "href": "https://www.donneesquebec.ca/licence/#cc-by",
+      "title": "Creative Commons Attribution 4.0 (CC BY 4.0)"
     }
   ],
   "extent": {
@@ -392,7 +392,7 @@ A Collection groups related Items:
       ]
     }
   },
-  "license": "other",
+  "license": "CC-BY-4.0",
   "keywords": [
     "soil",
     "properties",

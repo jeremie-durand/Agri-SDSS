@@ -12,9 +12,12 @@ from unittest.mock import MagicMock, patch
 
 import psycopg
 import pytest
+from processes.config import SpatialTablesConfig
 from processes.som_field_match import SomFieldMatchProcessor
 from processes.som_field_match_metadata import PROCESS_METADATA
 from processes.spatial_backend.som_fields import match
+from processes.spatial_backend.tables import checked_column_name
+from pydantic import ValidationError
 from pygeoapi.process.base import ProcessorExecuteError
 
 import agri_i18n
@@ -84,6 +87,59 @@ def test_query_orders_gee_first_and_binds_tolerance(mock_connect):
     assert "ORDER BY has_gee_data DESC, dist ASC" in sql
     assert "%(tolerance_m)s" in sql
     assert params["tolerance_m"] == 100
+
+
+@pytest.mark.mocked
+def test_query_reads_ids_from_the_configured_column(
+    mock_connect: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SOM_ID_COLUMN", "gid_source")
+    mock_connect.fetchall.return_value = [(853, True, 0.0)]
+
+    assert match(_SQUARE, 20) == [{"gid": 853, "has_gee_data": True, "dist_m": 0.0}]
+    sql, _params = mock_connect.execute.call_args.args
+    assert "SELECT gid_source, has_gee_data" in sql
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "name", ["1", "123", "1gid", "t.gid", "gid;", "", "Field2", "GID"]
+)
+def test_column_name_that_is_not_an_identifier_refused(name: str) -> None:
+    with pytest.raises(ValueError, match="not a lowercase SQL identifier"):
+        checked_column_name(name)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("name", ["gid", "gid_source", "_id", "field2"])
+def test_identifier_column_name_accepted(name: str) -> None:
+    assert checked_column_name(name) == name
+
+
+@pytest.mark.mocked
+def test_unsafe_id_column_refused_before_querying(
+    mock_connect: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SOM_ID_COLUMN", "gid; DROP TABLE x")
+
+    with pytest.raises(ValidationError, match="SOM_ID_COLUMN"):
+        match(_SQUARE, 20)
+    mock_connect.execute.assert_not_called()
+
+
+@pytest.mark.mocked
+def test_sql_site_guard_refuses_an_id_column_that_skipped_validation(
+    mock_connect: MagicMock,
+) -> None:
+    unvalidated = SpatialTablesConfig.model_construct(SOM_ID_COLUMN="gid; DROP TABLE x")
+
+    with patch(
+        "processes.spatial_backend.som_fields.SpatialTablesConfig",
+        return_value=unvalidated,
+    ):
+        with pytest.raises(ValueError, match="not a lowercase SQL identifier"):
+            match(_SQUARE, 20)
+    mock_connect.execute.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

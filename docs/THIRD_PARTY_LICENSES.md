@@ -90,4 +90,4 @@ These are the components whose licenses *could* be "invasive" — and why none o
 
 ## Data licenses
 
-Licenses for the *datasets* the platform integrates (OGL-Q, OGL-Canada, …) are a separate concern from software licenses — see the License column in the [data catalog](data/CATALOG.md) and the per-source docs it links.
+Licenses for the *datasets* the platform integrates (CC BY 4.0, CC BY-NC 4.0, OGL-Canada, …) are a separate concern from software licenses — see the License column in the [data catalog](data/CATALOG.md) and the per-source docs it links.

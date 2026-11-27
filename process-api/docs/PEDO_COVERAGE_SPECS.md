@@ -10,6 +10,8 @@ uses it to fill the soil-class field.
 **Implementation:** [pedo_coverage.py](../processes/pedo_coverage.py),
 backend [spatial_backend/pedo.py](../processes/spatial_backend/pedo.py)
 
+**License of the returned data:** [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), non-commercial use only ([IRDA user guide, §2.3](https://irda.qc.ca/media/kd2gfs4w/irda-donneesgeospatialescouverturepedologiquequebec-guide-mars2026.pdf))
+
 ---
 
 ## Prerequisites

@@ -186,17 +186,20 @@ curl -s -X POST https://<host>/process-api/processes/sentinel-fetch/execution \
   "id": "result",
   "value": {
     "stac_item_id": "sentinel2_farm_4_2024-06-01_2024-08-31",
-    "assets": {
-      "ndvi": {
-        "href": "/data/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31_a1b2c3d4.tif",
-        "type": "image/tiff; application=geotiff"
-      },
-      "true_color": {
-        "href": "/data/sentinel2_farm_4_true_color_2024-06-01_2024-08-31_e5f6g7h8.tif",
-        "type": "image/tiff; application=geotiff"
+    "stac_item": {
+      "type": "Feature",
+      "id": "sentinel2_farm_4_2024-06-01_2024-08-31",
+      "assets": {
+        "ndvi": {"href": "https://<host>/cog/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif"},
+        "ndvi_preview": {"href": "https://<host>/raster-api/cog/preview.png?url=/data/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif&rescale=0,1"},
+        "ndvi_tilejson": {"href": "https://<host>/raster-api/cog/WebMercatorQuad/tilejson.json?url=/data/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif&rescale=0,1"}
       }
     },
-    "preview_url": "https://<host>/raster-api/cog/preview.png?url=/data/sentinel2_farm_4_ndvi_...tif&rescale=0,1",
+    "assets": {
+      "ndvi": "https://<host>/cog/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif",
+      "true_color": "https://<host>/cog/sentinel2_farm_4_true_color_2024-06-01_2024-08-31.tif"
+    },
+    "preview_url": "https://<host>/raster-api/cog/preview.png?url=/data/sentinel2_farm_4_ndvi_2024-06-01_2024-08-31.tif&rescale=0,1",
     "bbox": [-71.5, 45.5, -71.4, 45.6],
     "temporal_extent": ["2024-06-01", "2024-08-31"],
     "area_km2": 98.5
@@ -204,15 +207,18 @@ curl -s -X POST https://<host>/process-api/processes/sentinel-fetch/execution \
 }
 ```
 
+`stac_item` is abridged above: it is the whole item, with every product asset
+and its `<product>_preview` / `<product>_tilejson` pair, returned even when it
+was not published. `assets` maps each product to the public URL of its COG.
+
 ---
 
 ## Data storage
 
 | Location | Content |
 | --- | --- |
-| `/data/output/raster_cog/` | COG files |
-| `pgstac.collections` → `sentinel2_eo_products` | STAC metadata |
-| `public.sentinel2_products` | Product metadata table |
+| `SENTINEL_OUTPUT_DIR` (default `/data`, the host's `data/output/raster_cog/`) | COG files, and a `<stac_item_id>.stac.json` marker per published item |
+| `pgstac.collections` → `sentinel2_eo_products` | STAC metadata, unless `STAC_PUBLISH_ENABLED=false` |
 
 ### Viewing results
 

@@ -1,14 +1,20 @@
 """Unit tests for gis_pipeline/main.py — CLI parsing and pipeline orchestration."""
 
 import argparse
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
 import pytest
+import structlog
+from gis_pipeline import main as main_module
 from gis_pipeline.main import process_vector_pipeline
 from shapely.geometry import Point
+from structlog.testing import capture_logs
+
+ROOT_LEVEL_AT_IMPORT: int = logging.getLogger().level
 
 # ------------------------------------------
 # parse_args
@@ -307,8 +313,11 @@ def test_process_raster_pipeline_gis_error_increments_errors():
 
 @pytest.mark.unit
 @pytest.mark.parametrize("pipeline", ["vector_data", "raster_data"])
-def test_main_exits_non_zero_when_a_pipeline_reports_errors(pipeline):
-    from gis_pipeline import main as main_module
+@pytest.mark.usefixtures("restore_logging_state")
+def test_main_exits_non_zero_when_a_pipeline_reports_errors(
+    pipeline: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "logger", main_module.logger)
 
     def add_error(*, report_data, **_):
         report_data[pipeline]["errors"] += 1
@@ -329,8 +338,9 @@ def test_main_exits_non_zero_when_a_pipeline_reports_errors(pipeline):
 
 
 @pytest.mark.unit
-def test_main_returns_normally_without_errors():
-    from gis_pipeline import main as main_module
+@pytest.mark.usefixtures("restore_logging_state")
+def test_main_returns_normally_without_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main_module, "logger", main_module.logger)
 
     with (
         patch("sys.argv", ["main.py"]),
@@ -342,3 +352,28 @@ def test_main_returns_normally_without_errors():
         patch.object(main_module, "process_raster_pipeline"),
     ):
         main_module.main()
+
+
+@pytest.mark.unit
+def test_main_tests_leave_no_logging_state() -> None:
+    """Fail if the main() tests leaked logging state or a stale main.logger.
+
+    Relies on pytest running this file in definition order, after them.
+    """
+    root = logging.getLogger()
+
+    with capture_logs() as logs:
+        structlog.get_logger().debug("debug_event")
+        main_module.logger.info("main_event")
+
+    assert logs == [
+        {"event": "debug_event", "log_level": "debug"},
+        {"event": "main_event", "log_level": "info"},
+    ]
+    assert root.level == ROOT_LEVEL_AT_IMPORT
+    assert structlog.contextvars.get_contextvars() == {}
+    assert not [
+        handler
+        for handler in root.handlers
+        if isinstance(handler.formatter, structlog.stdlib.ProcessorFormatter)
+    ]

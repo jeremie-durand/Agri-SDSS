@@ -51,7 +51,7 @@ flowchart LR
 | `vector-api` | 8083 | OGC Features — PostGIS (TiPg) and DuckDB/Parquet backends |
 | `raster-api` | 8082 | Dynamic tiles, previews and statistics for COGs (TiTiler) |
 | `process-api` | 5000 | OGC Processes — climate, satellite, LiDAR (PyGeoAPI + OpenEO) |
-| `process-worker` | — | Runs async process jobs queued in `public.process_jobs` (same image as process-api; scale with replicas) |
+| `process-worker` | — | Runs async process jobs queued in `PROCESS_JOBS_TABLE`, default `public.process_jobs` (same image as process-api; scale with replicas) |
 | `chatbot` | 8000 / 3001 | AI geospatial assistant (backend + React frontend) |
 | `stac-browser` | 8080 | STAC catalog explorer UI (served at `/stac/` via home) |
 | `home` | 8080 | Nginx reverse proxy + map page (also serves `/cog/<file>.tif` — static COG downloads from `./data/output/raster_cog`, the hrefs published in STAC asset metadata) |

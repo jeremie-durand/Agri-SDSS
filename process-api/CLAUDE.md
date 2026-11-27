@@ -127,8 +127,11 @@ Backends that call slow external services cache results in a module-level
   time, holds the job's advisory lock and runs it in a `spawn` child, which
   writes the result. The parent fails the job when the child crashes, passes
   `PROCESS_JOB_TIMEOUT_SECONDS` or is stopped by SIGTERM, and periodically
-  sweeps orphaned jobs and purges old ones. It reads the processes and the
-  jobs table from the same `pygeoapi-config.yaml`. Scale it with replicas;
+  sweeps orphaned jobs and purges old ones. It reads the processes from the
+  same `pygeoapi-config.yaml`. The jobs table is its
+  `server.manager.connection.table` when set, else `PROCESS_JOBS_TABLE`, for
+  the manager, the worker and the boot step alike
+  (`jobs/schema.py:jobs_table`). Scale it with replicas;
   without a running worker, async jobs stay `accepted`.
 - All job SQL lives in `processes/jobs/store.py`. Job rows are timestamped
   in pygeoapi's format; `/jobs` sorts on `started`, so it is set at
@@ -166,11 +169,15 @@ Backends that call slow external services cache results in a module-level
 
 ## Outputs and Cross-Service Contracts
 
-- `sentinel-fetch` and `lidar-fetch` write COGs to `/data` (the shared
-  `data/output/raster_cog`). They publish STAC items to
-  `sentinel2_eo_products` / `lidar_quebec` at `ApiConfig.STAC_API_URL`, which
-  is internal (`http://stac-api:8081`). The public `/stac-api/` path is
-  read-only and rejects writes with 403.
+- `sentinel-fetch` and `lidar-fetch` write COGs to `SENTINEL_OUTPUT_DIR` /
+  `LIDAR_OUTPUT_DIR`, both `/data` (the shared `data/output/raster_cog`),
+  which must stay raster-api's mount for the `/cog` and TiTiler hrefs to
+  resolve. They publish STAC items to `sentinel2_eo_products` /
+  `lidar_quebec` at `ApiConfig.STAC_API_URL`, which is internal
+  (`http://stac-api:8081`). The public `/stac-api/` path is read-only and
+  rejects writes with 403. With `STAC_PUBLISH_ENABLED=false` they send
+  nothing to the STAC API and write no publish marker; the results are
+  unchanged.
 - Build every public href with `asset_url_utils.py`. `COG_ROUTE` is one of the
   four `/cog` copies guarded by `test/test_cog_route_consistency.py`, and
   `RASTER_API_DATA_DIR = "/data"` must match raster-api's mount (see
@@ -181,8 +188,9 @@ Backends that call slow external services cache results in a module-level
   `som_model_<scenario>.lock` beside the bundle, so concurrent web and worker
   processes on the same host train a scenario once. Keep every bundle read
   and write inside that lock.
-  - Callers send `som_field_boundaries.gid`; the process translates it to the
-    GEE `FIELD_ID` through `gee_field_id`, which gis-pipeline stamps. The two
+  - Callers send `som_field_boundaries.gid` (the column `SOM_ID_COLUMN`
+    names, `gid` by default); the process translates it to the GEE
+    `FIELD_ID` through `gee_field_id`, which gis-pipeline stamps. The two
     identifiers differ, so never compare them directly.
   - `som-field-match`, and `som-predict-soil` given a location, rank fields by
     `som_field_boundaries.has_gee_data`, which gis-pipeline stamps at the end

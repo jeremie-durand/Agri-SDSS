@@ -99,6 +99,8 @@ We follow **Git Flow**:
 - **`main`** — production releases
 - **`feature/*`** — new features (from `develop`)
 - **`bugfix/*`** — bug fixes (from `develop`)
+- **`test/*`** — test-only changes: new tests or test isolation fixes, no
+  source change (from `develop`)
 
 ```bash
 git checkout develop
@@ -125,6 +127,7 @@ make test-vector-api
 make test-raster-api
 make test-process-api
 make test-chatbot
+make test-home        # map JS: every non-minified html/js file links as a module
 
 # Single test file (inside container)
 docker compose run --rm stac-api pytest stac_api/test/test_foo.py::test_bar -v
@@ -179,7 +182,7 @@ The most common contribution — fully documented in the [adding new data guide]
 3. Drop the files in `data/input/` and run the pipeline
 4. Verify PostGIS/STAC/API outputs and add tests
 
-Data must be under an open license (OGL-Q, OGL-Canada, CC-BY, …) — note it in the source doc.
+Data must be under an open license (CC BY 4.0, OGL-Canada, …) — note it in the source doc, and flag a non-commercial clause (CC BY-NC) in the catalog.
 
 ## Adding a New OGC Process
 

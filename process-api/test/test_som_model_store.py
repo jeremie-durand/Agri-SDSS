@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import multiprocessing
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -83,6 +84,60 @@ class TestComputeFingerprint:
         fp2 = compute_fingerprint(tmp_path)
         assert fp1 != fp2
 
+    def test_unchanged_when_only_the_modification_time_changes(
+        self, tmp_path: Path
+    ) -> None:
+        f = tmp_path / "BareSoil_TOPCLI_2019_Part01.parquet"
+        f.write_bytes(b"abc")
+        fp1 = compute_fingerprint(tmp_path)
+        os.utime(f, ns=(1_000_000_000, 1_000_000_000))
+        fp2 = compute_fingerprint(tmp_path)
+        assert fp1 == fp2
+
+    def test_same_files_copied_elsewhere_give_the_same_fingerprint(
+        self, tmp_path: Path
+    ) -> None:
+        source = tmp_path / "source"
+        copy = tmp_path / "copy"
+        source.mkdir()
+        copy.mkdir()
+        for name, payload in (
+            ("BareSoil_TOPCLI_2019_Part01.parquet", b"abc"),
+            ("BareSoil_TOPCLI_2020_Part01.parquet", b"def"),
+        ):
+            (source / name).write_bytes(payload)
+        for f in source.iterdir():
+            (copy / f.name).write_bytes(f.read_bytes())
+            os.utime(copy / f.name, ns=(2_000_000_000, 2_000_000_000))
+        assert compute_fingerprint(source) == compute_fingerprint(copy)
+
+    def test_independent_of_the_order_files_are_listed_in(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "BareSoil_TOPCLI_2019_Part01.parquet").write_bytes(b"abc")
+        (tmp_path / "BareSoil_TOPCLI_2020_Part01.parquet").write_bytes(b"def")
+        fp1 = compute_fingerprint(tmp_path)
+        listed = Path.glob
+
+        def reversed_glob(self: Path, pattern: str) -> list[Path]:
+            return list(listed(self, pattern))[::-1]
+
+        monkeypatch.setattr(Path, "glob", reversed_glob)
+        fp2 = compute_fingerprint(tmp_path)
+        assert fp1 == fp2
+
+    def test_changes_when_content_changes_with_same_size_and_mtime(
+        self, tmp_path: Path
+    ) -> None:
+        f = tmp_path / "BareSoil_TOPCLI_2019_Part01.parquet"
+        f.write_bytes(b"abc")
+        os.utime(f, ns=(1_000_000_000, 1_000_000_000))
+        fp1 = compute_fingerprint(tmp_path)
+        f.write_bytes(b"xyz")
+        os.utime(f, ns=(1_000_000_000, 1_000_000_000))
+        fp2 = compute_fingerprint(tmp_path)
+        assert fp1 != fp2
+
 
 @pytest.mark.mocked
 class TestSOMModelStoreGetOrTrain:
@@ -136,7 +191,7 @@ class TestSOMModelStoreGetOrTrain:
         first_bundle = store.get_or_train("S1_spec_soil", df, data_dir)
 
         (data_dir / "BareSoil_TOPCLI_2019_Part01.parquet").write_bytes(
-            b"a different, longer payload forces a new mtime and size"
+            b"a different payload changes the content hash"
         )
 
         spy = MagicMock(wraps=real_backend.run)
@@ -145,6 +200,30 @@ class TestSOMModelStoreGetOrTrain:
         spy.assert_called_once()
 
         assert first_bundle.fingerprint != second_bundle.fingerprint
+
+    def test_bundle_trained_on_a_copy_of_the_same_files_is_reused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model_dir = tmp_path / "som_models"
+        trained_on = tmp_path / "trained_on"
+        served_from = tmp_path / "served_from"
+        trained_on.mkdir()
+        served_from.mkdir()
+        (trained_on / "BareSoil_TOPCLI_2019_Part01.parquet").write_bytes(b"abc")
+
+        real_backend = SOMMLBackend()
+        store = SOMModelStore(real_backend, model_dir)
+        df = _make_df()
+        store.get_or_train("S1_spec_soil", df, trained_on)
+
+        downloaded = served_from / "BareSoil_TOPCLI_2019_Part01.parquet"
+        downloaded.write_bytes(b"abc")
+        os.utime(downloaded, ns=(2_000_000_000, 2_000_000_000))
+
+        spy = MagicMock(wraps=real_backend.run)
+        monkeypatch.setattr(real_backend, "run", spy)
+        store.get_or_train("S1_spec_soil", df, served_from)
+        spy.assert_not_called()
 
     def test_corrupt_bundle_on_disk_triggers_retrain_with_warning(
         self, tmp_path, caplog

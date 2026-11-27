@@ -138,7 +138,7 @@ changes. See [Internationalization](../docs/I18N.md).
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DUCKDB_DATA_DIR` | `/data/duckdb` | Directory scanned for `.parquet` files |
+| `DUCKDB_DATA_DIR` | `/data/duckdb` | Directory scanned for `.parquet` files, minus the collections `TIPG_DB_EXCLUDE_TABLES` hides |
 | `DUCKDB_MEMORY_LIMIT` | `819MB` | DuckDB `memory_limit` for each DuckDB instance (the in-memory one and each open `.duckdb`) |
 | `VECTOR_API_MAX_OPEN_DUCKDB` | `2` | Maximum number of materialized `.duckdb` collections kept open at once |
 | `VECTOR_API_MAX_DUCKDB_QUERIES` | `1` | Maximum number of concurrent queries on materialized collections |
@@ -146,6 +146,7 @@ changes. See [Internationalization](../docs/I18N.md).
 | `VECTOR_API_RAW_PARQUET_WARN_MB` | `50` | Parquet size in MB above which a geometry collection served without its `.duckdb` file is logged as a warning |
 | `VECTOR_API_CORS_ORIGINS` | _(empty)_ | Comma-separated allowed CORS origins |
 | `TIPG_DB_FUNCTIONS` | `[]` (set in `docker-compose.yml`) | SQL functions TiPg publishes as `/postgis` collections. `[]` publishes none, which keeps PostGIS's own functions (`postgis_srs`, `st_squaregrid`, …) out of the catalog. To publish a project function, list it by `schema.name`, e.g. `["public.my_function"]` |
+| `TIPG_DB_EXCLUDE_TABLES` | the three private SOM tables (set in `docker-compose.yml`) | JSON list of `schema.table` names served by neither backend: TiPg leaves the table out of `/postgis`, and `/parquet` neither lists nor serves the collection `table` (404, as for a missing one), whatever gis-pipeline writes to `DUCKDB_DATA_DIR`. The default hides `som_field_boundaries`, `som_soil_samples` and `som_soil_analysis`, which hold producers' personal data and private soil samples. A value set in `.env` replaces the default, so keep those three in it; `[]` hides nothing |
 
 ## PostGIS table requirements
 

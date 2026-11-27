@@ -1,3 +1,5 @@
+import logging
+from collections.abc import Iterator
 from datetime import datetime as dt
 from datetime import timezone
 
@@ -5,6 +7,7 @@ import geopandas as gpd
 import numpy as np
 import pytest
 import rasterio
+import structlog
 from rasterio.transform import from_origin
 from shapely.geometry import Point
 
@@ -78,3 +81,25 @@ def gdf_polygon_fixture():
     gdf = gpd.GeoDataFrame(data, geometry="geometry")
     gdf.crs = "EPSG:4326"
     return gdf
+
+
+@pytest.fixture
+def restore_logging_state() -> Iterator[None]:
+    """Undo what setup_logging() changes: its root handlers, root level, structlog."""
+    root = logging.getLogger()
+    handlers_before = list(root.handlers)
+    level_before = root.level
+    config_before = structlog.get_config()
+    config_before["processors"] = list(config_before["processors"])
+    contextvars_before = structlog.contextvars.get_contextvars()
+    yield
+    for handler in root.handlers[:]:
+        if handler not in handlers_before and isinstance(
+            handler.formatter, structlog.stdlib.ProcessorFormatter
+        ):
+            root.removeHandler(handler)
+            handler.close()
+    root.setLevel(level_before)
+    structlog.configure(**config_before)
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(**contextvars_before)

@@ -51,7 +51,7 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "chore: bump chatbot to ${{ steps.latest.outputs.tag }}"
-          title: "${{ steps.latest.outputs.prerelease == 'true' && '[pre-release] ' || '' }}chatbot update: ${{ steps.current.outputs.tag }} → ${{ steps.latest.outputs.tag }}"
+          title: "chore: ${{ steps.latest.outputs.prerelease == 'true' && '[pre-release] ' || '' }}chatbot update: ${{ steps.current.outputs.tag }} → ${{ steps.latest.outputs.tag }}"
           body: |
             Automated chatbot version bump.
 

@@ -30,7 +30,7 @@ cmip6_espo_g6_r2:
   description: >
     Ouranos ESPO-G6-R2 v1.0.0 — bias-adjusted daily CMIP6 projections for
     North America. 26 models across 3 scenarios (ssp245, ssp370, ssp585),
-    1950-01-01 to 2100-12-31. Bias-adjusted against ERA5-Land at ~0.1° resolution.
+    1950-01-01 to 2100-12-31. Bias-adjusted against RDRS v2.1 (1989-2018) at ~0.1° resolution.
     Note: 'tas' (mean temperature) is not available; use tasmin/tasmax instead.
     EC-Earth3-CC and NESM3 do not provide ssp370.
   provider: "pavics"

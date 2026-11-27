@@ -4,7 +4,7 @@ Decouples the expensive training pipeline (LassoCV feature selection,
 per-image ranking, progressive RF selection, final RF fit — collectively
 ~200s per scenario) from serving predictions. A trained bundle is persisted
 to disk per scenario and reused across requests until the underlying
-training data changes (detected via a cheap file-stat fingerprint).
+training data changes (detected via a content fingerprint of the files).
 """
 
 from __future__ import annotations
@@ -60,13 +60,20 @@ class SOMModelBundle:
 
 
 def compute_fingerprint(data_dir: Path) -> str:
-    """SHA-256 hash of (filename, mtime, size) for every
-    BareSoil_TOPCLI_*.parquet file in data_dir — cheap (stat only, no file
-    reads) and changes whenever training data is added, removed, or
-    modified."""
-    parquet_files = sorted(data_dir.glob(BARESAIL_GLOB))
-    stats = [(f.name, f.stat().st_mtime_ns, f.stat().st_size) for f in parquet_files]
-    return hashlib.sha256(repr(stats).encode()).hexdigest()
+    """SHA-256 over the name and content of every BareSoil_TOPCLI_*.parquet
+    file in data_dir.
+
+    It changes whenever training data is added, removed or modified, but not
+    when the same files are copied, restored or downloaded again: a bundle
+    trained elsewhere on identical files stays valid. The files total a few
+    MB, so hashing them costs milliseconds.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(data_dir.glob(BARESAIL_GLOB)):
+        digest.update(path.name.encode() + b"\0")
+        with path.open("rb") as fh:
+            digest.update(hashlib.file_digest(fh, "sha256").digest())
+    return digest.hexdigest()
 
 
 def _is_undefined(value: Any) -> bool:

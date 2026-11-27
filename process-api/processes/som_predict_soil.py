@@ -32,6 +32,7 @@ from .spatial_backend import (
     match_som_fields,
     parse_inputs,
     prepare_geometry,
+    som_table_and_id_column,
 )
 
 logger = logging.getLogger(__name__)
@@ -303,12 +304,16 @@ class SOMPredictSoilProcessor(BaseProcessor):
         Raises:
             ProcessorExecuteError: If PostGIS cannot be queried, or if none of
                 the requested gids has GEE data.
+            ValueError: If SOM_TABLE_NAME or SOM_ID_COLUMN is not a plain
+                identifier; nothing is queried.
         """
+        table, id_column = som_table_and_id_column()
         conn_params = DatabaseConfig().to_conn_params()
         sql = (
-            "SELECT gid, gee_field_id, ST_AsGeoJSON(geometry)::text AS geom_json "
-            "FROM som_field_boundaries "
-            "WHERE gid = ANY(%s) AND gee_field_id IS NOT NULL"
+            f"SELECT {id_column}, gee_field_id, "
+            "ST_AsGeoJSON(geometry)::text AS geom_json "
+            f"FROM {table} "
+            f"WHERE {id_column} = ANY(%s) AND gee_field_id IS NOT NULL"
         )
         fields: dict[int, tuple[int, Any]] = {}
         try:

@@ -8,6 +8,8 @@ startup rather than at the first affected request.
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+COLUMN_NAME_PATTERN: str = r"^[a-z_][a-z0-9_]*$"
+
 
 class DatabaseConfig(BaseSettings):
     """PostGIS connection parameters.
@@ -55,14 +57,16 @@ class SpatialTablesConfig(BaseSettings):
     PEDO_TABLE_NAME: str = "public.couverture_pedologique_2026_01_couverture_p_cbc3c8"
     PEDO_2022_TABLE_NAME: str = "public.couverture_pedo_2022"
     SOM_TABLE_NAME: str = "public.som_field_boundaries"
+    SOM_ID_COLUMN: str = Field(default="gid", pattern=COLUMN_NAME_PATTERN)
 
 
 class ApiConfig(BaseSettings):
-    """URLs for downstream internal service APIs."""
+    """Downstream internal service APIs, and whether processes publish to STAC."""
 
     model_config = SettingsConfigDict(env_prefix="")
 
     STAC_API_URL: str = "http://stac-api:8081"
+    STAC_PUBLISH_ENABLED: bool = True
     RASTER_API_PORT: int = 8082
 
 
@@ -87,13 +91,21 @@ class StorageConfig(BaseSettings):
 
     DUCKDB_DATA_DIR: str = "/data/duckdb"
     LIDAR_OUTPUT_DIR: str = "/data"
+    SENTINEL_OUTPUT_DIR: str = "/data"
 
 
 class JobQueueConfig(BaseSettings):
-    """Async job execution: worker time budget, polling and retention."""
+    """Async job execution: jobs table, worker time budget, polling and retention."""
 
     model_config = SettingsConfigDict(env_prefix="")
 
+    # 56: the NOTIFY channel "<schema>_<name>" must fit PostgreSQL's 63-byte
+    # identifier limit, or every async submission fails while boot succeeds.
+    PROCESS_JOBS_TABLE: str = Field(
+        default="public.process_jobs",
+        pattern=r"^([a-z_][a-z0-9_]*\.)?[a-z_][a-z0-9_]*$",
+        max_length=56,
+    )
     PROCESS_JOB_TIMEOUT_SECONDS: int = Field(default=1800, gt=0)
     PROCESS_JOB_RETENTION_DAYS: int = Field(default=7, gt=0)
     PROCESS_WORKER_POLL_SECONDS: float = Field(default=5, gt=0)

@@ -1,10 +1,10 @@
 import { map, layers, defaultView } from './state.js';
+import { formatZoom } from './utils.js';
 import './chat.js';
 import { loadBdppadCollections, deselectBdppadCollection, setBdppadActivateCallback } from './vector.js';
 import { initAacSection, deselectAac, setAacActivateCallback } from './aac.js';
 import { initGrhqSection, deselectGrhq, setGrhqActivateCallback } from './grhq.js';
 import { closeSomModal, somAutoGenCorg, somAutoGenPh, somAutoGenSable, somAutoGenLimon, somAutoGenArgile, somAutoGenCec, somAutoGenScenes, somAutoGenElevation, somAutoGenPrecip, somAutoGenPedo, somAutoGenWater, somRunAnalysis, somShowPreview, somClosePreview, somSavePdf, somPredictRun } from './som.js';
-import { initSomBoundaryLayer } from './som_layers.js';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const coordsEl = document.getElementById("coords");
@@ -19,7 +19,7 @@ if ("serviceWorker" in navigator) {
 
 // ── Map utils ─────────────────────────────────────────────────────────────────
 function updateCoords(latlng) {
-    coordsEl.textContent = `Lat: ${latlng.lat.toFixed(5)}, Lon: ${latlng.lng.toFixed(5)}, Zoom: ${map.getZoom()}`;
+    coordsEl.textContent = `Lat: ${latlng.lat.toFixed(5)}, Lon: ${latlng.lng.toFixed(5)}, Zoom: ${formatZoom(map.getZoom())}`;
 }
 
 // ── Map event listeners ───────────────────────────────────────────────────────
@@ -86,10 +86,6 @@ setGrhqActivateCallback(() => { deselectBdppadCollection(); deselectAac(); });
 
 initAacSection();
 initGrhqSection();
-const somBoundaryToggle = document.getElementById('somBoundaryToggle');
-somBoundaryToggle.checked = true;
-initSomBoundaryLayer(somBoundaryToggle);
-somBoundaryToggle.dispatchEvent(new Event('change'));
 loadBdppadCollections();
 updateCoords(map.getCenter());
 requestAnimationFrame(() => map.invalidateSize());

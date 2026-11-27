@@ -9,7 +9,7 @@ Optimized GeoTIFF (COG), and published to the STAC catalog.
 
 **Data source:** [Produits dérivés de base du LiDAR — Données Québec](https://www.donneesquebec.ca/recherche/dataset/produits-derives-de-base-du-lidar)
 **Publisher:** Ministère des Ressources naturelles et des Forêts (MRNF), Gouvernement du Québec
-**License:** Open Government Licence – Canada 2.0
+**License:** [Creative Commons Attribution 4.0 (CC BY 4.0)](https://www.donneesquebec.ca/licence/#cc-by)
 
 ---
 
@@ -169,7 +169,9 @@ links is raster-api's internal container path and is not downloadable (404).
 - **Temporal extent:** 2015-01-01 / open
 
 One STAC item is published per product per request. Re-running the process for the
-same farm updates the existing STAC items (HTTP PUT on 409 Conflict).
+same farm updates the existing STAC items (HTTP PUT on 409 Conflict). With
+`STAC_PUBLISH_ENABLED=false` nothing is published: `stac_items` still lists the
+item ids, and the COGs are written to `LIDAR_OUTPUT_DIR` as usual.
 
 ### STAC item properties
 

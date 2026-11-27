@@ -47,7 +47,7 @@ Brief description (1-2 sentences)
 ## Source Information
 - External URL: https://...
 - Publisher: Organization Name
-- License: OGL-Q
+- License: CC BY 4.0
 ```
 
 **See existing examples:** [GRHQ.md](../sources/GRHQ.md), [SIIGSOL.md](../sources/SIIGSOL.md)
@@ -134,7 +134,7 @@ Update your `docs/data/sources/SOURCENAME.md` with:
 | **Feature Count** | M |
 | **File Size** | X MB |
 | **Update Frequency** | daily/monthly/annual |
-| **License** | OGL-Q |
+| **License** | CC BY 4.0 |
 ```
 
 ## Step 3: Configure Pipeline Ingestion

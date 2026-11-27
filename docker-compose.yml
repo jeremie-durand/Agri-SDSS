@@ -1,5 +1,5 @@
 x-chatbot-build-args: &chatbot-build-args
-  CHATBOT_VERSION: ${CHATBOT_VERSION:-v0.3.0-alpha}
+  CHATBOT_VERSION: ${CHATBOT_VERSION:-v0.3.1-alpha}
   INCLUDE_OLLAMA: ${INCLUDE_OLLAMA:-full}
 
 x-process-api-base: &process-api-base
@@ -31,8 +31,11 @@ x-process-api-base: &process-api-base
     - PEDO_TABLE_NAME=${PEDO_TABLE_NAME:-public.couverture_pedologique_2026_01_couverture_p_cbc3c8}
     - PEDO_2022_TABLE_NAME=${PEDO_2022_TABLE_NAME:-public.couverture_pedo_2022}
     - SOM_TABLE_NAME=${SOM_TABLE_NAME:-public.som_field_boundaries}
+    - SOM_ID_COLUMN=${SOM_ID_COLUMN:-gid}
     - RASTER_API_PORT=${RASTER_API_PORT}
     - STAC_API_URL=${STAC_API_URL}
+    - STAC_PUBLISH_ENABLED=${STAC_PUBLISH_ENABLED:-true}
+    - PROCESS_JOBS_TABLE=${PROCESS_JOBS_TABLE:-public.process_jobs}
     - PROCESS_JOB_TIMEOUT_SECONDS=${PROCESS_JOB_TIMEOUT_SECONDS:-1800}
     - PROCESS_JOB_RETENTION_DAYS=${PROCESS_JOB_RETENTION_DAYS:-7}
     - PROCESS_WORKER_POLL_SECONDS=${PROCESS_WORKER_POLL_SECONDS:-5}
@@ -322,6 +325,7 @@ services:
       - TIPG_FALLBACK_KEY_NAMES=["gid"]
       - TIPG_DB_SPATIAL_EXTENT=false
       - TIPG_DB_FUNCTIONS=[]
+      - TIPG_DB_EXCLUDE_TABLES=${TIPG_DB_EXCLUDE_TABLES:-["public.som_field_boundaries","public.som_soil_samples","public.som_soil_analysis"]}
       - DUCKDB_DATA_DIR=/data/duckdb
       - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-819MB}
       - VECTOR_API_MAX_OPEN_DUCKDB=${VECTOR_API_MAX_OPEN_DUCKDB:-2}
@@ -460,7 +464,7 @@ services:
           cpus: "0.25"
 
   database:
-    image: ghcr.io/stac-utils/pgstac:v0.10.1
+    image: ghcr.io/stac-utils/pgstac:v0.10.2
     environment:
       - PGDATA=/var/lib/postgresql/data
       # Admin superuser — used only for Docker init, healthcheck, and pg_dump backups
