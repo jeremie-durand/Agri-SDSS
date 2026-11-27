@@ -16,7 +16,7 @@ Parcels and declared agricultural production dataset for Quebec (BDPPAD) publish
 | **Resolution / Scale** | Parcel-level geometry |
 | **Spatial Extent** | Quebec province |
 | **Update Frequency** | Annual (declared production campaigns) |
-| **License** | Open Government License - Quebec (OGL-Q) |
+| **License** | Creative Commons Attribution 4.0 (CC BY 4.0) |
 | **Source URL** | <https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees> |
 
 ## Using BDPPAD Data

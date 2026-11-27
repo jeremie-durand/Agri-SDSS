@@ -7,11 +7,11 @@ metadata:
         - process
         - api
     keywords_type: theme
-    terms_of_service: https://creativecommons.org/licenses/by/4.0/
+    terms_of_service: https://github.com/jeremie-durand/Agri-SDSS/blob/develop/docs/data/CATALOG.md
     url: https://example.org
   license:
-      name: CC-BY 4.0 license
-      url: https://creativecommons.org/licenses/by/4.0/
+      name: Varies by data source (see the data catalog); IRDA pedological data is CC BY-NC 4.0
+      url: https://github.com/jeremie-durand/Agri-SDSS/blob/develop/docs/data/CATALOG.md
   provider:
       name: Organization Name
       url: https://pygeoapi.io

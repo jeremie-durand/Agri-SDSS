@@ -886,7 +886,7 @@ class LidarFetchProcessor(BaseProcessor):
                     "from the Quebec MRNF open data portal, clipped to individual "
                     "farm extents."
                 ),
-                "license": "OGL-Canada-2.0",
+                "license": "CC-BY-4.0",
                 "extent": {
                     "spatial": {"bbox": [self.STAC_SPATIAL_EXTENT_BBOX]},
                     "temporal": {"interval": [[self.STAC_TEMPORAL_START, None]]},

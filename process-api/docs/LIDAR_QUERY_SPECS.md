@@ -9,7 +9,7 @@ Optimized GeoTIFF (COG), and published to the STAC catalog.
 
 **Data source:** [Produits dérivés de base du LiDAR — Données Québec](https://www.donneesquebec.ca/recherche/dataset/produits-derives-de-base-du-lidar)
 **Publisher:** Ministère des Ressources naturelles et des Forêts (MRNF), Gouvernement du Québec
-**License:** Open Government Licence – Canada 2.0
+**License:** [Creative Commons Attribution 4.0 (CC BY 4.0)](https://www.donneesquebec.ca/licence/#cc-by)
 
 ---
 

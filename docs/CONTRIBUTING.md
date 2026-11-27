@@ -182,7 +182,7 @@ The most common contribution — fully documented in the [adding new data guide]
 3. Drop the files in `data/input/` and run the pipeline
 4. Verify PostGIS/STAC/API outputs and add tests
 
-Data must be under an open license (OGL-Q, OGL-Canada, CC-BY, …) — note it in the source doc.
+Data must be under an open license (CC BY 4.0, OGL-Canada, …) — note it in the source doc, and flag a non-commercial clause (CC BY-NC) in the catalog.
 
 ## Adding a New OGC Process
 

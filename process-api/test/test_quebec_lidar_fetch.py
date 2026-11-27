@@ -1710,7 +1710,7 @@ def test_ensure_collection_exists_posts_a_stac_1_1_collection(processor_instance
 
     body = mock_post.call_args.kwargs["json"]
     assert body["stac_version"] == "1.1.0"
-    assert body["license"] == "OGL-Canada-2.0"
+    assert body["license"] == "CC-BY-4.0"
 
 
 @pytest.mark.mocked

@@ -17,7 +17,7 @@ Source: IRDA (Institut de recherche et de développement en agroenvironnement).
 | **Resolution / Scale** | Map scale ~1:20,000 to 1:50,000 (pedological survey scale) |
 | **Spatial Extent** | Quebec province (coverage varies by survey area) |
 | **Update Frequency** | Occasional / static releases |
-| **License** | Open Government License - Quebec (OGL-Q) |
+| **License** | Creative Commons Attribution-NonCommercial 4.0 (CC BY-NC 4.0): non-commercial use only — [IRDA user guide, §2.3](https://irda.qc.ca/media/kd2gfs4w/irda-donneesgeospatialescouverturepedologiquequebec-guide-mars2026.pdf) |
 | **Source URL** | <https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/cartes-pedologiques-quebec-irda/> |
 
 ## Using the Data

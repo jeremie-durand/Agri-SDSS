@@ -20,7 +20,7 @@ Maintained by Ministère de l'Agriculture, des Pêcheries et de l'Alimentation d
 | **Band Count** | 7 per file (bands 1–6: property values, band 7: alpha mask) |
 | **Data Type** | Float32 |
 | **Update Frequency** | Annual |
-| **License** | Open Government License - Quebec (OGL-Q) |
+| **License** | Creative Commons Attribution 4.0 (CC BY 4.0) |
 
 ## Property Files
 

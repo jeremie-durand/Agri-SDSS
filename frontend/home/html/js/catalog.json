@@ -26,7 +26,7 @@
         "fr": "Limites de parcelles agricoles et déclarations de cultures soumises à La Financière Agricole du Québec. Utilisées pour associer les interventions agronomiques aux parcelles et analyser l'évolution de l'occupation du sol.",
         "en": "Farm parcel boundaries and crop declarations submitted to La Financière Agricole du Québec. Used to link agronomic interventions to field locations and track land use change over time."
       },
-      "license": { "label": "OGL-Québec", "url": "https://www.donneesquebec.ca/licence/" },
+      "license": { "label": "CC BY 4.0", "url": "https://www.donneesquebec.ca/licence/#cc-by" },
       "source": { "label": "fadq.qc.ca", "url": "https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees", "kind": "download", "formats": ["Shapefile"] },
       "datasets": [
         {
@@ -96,7 +96,7 @@
         "fr": "Levés pédologiques et classification des séries de sols agricoles du Québec. Fournit le type de sol utilisé comme covariable catégorielle dans les modèles de prédiction du MOS, ainsi que les mesures de MOS issues des analyses de terrain.",
         "en": "Pedological survey maps and soil series classification for agricultural Quebec. Provides soil type as a categorical covariate in SOM prediction models, along with field-measured SOM values."
       },
-      "license": { "label": "OGL-Québec", "url": "https://www.donneesquebec.ca/licence/" },
+      "license": { "label": "CC BY-NC 4.0", "url": "https://creativecommons.org/licenses/by-nc/4.0/" },
       "source": { "label": "irda.qc.ca", "url": "https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/donnees-pedologiques/cartes-pedologiques-quebec-irda/", "kind": "download", "formats": ["GeoPackage", "Geodatabase", "Shapefile", "GeoJSON"] },
       "datasets": [
         {
@@ -228,7 +228,7 @@
         "fr": "Cinq jeux de données spatiaux provinciaux : rasters des propriétés du sol SIIGSOL-100m (carbone organique, pH, texture), produits dérivés du lidar (MNT, pente, indice topographique), le réseau hydrographique provincial (GRHQ), des courbes de niveau topographiques et les stations hydrométriques. Les trois premiers sont utilisés comme covariables environnementales dans la modélisation du MOS.",
         "en": "Five provincial spatial datasets: SIIGSOL-100m soil property rasters (organic carbon, pH, texture), LiDAR-derived elevation products (DEM, slope, topographic index), the provincial hydrographic network (GRHQ), topographic contour lines, and hydrometric stations. The first three are used as environmental covariates in SOM modelling."
       },
-      "license": { "label": "OGL-Québec", "url": "https://www.donneesquebec.ca/licence/" },
+      "license": { "label": "CC BY 4.0", "url": "https://www.donneesquebec.ca/licence/#cc-by" },
       "datasets": [
         {
           "name": { "fr": "SIIGSOL-100m — Cartes des propriétés du sol", "en": "SIIGSOL-100m — Soil property maps" },
@@ -315,7 +315,7 @@
         "fr": "Sorties de simulations climatiques et données observationnelles de la plateforme PAVICS, accessibles via OPeNDAP. Fournit des données historiques (ERA5-Land, RDRSv2.1, CMIP6) pour l'entraînement des modèles à long terme et les projections climatiques futures.",
         "en": "Climate simulation outputs and observational data from the PAVICS platform, accessed via OPeNDAP. Provides historical climate data (ERA5-Land, RDRSv2.1, CMIP6) for long-term model training and future climate projections."
       },
-      "license": { "label": "C3S / ECCC / CC-BY 4.0", "url": "https://pavics.ouranos.ca/" },
+      "license": { "label": "CC BY 4.0 / ECCC End-use Licence", "url": "https://pavics.ouranos.ca/" },
       "source": { "label": "pavics.ouranos.ca", "url": "https://pavics.ouranos.ca/", "kind": "service", "formats": ["NetCDF", "OPeNDAP"] },
       "datasets": [
         {
