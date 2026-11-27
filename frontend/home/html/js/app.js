@@ -5,7 +5,6 @@ import { loadBdppadCollections, deselectBdppadCollection, setBdppadActivateCallb
 import { initAacSection, deselectAac, setAacActivateCallback } from './aac.js';
 import { initGrhqSection, deselectGrhq, setGrhqActivateCallback } from './grhq.js';
 import { closeSomModal, somAutoGenCorg, somAutoGenPh, somAutoGenSable, somAutoGenLimon, somAutoGenArgile, somAutoGenCec, somAutoGenScenes, somAutoGenElevation, somAutoGenPrecip, somAutoGenPedo, somAutoGenWater, somRunAnalysis, somShowPreview, somClosePreview, somSavePdf, somPredictRun } from './som.js';
-import { initSomBoundaryLayer } from './som_layers.js';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const coordsEl = document.getElementById("coords");
@@ -87,10 +86,6 @@ setGrhqActivateCallback(() => { deselectBdppadCollection(); deselectAac(); });
 
 initAacSection();
 initGrhqSection();
-const somBoundaryToggle = document.getElementById('somBoundaryToggle');
-somBoundaryToggle.checked = true;
-initSomBoundaryLayer(somBoundaryToggle);
-somBoundaryToggle.dispatchEvent(new Event('change'));
 loadBdppadCollections();
 updateCoords(map.getCenter());
 requestAnimationFrame(() => map.invalidateSize());

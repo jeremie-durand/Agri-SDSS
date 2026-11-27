@@ -1710,7 +1710,7 @@ def test_ensure_collection_exists_posts_a_stac_1_1_collection(processor_instance
 
     body = mock_post.call_args.kwargs["json"]
     assert body["stac_version"] == "1.1.0"
-    assert body["license"] == "OGL-Canada-2.0"
+    assert body["license"] == "CC-BY-4.0"
 
 
 @pytest.mark.mocked
@@ -2068,3 +2068,42 @@ def test_current_marker_is_a_cache_hit(tmp_path, monkeypatch):
 
     mock_post.assert_not_called()
     assert stac_items == [cached]
+
+
+@pytest.mark.mocked
+def test_publishing_enabled_posts_the_item(
+    processor_instance: LidarFetchProcessor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("STAC_PUBLISH_ENABLED", raising=False)
+    monkeypatch.setenv("STAC_API_URL", "http://stac.test")
+
+    with (
+        patch("requests.get", return_value=MagicMock(status_code=200)),
+        patch("requests.post", return_value=MagicMock(status_code=201)) as mock_post,
+    ):
+        published = processor_instance._post_to_stac_api({"id": "lidar_dtm_1"})
+
+    assert published is True
+    mock_post.assert_called_once()
+    assert mock_post.call_args.args[0] == (
+        "http://stac.test/collections/lidar_quebec/items"
+    )
+
+
+@pytest.mark.mocked
+def test_publishing_disabled_skips_the_stac_api(
+    processor_instance: LidarFetchProcessor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("STAC_PUBLISH_ENABLED", "false")
+
+    with (
+        patch("requests.get") as mock_get,
+        patch("requests.post") as mock_post,
+        patch("requests.put") as mock_put,
+    ):
+        published = processor_instance._post_to_stac_api({"id": "lidar_dtm_1"})
+
+    assert published is False
+    mock_get.assert_not_called()
+    mock_post.assert_not_called()
+    mock_put.assert_not_called()

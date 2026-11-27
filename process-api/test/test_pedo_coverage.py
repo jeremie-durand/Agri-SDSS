@@ -204,6 +204,14 @@ def test_metadata_id_and_languages():
     assert set(PROCESS_METADATA["description"]) == {"en", "fr"}
 
 
+@pytest.mark.unit
+def test_metadata_declares_irda_non_commercial_licence():
+    licences = [link for link in PROCESS_METADATA["links"] if link["rel"] == "license"]
+    assert [link["href"] for link in licences] == [
+        "https://creativecommons.org/licenses/by-nc/4.0/"
+    ]
+
+
 @pytest.mark.mocked
 def test_execute_returns_coverage(processor, mock_cursor):
     mock_cursor.fetchall.side_effect = [

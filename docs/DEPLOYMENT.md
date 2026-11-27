@@ -125,14 +125,26 @@ The `agri_sdss` role is created automatically by `scripts/create_app_role.sh` on
 
 ### Process jobs table
 
-process-api creates `public.process_jobs` at every start
-(`python -m processes.jobs.schema`, idempotent) with the app role, which already
-has `CREATE` on `public`. It holds the OGC API – Processes job records and the
-async queue. It has no geometry, so vector-api does not list it.
+process-api creates the jobs table at every start
+(`python -m processes.jobs.schema`, idempotent) with the app role, and every
+worker does the same. The table is `PROCESS_JOBS_TABLE` (default
+`public.process_jobs`); `server.manager.connection.table` in
+`pygeoapi-config.yaml` overrides it when set. At every start, not only the
+first, the app role needs `CREATE` on the table's schema and must own the
+table; owning the schema and letting process-api create the table gives
+both. Owning the schema alone does not make the role owner of a table that
+another role created there (a superuser, or a `pg_restore` keeping the
+original owner). PostgreSQL checks these before it sees
+that the table or its indexes already exist, so a role that owns the table
+but has only `USAGE` on the schema stops process-api at boot. Here the app
+role already has `CREATE` on `public` and owns the table it created. The name
+must be lowercase `schema.name` or `name`, at most 56 characters. The table holds the OGC API – Processes job records and the async
+queue. It has no geometry, so vector-api does not list it.
 
-process-api and its workers must connect to PostgreSQL directly. A running job
-holds a session advisory lock, and a crash is detected when that session ends.
-A connection pooler in transaction mode would break this. The job timeout,
+process-api and its workers must connect to PostgreSQL directly. Workers wait
+for new jobs with `LISTEN`, a running job holds a session advisory lock, and a
+crash is detected when that session ends. A connection pooler in transaction
+mode would break this. The job timeout,
 retention and worker polling are set by the `PROCESS_*` variables in
 `.env.example`.
 
@@ -270,6 +282,8 @@ docker build --target runtime -f gis-pipeline/Dockerfile.gis-pipeline .
 - [ ] Ports 8081–8085, 5000, 8005, 3001 **not** open on the server firewall — only 80 and 443
 - [ ] Database port `5439` bound to `127.0.0.1` only (already the case in `docker-compose.yml`)
 - [ ] `https://<host>/process-api/jobs` answers `404` and `DELETE https://<host>/process-api/jobs/<id>` answers `405`. home nginx enforces both: a job id is the only key to a job's inputs and results, so jobs are never listed or dismissed publicly.
+- [ ] `https://<host>/vector-api/postgis/collections/public.som_soil_samples/items` and `https://<host>/vector-api/parquet/collections/som_soil_samples` answer `404`, and likewise for `som_soil_analysis` and `som_field_boundaries`. `TIPG_DB_EXCLUDE_TABLES` (default in `docker-compose.yml`) hides these private tables from both vector-api backends; a value set in `.env` must still list them. See the [vector-api configuration](../vector-api/README.md#configuration).
+- [ ] Every SOM model bundle in `$DUCKDB_DATA_DIR/som_models/` was trained by this deployment, or copied from a trusted source with its SHA-256 checked: a bundle is a pickle, and loading it runs any code it contains. See [How predictions are produced](../process-api/docs/SOM_PREDICT_SOIL_SPECS.md#how-predictions-are-produced).
 
 ---
 
@@ -852,7 +866,7 @@ make smoke-browser-pages
 # (<file>: a COG listed by /raster-api/collections)
 docker run --rm --network eoapi-network curlimages/curl:latest -s -o /dev/null \
   -w '%{http_code} %{size_download}\n' \
-  'http://home:8080/vector-api/postgis/collections/public.som_field_boundaries/tiles/WebMercatorQuad/0/0/0'
+  'http://home:8080/vector-api/postgis/collections/public.couverture_pedologique_2026_01_couverture_p_cbc3c8/tiles/WebMercatorQuad/0/0/0'
 docker run --rm --network eoapi-network curlimages/curl:latest -s -o /dev/null \
   -w '%{http_code} %{size_download}\n' \
   'http://home:8080/raster-api/cog/tiles/WebMercatorQuad/0/0/0.png?url=/data/<file>.tif'

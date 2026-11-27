@@ -18,7 +18,7 @@ SOM data first:
 
 | Store | Content | Requirement |
 | --- | --- | --- |
-| PostGIS | `som_field_boundaries` table | Polygon geometries keyed by `gid`; `gee_field_id` holds the GEE `FIELD_ID` of each field with GEE data (stamped by gis-pipeline) |
+| PostGIS | `SOM_TABLE_NAME` (default `public.som_field_boundaries`) | Polygon geometries keyed by `SOM_ID_COLUMN` (default `gid`, sent and returned as `gid`); `gee_field_id` holds the GEE `FIELD_ID` of each field with GEE data (stamped by gis-pipeline) |
 | DuckDB | `BareSoil_TOPCLI_*.parquet` files in `DUCKDB_DATA_DIR` | GEE feature rows (spectral, topographic, climate) queryable by `FIELD_ID` |
 
 `gid` and the GEE `FIELD_ID` are different identifiers: GEE numbered the fields in
@@ -72,7 +72,14 @@ the chatbot and API users.
 
 The model for a scenario is trained once on **all** labelled fields in the GEE
 feature data and cached, keyed on the scenario and a fingerprint of the source
-Parquet files. Requested `field_ids` select which fields to *report*, not which
+Parquet files. The fingerprint hashes their names and contents, not their
+modification times, so a bundle stays valid when the same files are copied,
+restored or downloaded again, including a bundle trained on another host.
+A bundle (`som_model_<scenario>.joblib`) is a pickle, and loading one runs any
+code it contains: copy bundles only from a trusted source and check each file's
+SHA-256 against the value that source publishes, or delete them and let the
+process retrain.
+Requested `field_ids` select which fields to *report*, not which
 to hold out — so a requested field is normally part of the training set.
 
 To keep the served numbers out-of-sample anyway, each row of a known field is

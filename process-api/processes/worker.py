@@ -38,7 +38,7 @@ from .config import (
     StorageConfig,
 )
 from .jobs.manager import JSON_MIMETYPE, failure_outputs, wrap_outputs
-from .jobs.schema import DEFAULT_TABLE, ensure_schema
+from .jobs.schema import ensure_schema, jobs_table
 from .jobs.store import JobStore
 
 logger = logging.getLogger(__name__)
@@ -244,12 +244,6 @@ def load_processes(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
         for process_id, resource in config["resources"].items()
         if resource.get("type") == "process"
     }
-
-
-def jobs_table(config: dict[str, Any]) -> str:
-    """The jobs table the pygeoapi manager is configured with."""
-    manager = config.get("server", {}).get("manager") or {}
-    return (manager.get("connection") or {}).get("table", DEFAULT_TABLE)
 
 
 def main() -> int:

@@ -28,7 +28,7 @@ from pygeoapi.util import (
 
 from agri_i18n import get_locale
 
-from .schema import DEFAULT_TABLE
+from .schema import manager_table
 from .store import JobStore, NewJob
 
 logger = logging.getLogger(__name__)
@@ -67,8 +67,7 @@ class AgriJobManager(BaseManager):
         super().__init__(manager_def)
         self.is_async = True
         self.supports_subscribing = False
-        connection = manager_def.get("connection") or {}
-        self._table: str = connection.get("table", DEFAULT_TABLE)
+        self._table: str = manager_table(manager_def)
         self._store = store
 
     @property

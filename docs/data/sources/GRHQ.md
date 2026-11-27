@@ -21,7 +21,7 @@ Two versions are available:
 | **Resolution** | Standard: 1:50,000 / HR: 1:20,000 |
 | **Spatial Extent** | Quebec province |
 | **Update Frequency** | Periodic (quarterly/annually) |
-| **License** | Open Government License - Quebec (OGL-Q) |
+| **License** | Creative Commons Attribution 4.0 (CC BY 4.0) |
 
 ## Features Included
 

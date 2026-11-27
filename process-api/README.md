@@ -96,6 +96,8 @@ See [Internationalization](../docs/I18N.md).
 
 `process-api/config/pygeoapi-config.yaml` — processes and providers  
 `OPENEO_REFRESH_TOKEN` — Copernicus OIDC token  
+`PROCESS_JOBS_TABLE` (`public.process_jobs`) — async jobs table, created at
+every start (see [Process jobs table](../docs/DEPLOYMENT.md#process-jobs-table))  
 `PROCESS_JOB_TIMEOUT_SECONDS` (1800), `PROCESS_JOB_RETENTION_DAYS` (7),
 `PROCESS_WORKER_POLL_SECONDS` (5), `PROCESS_WORKER_SWEEP_SECONDS` (60) — async
 job time budget, retention, and worker polling and sweep intervals

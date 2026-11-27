@@ -21,7 +21,7 @@ The data is integrated through the eoAPI backend infrastructure using OGC API - 
 | **Spatial Extent** | Na |
 | **Data Structure** | Linked soil series studies with Foreign Key (FK) |
 | **Update Frequency** | Na |
-| **License** | Open Government License - Quebec (OGL-Q) |
+| **License** | Creative Commons Attribution-NonCommercial 4.0 (CC BY-NC 4.0): non-commercial use only — [IRDA user guide, §2.3](https://irda.qc.ca/media/kd2gfs4w/irda-donneesgeospatialescouverturepedologiquequebec-guide-mars2026.pdf) |
 
 ### Data Structure
 

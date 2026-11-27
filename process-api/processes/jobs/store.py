@@ -21,7 +21,7 @@ from psycopg.types.json import Jsonb
 from pygeoapi.util import DATETIME_FORMAT
 
 from ..config import DatabaseConfig
-from .schema import DEFAULT_TABLE, LOCK_CLASS_ID, split_table, table_identifier
+from .schema import LOCK_CLASS_ID, split_table, table_identifier
 
 TIMESTAMP_COLUMNS: tuple[str, ...] = ("created", "started", "updated", "finished")
 FINISHED_STATUSES: tuple[str, ...] = ("successful", "failed", "dismissed")
@@ -59,9 +59,7 @@ def _to_job(row: dict[str, Any]) -> dict[str, Any]:
 class JobStore:
     """SQL access to one jobs table, given as ``schema.name``."""
 
-    def __init__(
-        self, table: str = DEFAULT_TABLE, conn_params: dict[str, Any] | None = None
-    ) -> None:
+    def __init__(self, table: str, conn_params: dict[str, Any] | None = None) -> None:
         self.table = table
         self._conn_params = conn_params
         self._ident = table_identifier(table)

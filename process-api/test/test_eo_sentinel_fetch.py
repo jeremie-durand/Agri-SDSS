@@ -9,6 +9,7 @@ import multiprocessing
 import os
 import signal
 import time
+from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -74,7 +75,7 @@ def _write_sentinel_test_raster(path: str) -> None:
 # Fixtures
 # ------------------------------------------
 @pytest.fixture(autouse=True)
-def block_live_stac_writes():
+def block_live_stac_writes(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Keep the unit tests from writing into a live STAC API.
 
     Publishing runs over the network, so any test that reaches
@@ -82,7 +83,10 @@ def block_live_stac_writes():
     catalog ``STAC_API_URL`` points at — the real one under ``make test-all``.
     Only the writes are intercepted, and a test that needs a specific response
     installs its own ``requests`` patch, which takes precedence over this one.
+    STAC_PUBLISH_ENABLED is unset, so the publish-path tests see the default
+    (on) whatever the container's .env says.
     """
+    monkeypatch.delenv("STAC_PUBLISH_ENABLED", raising=False)
     with (
         patch("requests.post", return_value=MagicMock(status_code=201, text="")),
         patch("requests.put", return_value=MagicMock(status_code=200, text="")),
@@ -3551,3 +3555,33 @@ def test_execute_republishes_when_marker_is_from_an_older_stac_version(
 
     mock_post.assert_called_once()
     assert mock_post.call_args[0][0]["stac_version"] == "1.1.0"
+
+
+@pytest.mark.mocked
+def test_publishing_disabled_skips_the_stac_api(
+    processor_instance: SentinelFetchProcessor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("STAC_PUBLISH_ENABLED", "false")
+
+    with (
+        patch("requests.get") as mock_get,
+        patch("requests.post") as mock_post,
+        patch("requests.put") as mock_put,
+    ):
+        published = processor_instance._post_to_stac_api({"id": "sentinel2_1"})
+
+    assert published is False
+    mock_get.assert_not_called()
+    mock_post.assert_not_called()
+    mock_put.assert_not_called()
+
+
+@pytest.mark.unit
+def test_output_dir_comes_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SENTINEL_OUTPUT_DIR", "/tmp/cog")
+
+    processor = SentinelFetchProcessor({"name": "sentinel-fetch"})
+
+    assert processor.output_dir == "/tmp/cog"

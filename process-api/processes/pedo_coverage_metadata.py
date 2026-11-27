@@ -40,7 +40,13 @@ PROCESS_METADATA = {
                 "https://irda.qc.ca/fr/outils/donnees-pedologiques-sols/"
                 "cartes-pedologiques-quebec-irda/"
             ),
-        }
+        },
+        {
+            "type": "text/html",
+            "rel": "license",
+            "title": "CC BY-NC 4.0 (IRDA, non-commercial use only)",
+            "href": "https://creativecommons.org/licenses/by-nc/4.0/",
+        },
     ],
     "inputs": {
         **LOCATION_INPUTS,

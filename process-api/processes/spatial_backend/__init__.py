@@ -11,6 +11,7 @@ from .models import (
 )
 from .pedo import pedo_coverage
 from .som_fields import match as match_som_fields
+from .som_fields import som_table_and_id_column
 from .water import nearest_water_distance
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "pedo_coverage",
     "parse_inputs",
     "prepare_geometry",
+    "som_table_and_id_column",
 ]

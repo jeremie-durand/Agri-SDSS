@@ -886,7 +886,7 @@ class LidarFetchProcessor(BaseProcessor):
                     "from the Quebec MRNF open data portal, clipped to individual "
                     "farm extents."
                 ),
-                "license": "OGL-Canada-2.0",
+                "license": "CC-BY-4.0",
                 "extent": {
                     "spatial": {"bbox": [self.STAC_SPATIAL_EXTENT_BBOX]},
                     "temporal": {"interval": [[self.STAC_TEMPORAL_START, None]]},
@@ -919,7 +919,13 @@ class LidarFetchProcessor(BaseProcessor):
             )
 
     def _post_to_stac_api(self, stac_item: Dict[str, Any]) -> bool:
-        """Post a STAC item to the STAC API, updating if it already exists."""
+        """Post a STAC item to the STAC API, updating if it already exists.
+
+        Returns False without any request when STAC_PUBLISH_ENABLED is false.
+        """
+        if not ApiConfig().STAC_PUBLISH_ENABLED:
+            logger.info("STAC publishing disabled; item %s not posted", stac_item["id"])
+            return False
         self._ensure_collection_exists()
 
         stac_api_url: str = ApiConfig().STAC_API_URL
