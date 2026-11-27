@@ -22,6 +22,8 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict, TypeVar
 
 import anyio
 import duckdb
+from pydantic import ValidationError
+from tipg.settings import DatabaseSettings
 
 from .materialize import MATERIALIZED_TABLE_NAME
 
@@ -83,6 +85,33 @@ def _positive_int_setting(name: str, value: int | None, default: int) -> int:
     if resolved < 1:
         raise error
     return resolved
+
+
+def excluded_parquet_collections() -> frozenset[str]:
+    """Return the Parquet collection ids hidden along with TiPg's excluded tables.
+
+    Each ``schema.table`` of TIPG_DB_EXCLUDE_TABLES hides the PostGIS table
+    from TiPg and the Parquet collection ``table`` from the /parquet routes, so
+    a private table is served by neither backend, whatever gis-pipeline writes
+    to DUCKDB_DATA_DIR. The value is parsed by TiPg's own settings class.
+
+    Raises:
+        DuckDBConfigError: If a TIPG_DB_* setting is invalid, or if an entry of
+            TIPG_DB_EXCLUDE_TABLES has no schema: TiPg would then keep serving
+            the table that the Parquet backend hides.
+    """
+    try:
+        tables = DatabaseSettings().exclude_tables or []
+    except ValidationError as error:
+        raise DuckDBConfigError(
+            f"Invalid TiPg database settings (TIPG_DB_*): {error}"
+        ) from None
+    bare_names = [table for table in tables if "." not in table]
+    if bare_names:
+        raise DuckDBConfigError(
+            f"TIPG_DB_EXCLUDE_TABLES entries must be schema.table names, got {bare_names}"
+        )
+    return frozenset(table.rsplit(".", 1)[-1] for table in tables)
 
 
 def open_materialized(db_path: Path, memory_limit: str) -> duckdb.DuckDBPyConnection:
@@ -205,6 +234,7 @@ class DuckDBManager:
         max_queries: int | None = None,
         raw_parquet_warn_mb: int | None = None,
         max_page_vertices: int | None = None,
+        excluded_collections: frozenset[str] | None = None,
     ) -> None:
         """Initialize the DuckDBManager with an in-memory connection.
 
@@ -227,11 +257,13 @@ class DuckDBManager:
             max_page_vertices: Most geometry vertices one items page or item
                 may hold. Defaults to VECTOR_API_MAX_PAGE_VERTICES, then
                 DEFAULT_MAX_PAGE_VERTICES.
+            excluded_collections: Collection ids never listed nor served.
+                Defaults to excluded_parquet_collections().
 
         Raises:
             DuckDBConfigError: If max_open, max_queries, raw_parquet_warn_mb
                 or max_page_vertices (or their env var) is not a positive
-                integer.
+                integer, or if TIPG_DB_EXCLUDE_TABLES is invalid.
         """
         self.data_dir = Path(data_dir or os.getenv("DUCKDB_DATA_DIR", "/data/duckdb"))
         self.memory_limit: str = (
@@ -252,6 +284,11 @@ class DuckDBManager:
             "VECTOR_API_MAX_PAGE_VERTICES",
             max_page_vertices,
             DEFAULT_MAX_PAGE_VERTICES,
+        )
+        self.excluded_collections: frozenset[str] = (
+            excluded_collections
+            if excluded_collections is not None
+            else excluded_parquet_collections()
         )
         self.conn = duckdb.connect(
             database=":memory:", config={"memory_limit": self.memory_limit}
@@ -458,7 +495,7 @@ class DuckDBManager:
         return geometry
 
     def list_parquet_files(self) -> List[Dict[str, Any]]:
-        """List all Parquet files in the data directory.
+        """List the Parquet files in the data directory, minus excluded collections.
 
         Returns:
             List of dictionaries containing collection info:
@@ -473,6 +510,8 @@ class DuckDBManager:
 
         for parquet_file in sorted(self.data_dir.glob("*.parquet")):
             collection_id = parquet_file.stem
+            if collection_id in self.excluded_collections:
+                continue
             collections.append(
                 {
                     "id": collection_id,
@@ -491,7 +530,7 @@ class DuckDBManager:
             collection_id: The collection identifier (filename without extension).
 
         Returns:
-            Path to the Parquet file, or None if not found.
+            Path to the Parquet file, or None if not found or excluded.
 
         Raises:
             ValueError: If collection_id contains invalid characters.
@@ -503,6 +542,9 @@ class DuckDBManager:
                 "Invalid collection ID. Only alphanumeric characters, "
                 "underscores, and hyphens are allowed."
             )
+
+        if collection_id in self.excluded_collections:
+            return None
 
         parquet_path = self.data_dir / f"{collection_id}.parquet"
 

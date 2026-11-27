@@ -282,6 +282,7 @@ docker build --target runtime -f gis-pipeline/Dockerfile.gis-pipeline .
 - [ ] Ports 8081–8085, 5000, 8005, 3001 **not** open on the server firewall — only 80 and 443
 - [ ] Database port `5439` bound to `127.0.0.1` only (already the case in `docker-compose.yml`)
 - [ ] `https://<host>/process-api/jobs` answers `404` and `DELETE https://<host>/process-api/jobs/<id>` answers `405`. home nginx enforces both: a job id is the only key to a job's inputs and results, so jobs are never listed or dismissed publicly.
+- [ ] `https://<host>/vector-api/postgis/collections/public.som_soil_samples/items` and `https://<host>/vector-api/parquet/collections/som_soil_samples` answer `404`, and likewise for `som_soil_analysis` and `som_field_boundaries`. `TIPG_DB_EXCLUDE_TABLES` (default in `docker-compose.yml`) hides these private tables from both vector-api backends; a value set in `.env` must still list them. See the [vector-api configuration](../vector-api/README.md#configuration).
 - [ ] Every SOM model bundle in `$DUCKDB_DATA_DIR/som_models/` was trained by this deployment, or copied from a trusted source with its SHA-256 checked: a bundle is a pickle, and loading it runs any code it contains. See [How predictions are produced](../process-api/docs/SOM_PREDICT_SOIL_SPECS.md#how-predictions-are-produced).
 
 ---
@@ -865,7 +866,7 @@ make smoke-browser-pages
 # (<file>: a COG listed by /raster-api/collections)
 docker run --rm --network eoapi-network curlimages/curl:latest -s -o /dev/null \
   -w '%{http_code} %{size_download}\n' \
-  'http://home:8080/vector-api/postgis/collections/public.som_field_boundaries/tiles/WebMercatorQuad/0/0/0'
+  'http://home:8080/vector-api/postgis/collections/public.couverture_pedologique_2026_01_couverture_p_cbc3c8/tiles/WebMercatorQuad/0/0/0'
 docker run --rm --network eoapi-network curlimages/curl:latest -s -o /dev/null \
   -w '%{http_code} %{size_download}\n' \
   'http://home:8080/raster-api/cog/tiles/WebMercatorQuad/0/0/0.png?url=/data/<file>.tif'

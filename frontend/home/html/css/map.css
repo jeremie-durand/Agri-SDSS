@@ -647,35 +647,6 @@ main {
 .som-tab:hover:not(.som-tab--active) { color: #e2e8f0; }
 
 /* ── SOM Predict panel ───────────────────────────────────────────────────── */
-/* ── SOM boundary layer toggle & legend ─────────────────────────────────── */
-.som-layer-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.82rem;
-  color: var(--text);
-  cursor: pointer;
-  padding: 0.3rem 0;
-}
-.som-layer-legend {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.75rem;
-  color: var(--text-muted, #9bb6d2);
-  padding: 0.25rem 0;
-  flex-wrap: wrap;
-}
-.som-legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-}
-.som-legend-dot--gee    { background: #34d399; }
-.som-legend-dot--no-gee { background: #64748b; }
-
 .som-predict-field-info {
   font-size: 0.875rem;
   color: #e2e8f0;

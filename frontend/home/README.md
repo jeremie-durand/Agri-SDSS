@@ -155,7 +155,7 @@ The main page. Modules loaded via ES imports from `html/js/`:
 | `app.js` | Entry point — wires map events, basemap switcher, nav buttons |
 | `state.js` | Shared Leaflet map instance and layer registry |
 | `vector.js` | BDPPAD parcel years from PostGIS `public.bdppad*` collections, drawn as MVT tiles; the exact clicked-parcel geometry comes from `/vector-api/parquet/collections/<id>/items` |
-| `som.js` + `som_layers.js` | SOM analysis panel and boundary layers |
+| `som.js` | SOM analysis panel |
 | `aac.js` | Agriculture Canada crop layer (proxied via `/aac-identify/`) |
 | `grhq.js` | GRHQ hydrological network layer |
 | `data-catalog.js` | `/data` page: renders `catalog.json` (curated metadata) joined with live API collection lists |

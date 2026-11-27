@@ -335,8 +335,8 @@
       "icon": "MOS",
       "org": { "fr": "Agri-SDSS — Modèle de prédiction du MOS", "en": "Agri-SDSS — SOM prediction model" },
       "description": {
-        "fr": "Champs, échantillons et prédictions du modèle de prédiction de la matière organique du sol (MOS), développé à partir des covariables spectrales (Sentinel-2), pédologiques (IRDA) et climatiques du pipeline Agri-SDSS. Regroupe les données d'entraînement, les statistiques cibles et les sorties du modèle Random Forest.",
-        "en": "Field boundaries, soil samples, and predictions from the Agri-SDSS soil organic matter (SOM) prediction model, built from spectral (Sentinel-2), pedological (IRDA), and climate covariates. Includes training data, target statistics, and Random Forest model outputs."
+        "fr": "Covariables et prédictions du modèle de prédiction de la matière organique du sol (MOS), développé à partir des covariables spectrales (Sentinel-2), pédologiques (IRDA) et climatiques du pipeline Agri-SDSS. Regroupe les données d'entraînement, les statistiques cibles et les sorties du modèle Random Forest.",
+        "en": "Covariates and predictions from the Agri-SDSS soil organic matter (SOM) prediction model, built from spectral (Sentinel-2), pedological (IRDA), and climate covariates. Includes training data, target statistics, and Random Forest model outputs."
       },
       "datasets": [
         {
@@ -345,33 +345,6 @@
           "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
           "match": [
             { "api": "parquet", "idPattern": "^BareSoil_TOPCLI_\\d{4}_Part\\d{2}$" }
-          ]
-        },
-        {
-          "name": { "fr": "Limites des champs", "en": "Field boundaries" },
-          "years": { "fr": "Non daté", "en": "Undated" },
-          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
-          "match": [
-            { "api": "parquet", "idPattern": "^som_field_boundaries$" },
-            { "api": "postgis", "idPattern": "^public\\.som_field_boundaries$" }
-          ]
-        },
-        {
-          "name": { "fr": "Échantillons de sol", "en": "Soil samples" },
-          "years": { "fr": "Non daté", "en": "Undated" },
-          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
-          "match": [
-            { "api": "parquet", "idPattern": "^som_soil_samples$" },
-            { "api": "postgis", "idPattern": "^public\\.som_soil_samples$" }
-          ]
-        },
-        {
-          "name": { "fr": "Analyses de sol", "en": "Soil analysis" },
-          "years": { "fr": "Non daté", "en": "Undated" },
-          "formats": [ { "label": "GeoParquet", "tag": "parquet" } ],
-          "match": [
-            { "api": "parquet", "idPattern": "^som_soil_analysis$" },
-            { "api": "postgis", "idPattern": "^public\\.som_soil_analysis$" }
           ]
         },
         {

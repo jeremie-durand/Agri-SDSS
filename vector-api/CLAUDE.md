@@ -103,6 +103,14 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
   Without it TiPg lists every geometry-returning function in `public`,
   PostGIS's own included, and their items pages answer 422 (#277). To publish
   a project function, list it by `schema.name`; do not remove the setting.
+- `TIPG_DB_EXCLUDE_TABLES` (compose default: `som_field_boundaries`,
+  `som_soil_samples`, `som_soil_analysis` in `public`) keeps private
+  tables out of `/postgis`; the Parquet backend hides the same names. They
+  hold producers' personal data and private soil samples. process-api
+  reads `som_field_boundaries` straight from PostGIS, so hiding it breaks
+  no process, and the home map no longer draws it: its vector tiles
+  carried every column. Do not remove an entry without the data owner's
+  agreement.
 - CORS belongs to the parent app alone (`VECTOR_API_CORS_ORIGINS`). `app.py`
   removes TiPg's own `CORSMiddleware`, which would otherwise reflect any
   origin on `/postgis/*` with `allow-credentials: true`. Home nginx adds no
@@ -112,6 +120,14 @@ The image is `ghcr.io/developmentseed/tipg`, currently Python 3.14. Inside
 
 - Collections are discovered on every request: each `*.parquet` in
   `DUCKDB_DATA_DIR` is a collection whose id is the file stem.
+- `TIPG_DB_EXCLUDE_TABLES` hides private tables from both backends (see
+  the TiPg settings above). `excluded_parquet_collections()` reads it
+  through TiPg's own `DatabaseSettings`, so both parse it alike, and keeps
+  the table part of each `schema.table`. `list_parquet_files()` skips
+  those ids and `get_parquet_path()` returns `None` for them, so every
+  route answers 404 as for a missing collection and the warm-up never
+  reads them. gis-pipeline still writes their Parquet files; never serve
+  `DUCKDB_DATA_DIR` another way.
 - `get_parquet_path()` is the only way to turn an id into a path. It enforces
   `COLLECTION_ID_PATTERN` and a resolve-inside-`data_dir` check against path
   traversal.
